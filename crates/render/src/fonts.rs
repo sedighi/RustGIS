@@ -57,15 +57,16 @@ pub fn ui_fonts() -> &'static UiFonts {
     })
 }
 
-/// Regional CJK glyph styles (the same code point is drawn differently by region).
+/// Regional CJK or extra script glyph styles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CjkRegion {
     SimplifiedChinese,
     Japanese,
     Korean,
+    Persian,
 }
 
-/// Installed CJK font candidates: (path, face index in a collection).
+/// Installed CJK or extra script font candidates: (path, face index in a collection).
 fn cjk_candidates(region: CjkRegion) -> &'static [(&'static str, u32)] {
     // Noto Sans CJK collections order their faces JP, KR, SC, TC, HK.
     match region {
@@ -96,17 +97,35 @@ fn cjk_candidates(region: CjkRegion) -> &'static [(&'static str, u32)] {
             ("/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc", 1),
             ("/usr/share/fonts/noto-cjk/NotoSansKR-Regular.otf", 0),
         ],
+        CjkRegion::Persian => &[
+            ("fonts/Vazirmatn-Regular.ttf", 0),
+            ("apps/rustgis-web/fonts/Vazirmatn-Regular.ttf", 0),
+            ("C:\\Windows\\Fonts\\Vazirmatn-Regular.ttf", 0),
+            ("C:\\Windows\\Fonts\\tahoma.ttf", 0),
+            ("C:\\Windows\\Fonts\\arial.ttf", 0),
+            ("C:\\Windows\\Fonts\\seguisym.ttf", 0),
+            ("/usr/share/fonts/vazirmatn/Vazirmatn-Regular.ttf", 0),
+            ("/usr/share/fonts/truetype/vazirmatn/Vazirmatn-Regular.ttf", 0),
+            ("/usr/share/fonts/noto/NotoSansArabic-Regular.ttf", 0),
+            ("/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf", 0),
+            ("/usr/share/fonts/google-noto/NotoSansArabic-Regular.ttf", 0),
+            ("/usr/share/fonts/TTF/DejaVuSans.ttf", 0),
+            ("/System/Library/Fonts/GeezaPro.ttc", 0),
+            ("/System/Library/Fonts/Supplemental/Arial.ttf", 0),
+            ("/Library/Fonts/Vazirmatn-Regular.ttf", 0),
+        ],
     }
 }
 
-/// An installed CJK font for `region` (bytes and face index), found once. `None` on the web or
-/// when nothing suitable is installed.
+/// An installed CJK or script font for `region` (bytes and face index), found once. `None` on the
+/// web or when nothing suitable is installed.
 pub fn cjk_font(region: CjkRegion) -> Option<&'static (Vec<u8>, u32)> {
-    static FOUND: [OnceLock<Option<(Vec<u8>, u32)>>; 3] = [OnceLock::new(), OnceLock::new(), OnceLock::new()];
+    static FOUND: [OnceLock<Option<(Vec<u8>, u32)>>; 4] = [OnceLock::new(), OnceLock::new(), OnceLock::new(), OnceLock::new()];
     let slot = match region {
         CjkRegion::SimplifiedChinese => &FOUND[0],
         CjkRegion::Japanese => &FOUND[1],
         CjkRegion::Korean => &FOUND[2],
+        CjkRegion::Persian => &FOUND[3],
     };
     slot.get_or_init(|| {
         cjk_candidates(region).iter().find_map(|(path, index)| {
@@ -127,11 +146,12 @@ pub fn valid_font(bytes: &[u8], index: u32) -> bool {
     ab_glyph::FontRef::try_from_slice_and_index(bytes, index).is_ok()
 }
 
-/// Where the web app downloads a CJK face from (Noto Sans, SIL Open Font License).
+/// Where the web app downloads a script face from (Noto Sans / Vazirmatn, SIL Open Font License).
 pub fn cjk_font_url(region: CjkRegion) -> &'static str {
     match region {
         CjkRegion::SimplifiedChinese => "https://assets.rustgis.app/fonts/NotoSansSC-Regular.otf",
         CjkRegion::Japanese => "https://assets.rustgis.app/fonts/NotoSansJP-Regular.otf",
         CjkRegion::Korean => "https://assets.rustgis.app/fonts/NotoSansKR-Regular.otf",
+        CjkRegion::Persian => "fonts/Vazirmatn-Regular.ttf",
     }
 }

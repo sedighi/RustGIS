@@ -22,7 +22,7 @@ Tools for working across maps and views, and for setting up the app the way you 
 - **Plugins**: **Plugins › Plugin Manager** installs, updates and removes [plugins](../plugins.md)
   from the registry at [plugins.rustgis.app](https://plugins.rustgis.app) or from a file.
 - **Language**: **Settings › Language** switches the interface among
-  [15 languages](../i18n.md) and chooses the [worldview](maps.md#worldview) of the built-in
+  [16 languages](../i18n.md) and chooses the [worldview](maps.md#worldview) of the built-in
   borders.
 - **Start-up**: **Settings › Start-up** sets what RustGIS opens with: **Start With** the World
   Atlas sample or a blank map, the **Projection** the map opens in (a preset or any projected

@@ -13,7 +13,7 @@
 <p align="center">
   <img alt="Written in Rust" src="https://img.shields.io/badge/written%20in-Rust-b84a2c?style=flat-square&logo=rust&logoColor=white">
   <img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-2563eb?style=flat-square">
-  <img alt="15 languages" src="https://img.shields.io/badge/languages-15-0e9384?style=flat-square">
+  <img alt="16 languages" src="https://img.shields.io/badge/languages-16-0e9384?style=flat-square">
   <a href="https://plugins.rustgis.app"><img alt="Plugins" src="https://img.shields.io/badge/plugins-registry-7c3aed?style=flat-square"></a>
 </p>
 
@@ -87,7 +87,7 @@ Every screenshot is RustGIS itself, rendered offscreen by `cargo run -p rustgis-
 | **Sharing** | PNG export at any DPI; PDF; web map pages, OGC API Features collections, MapLibre styles, glTF scenes, locators; project, map and mobile map packages; offline areas with sync |
 | **AI Assistant** | Ask about your data or tell the map what to do in plain language, with Anthropic, OpenAI, Gemini, OpenRouter, Ollama or any OpenAI-compatible model; also `rustgis-cli ask`, and an [MCP server](docs/mcp.md) (`rustgis-cli mcp`) for Claude Code, Cursor, VS Code and other agents |
 | **Plugins** | Sandboxed WebAssembly [plugins](docs/plugins.md) add commands, tools and ribbon tabs; install them from [plugins.rustgis.app](https://plugins.rustgis.app) on the desktop, command line and web |
-| **Interface** | Command search (Ctrl+K), keyboard shortcuts, dark mode, a customizable ribbon and Quick Access Toolbar, linked side-by-side maps, 15 languages |
+| **Interface** | Command search (Ctrl+K), keyboard shortcuts, dark mode, a customizable ribbon and Quick Access Toolbar, linked side-by-side maps, 16 languages |
 
 The [user guide](https://rustgis.app/user-guide/) covers each area in detail,
 [Comparison](https://rustgis.app/comparison/) sets RustGIS beside GeoLibre, QGIS and ArcGIS, and

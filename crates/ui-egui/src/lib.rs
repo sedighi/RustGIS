@@ -411,14 +411,20 @@ impl RustGisApp {
     /// borrowed from the font cache, not copied.
     fn add_cjk_fallback(&mut self) {
         use rustgis_engine::render::fonts::{CjkRegion, cjk_font};
-        if self.extra_fonts.iter().any(|(n, _, _)| n == "cjk-fallback") {
-            return;
+        if !self.extra_fonts.iter().any(|(n, _, _)| n == "cjk-fallback") {
+            let found = [CjkRegion::SimplifiedChinese, CjkRegion::Japanese, CjkRegion::Korean].into_iter().find_map(cjk_font);
+            if let Some((bytes, index)) = found {
+                let mut face = egui::FontData::from_static(bytes);
+                face.index = *index;
+                self.extra_fonts.push(("cjk-fallback".into(), std::sync::Arc::new(face), None));
+            }
         }
-        let found = [CjkRegion::SimplifiedChinese, CjkRegion::Japanese, CjkRegion::Korean].into_iter().find_map(cjk_font);
-        if let Some((bytes, index)) = found {
+        if !self.extra_fonts.iter().any(|(n, _, _)| n == "persian-fallback")
+            && let Some((bytes, index)) = cjk_font(CjkRegion::Persian)
+        {
             let mut face = egui::FontData::from_static(bytes);
             face.index = *index;
-            self.extra_fonts.push(("cjk-fallback".into(), std::sync::Arc::new(face), None));
+            self.extra_fonts.push(("persian-fallback".into(), std::sync::Arc::new(face), None));
         }
     }
 
@@ -434,6 +440,7 @@ impl RustGisApp {
             i18n::Script::Cjk(i18n::CjkFont::SimplifiedChinese) => Some(CjkRegion::SimplifiedChinese),
             i18n::Script::Cjk(i18n::CjkFont::Japanese) => Some(CjkRegion::Japanese),
             i18n::Script::Cjk(i18n::CjkFont::Korean) => Some(CjkRegion::Korean),
+            i18n::Script::Persian => Some(CjkRegion::Persian),
             i18n::Script::Alphabetic => None,
         }
     }
@@ -1478,8 +1485,9 @@ impl RustGisApp {
         };
         for (url, bytes) in fonts {
             use rustgis_engine::render::fonts::{CjkRegion, cjk_font_url, valid_font};
-            let region =
-                [CjkRegion::SimplifiedChinese, CjkRegion::Japanese, CjkRegion::Korean].into_iter().find(|r| cjk_font_url(*r) == url);
+            let region = [CjkRegion::SimplifiedChinese, CjkRegion::Japanese, CjkRegion::Korean, CjkRegion::Persian]
+                .into_iter()
+                .find(|r| cjk_font_url(*r) == url);
             if bytes.is_empty() || !valid_font(&bytes, 0) {
                 // A failed download: say so; picking the language again retries.
                 log::error!("{url}: no usable font downloaded");

@@ -254,17 +254,21 @@ fn services(inbox: Inbox, font_inbox: Inbox, ctx: egui::Context) -> Services {
             }
         })),
         fetch_font: Some(Box::new(move |url: &str| {
-            let (url, inbox, ctx) = (url.to_string(), font_sink.clone(), font_ctx.clone());
+            let (req_url, inbox, ctx) = (url.to_string(), font_sink.clone(), font_ctx.clone());
             wasm_bindgen_futures::spawn_local(async move {
-                match fetch_bytes(&url).await {
+                let mut res = fetch_bytes(&req_url).await;
+                if res.is_err() && req_url.contains("Vazirmatn") {
+                    res = fetch_bytes("https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts/ttf/Vazirmatn-Regular.ttf").await;
+                }
+                match res {
                     Ok(bytes) => {
-                        inbox.lock().unwrap_or_else(|e| e.into_inner()).push((url, bytes));
+                        inbox.lock().unwrap_or_else(|e| e.into_inner()).push((req_url, bytes));
                         ctx.request_repaint();
                     }
                     Err(e) => {
-                        log::error!("couldn't load font {url}: {e}");
+                        log::error!("couldn't load font {req_url}: {e}");
                         // Empty bytes tell the app the download failed.
-                        inbox.lock().unwrap_or_else(|e| e.into_inner()).push((url, Vec::new()));
+                        inbox.lock().unwrap_or_else(|e| e.into_inner()).push((req_url, Vec::new()));
                         ctx.request_repaint();
                     }
                 }

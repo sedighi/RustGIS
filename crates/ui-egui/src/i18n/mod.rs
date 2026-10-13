@@ -8,7 +8,7 @@
 //! Settings › Language picks one by hand.
 //!
 //! The language set follows GeoLibre's, minus scripts egui can't yet shape or lay out
-//! (Arabic, Persian, Hebrew, Hindi, Thai, Georgian).
+//! (Arabic, Hebrew, Hindi, Thai, Georgian).
 //!
 //! # Catalog format
 //! UTF-8, one `English<TAB>Translation` pair per line; `#` starts a comment line; `\n` and `\t`
@@ -30,6 +30,7 @@ pub enum Script {
     /// Latin, Cyrillic or Greek: covered by the interface font.
     Alphabetic,
     Cjk(CjkFont),
+    Persian,
 }
 
 /// Which CJK face reads best for a language (the glyph shapes differ by region).
@@ -59,7 +60,7 @@ macro_rules! lang {
 }
 
 /// The registry. English first: it is the source language and the fallback.
-pub static LANGUAGES: [LangInfo; 15] = [
+pub static LANGUAGES: [LangInfo; 16] = [
     LangInfo { code: "en", name: "English", english: "English", script: Script::Alphabetic, source: "", catalog: OnceLock::new() },
     lang!("de", "Deutsch", "German", Script::Alphabetic, "de.tsv"),
     lang!("es", "Español", "Spanish", Script::Alphabetic, "es.tsv"),
@@ -72,6 +73,7 @@ pub static LANGUAGES: [LangInfo; 15] = [
     lang!("az", "Azərbaycanca", "Azerbaijani", Script::Alphabetic, "az.tsv"),
     lang!("id", "Bahasa Indonesia", "Indonesian", Script::Alphabetic, "id.tsv"),
     lang!("vi", "Tiếng Việt", "Vietnamese", Script::Alphabetic, "vi.tsv"),
+    lang!("fa", "فارسی", "Persian", Script::Persian, "fa.tsv"),
     lang!("zh", "简体中文", "Chinese (Simplified)", Script::Cjk(CjkFont::SimplifiedChinese), "zh.tsv"),
     lang!("ja", "日本語", "Japanese", Script::Cjk(CjkFont::Japanese), "ja.tsv"),
     lang!("ko", "한국어", "Korean", Script::Cjk(CjkFont::Korean), "ko.tsv"),

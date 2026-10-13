@@ -30,6 +30,7 @@ fn lookup_fallback_and_tags() {
     assert_eq!(tr(Lang::EN, "no such string"), "no such string");
     assert_eq!(lang_from_tag("de_DE.UTF-8").map(Lang::code), Some("de"));
     assert_eq!(lang_from_tag("pt-BR").map(Lang::code), Some("pt"));
+    assert_eq!(lang_from_tag("fa_IR.UTF-8").map(Lang::code), Some("fa"));
     assert_eq!(lang_from_tag("zh-Hans-CN").map(Lang::code), Some("zh"));
     assert_eq!(lang_from_tag("zh_CN.UTF-8").map(Lang::code), Some("zh"));
     assert_eq!(lang_from_tag("zh-TW"), None);
