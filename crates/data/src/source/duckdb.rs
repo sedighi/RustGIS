@@ -192,16 +192,83 @@ pub struct Output {
 pub struct Table {
     pub schema: String,
     pub name: String,
+    pub geom_col: Option<String>,
+    pub geom_type: Option<String>,
 }
 
 impl Table {
+    pub fn new(schema: impl Into<String>, name: impl Into<String>) -> Self {
+        Self { schema: schema.into(), name: name.into(), geom_col: None, geom_type: None }
+    }
+
     /// Its name, with its schema unless that is `main`.
     pub fn label(&self) -> String {
         if self.schema == "main" { self.name.clone() } else { format!("{}.{}", self.schema, self.name) }
     }
 
-    fn sql(&self) -> String {
-        format!("FROM {}.{}", ident(&self.schema), ident(&self.name))
+    /// Whether this table uses Esri SDE geometry (e.g. sde.st_geometry).
+    pub fn is_sde(&self) -> bool {
+        self.geom_type
+            .as_deref()
+            .map(|t| {
+                let lower = t.to_ascii_lowercase();
+                lower.contains("sde") || lower.contains("st_geometry")
+            })
+            .unwrap_or(false)
+            || self.schema.eq_ignore_ascii_case("sde")
+    }
+
+    pub fn sql(&self) -> String {
+        if self.is_sde() {
+            let col = self.geom_col.as_deref().unwrap_or("shape");
+            let pg_sql = if col.eq_ignore_ascii_case("geometry") {
+                format!("SELECT *, sde.st_astext({}) AS __rgis_wkt FROM {}.{}", ident(col), ident(&self.schema), ident(&self.name))
+            } else {
+                format!("SELECT *, sde.st_astext({}) AS geometry FROM {}.{}", ident(col), ident(&self.schema), ident(&self.name))
+            };
+            if col.eq_ignore_ascii_case("geometry") {
+                format!(
+                    "FROM (SELECT * EXCLUDE (geometry, __rgis_wkt), ST_GeomFromText(__rgis_wkt) AS geometry FROM postgres_query('src', {}))",
+                    literal(&pg_sql)
+                )
+            } else {
+                format!(
+                    "FROM (SELECT * EXCLUDE (geometry), ST_GeomFromText(geometry) AS geometry FROM postgres_query('src', {}))",
+                    literal(&pg_sql)
+                )
+            }
+        } else {
+            format!("FROM {}.{}", ident(&self.schema), ident(&self.name))
+        }
+    }
+}
+
+/// Wraps a query containing Esri `sde.st_astext` or `sde.st_asbinary` to run through DuckDB's
+/// `postgres_query` and convert the result into a native DuckDB `geometry` column.
+pub fn wrap_sde_query_if_needed(sql: &str) -> String {
+    let lower = sql.to_ascii_lowercase();
+    if (lower.contains("sde.st_astext") || lower.contains("sde.st_asbinary")) && !lower.contains("postgres_query") {
+        let is_binary = lower.contains("sde.st_asbinary");
+        let geom_col = if lower.contains(" as geom,") || lower.ends_with(" as geom") {
+            "geom"
+        } else if lower.contains(" as shape,") || lower.ends_with(" as shape") {
+            "shape"
+        } else {
+            "geometry"
+        };
+        if is_binary {
+            format!(
+                "SELECT * EXCLUDE ({geom_col}), ST_GeomFromWKB({geom_col}) AS geometry FROM postgres_query('src', {})",
+                literal(sql)
+            )
+        } else {
+            format!(
+                "SELECT * EXCLUDE ({geom_col}), ST_GeomFromText({geom_col}) AS geometry FROM postgres_query('src', {})",
+                literal(sql)
+            )
+        }
+    } else {
+        sql.to_string()
     }
 }
 
@@ -509,7 +576,7 @@ pub fn schema_of(database: &Database) -> Result<Vec<(String, String)>> {
         .into_iter()
         .flatten()
         .filter_map(|r| {
-            let t = Table { schema: r.get("schema_name")?.as_str()?.to_string(), name: r.get("table_name")?.as_str()?.to_string() };
+            let t = Table::new(r.get("schema_name")?.as_str()?, r.get("table_name")?.as_str()?);
             Some((t.label(), r.get("column_name")?.as_str()?.to_string()))
         })
         .collect())
@@ -629,18 +696,233 @@ fn tables_in(dir: &Path, database: &Database) -> Result<Vec<Table>> {
         return Err(missing());
     }
     std::fs::create_dir_all(dir)?;
-    let select = format!(
-        "SELECT DISTINCT schema_name, table_name FROM duckdb_columns() WHERE database_name = 'src' AND starts_with(data_type, 'GEOMETRY') ORDER BY ALL LIMIT {LIST_LIMIT}"
+    match database {
+        Database::File(_) => {
+            let select = format!(
+                "SELECT DISTINCT schema_name, table_name FROM duckdb_columns() WHERE database_name = 'src' AND starts_with(data_type, 'GEOMETRY') ORDER BY ALL LIMIT {LIST_LIMIT}"
+            );
+            let rows = fetch(dir, &prelude(dir, Some(database), true)?, Some(database), &select, LIST_TIMEOUT)?;
+            Ok(rows
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|r| {
+                    Some(Table {
+                        schema: r.get("schema_name")?.as_str()?.to_string(),
+                        name: r.get("table_name")?.as_str()?.to_string(),
+                        geom_col: None,
+                        geom_type: Some("GEOMETRY".into()),
+                    })
+                })
+                .collect())
+        }
+        Database::Postgres(_) => postgres_tables_in(dir, database),
+    }
+}
+
+/// Introspects tables of a PostgreSQL database with a geometry column (PostGIS or Esri SDE).
+fn postgres_tables_in(dir: &Path, database: &Database) -> Result<Vec<Table>> {
+    let prelude = prelude(dir, Some(database), false)?;
+
+    // Check if SDE catalog tables exist in PostgreSQL without failing
+    let check_sde_sql = "SELECT \
+        EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'sde' AND c.relname = 'sde_geometry_columns') AS sde_geom, \
+        EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'sde' AND c.relname = 'sde_layers') AS sde_layers";
+
+    let sde_check_query = format!("SELECT sde_geom, sde_layers FROM postgres_query('src', {})", literal(check_sde_sql));
+
+    let (has_sde_geom, has_sde_layers) = match fetch(dir, &prelude, Some(database), &sde_check_query, LIST_TIMEOUT) {
+        Ok(v) => {
+            let row = v.as_array().and_then(|a| a.first());
+            let g = row.and_then(|r| r.get("sde_geom")).and_then(|b| b.as_bool()).unwrap_or(false);
+            let l = row.and_then(|r| r.get("sde_layers")).and_then(|b| b.as_bool()).unwrap_or(false);
+            (g, l)
+        }
+        Err(_) => (false, false),
+    };
+
+    let mut pg_scan_parts = Vec::new();
+
+    // 1. Core catalog scan: pg_attribute & pg_type across all non-system schemas
+    pg_scan_parts.push(
+        "SELECT DISTINCT \
+            n.nspname::text AS table_schema, \
+            c.relname::text AS table_name, \
+            a.attname::text AS column_name, \
+            t.typname::text AS data_type, \
+            tn.nspname::text AS type_schema \
+        FROM pg_catalog.pg_class c \
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace \
+        JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid \
+        JOIN pg_catalog.pg_type t ON t.oid = a.atttypid \
+        JOIN pg_catalog.pg_namespace tn ON tn.oid = t.typnamespace \
+        WHERE c.relkind IN ('r', 'v', 'm', 'p', 'f') \
+          AND a.attnum > 0 \
+          AND NOT a.attisdropped \
+          AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast') \
+          AND ( \
+              t.typname IN ('geometry', 'geography', 'st_geometry') \
+              OR tn.nspname = 'sde' \
+              OR t.typname ILIKE '%geometry%' \
+              OR (n.nspname = 'sde' AND a.attname ILIKE 'shape%') \
+          )",
     );
-    let rows = fetch(dir, &prelude(dir, Some(database), true)?, Some(database), &select, LIST_TIMEOUT)?;
-    Ok(rows
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|r| {
-            Some(Table { schema: r.get("schema_name")?.as_str()?.to_string(), name: r.get("table_name")?.as_str()?.to_string() })
-        })
-        .collect())
+
+    // 2. SDE catalog tables if present
+    if has_sde_geom {
+        pg_scan_parts.push(
+            "SELECT DISTINCT \
+                n.nspname::text AS table_schema, \
+                c.relname::text AS table_name, \
+                g.f_geometry_column::text AS column_name, \
+                'st_geometry'::text AS data_type, \
+                'sde'::text AS type_schema \
+            FROM sde.sde_geometry_columns g \
+            JOIN pg_catalog.pg_class c ON lower(c.relname) = lower(g.f_table_name) \
+            JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace AND lower(n.nspname) = lower(g.f_table_schema) \
+            WHERE c.relkind IN ('r', 'v', 'm', 'p', 'f') \
+              AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')",
+        );
+    }
+
+    if has_sde_layers {
+        pg_scan_parts.push(
+            "SELECT DISTINCT \
+                n.nspname::text AS table_schema, \
+                c.relname::text AS table_name, \
+                l.spatial_column::text AS column_name, \
+                'st_geometry'::text AS data_type, \
+                'sde'::text AS type_schema \
+            FROM sde.sde_layers l \
+            JOIN pg_catalog.pg_class c ON lower(c.relname) = lower(l.table_name) \
+            JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace AND lower(n.nspname) = lower(l.owner) \
+            WHERE c.relkind IN ('r', 'v', 'm', 'p', 'f') \
+              AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')",
+        );
+    }
+
+    let full_pg_sql =
+        format!("SELECT * FROM ({}) AS t ORDER BY table_schema, table_name LIMIT {LIST_LIMIT}", pg_scan_parts.join(" UNION "));
+    let duckdb_select = format!(
+        "SELECT table_schema, table_name, column_name, data_type, type_schema FROM postgres_query('src', {})",
+        literal(&full_pg_sql)
+    );
+
+    match fetch(dir, &prelude, Some(database), &duckdb_select, LIST_TIMEOUT) {
+        Ok(rows) => {
+            let mut out = Vec::new();
+            let mut seen = std::collections::HashSet::new();
+            for r in rows.as_array().into_iter().flatten() {
+                let schema = match r.get("table_schema").and_then(|v| v.as_str()) {
+                    Some(s) => s.to_string(),
+                    None => continue,
+                };
+                let name = match r.get("table_name").and_then(|v| v.as_str()) {
+                    Some(n) => n.to_string(),
+                    None => continue,
+                };
+                let col = r.get("column_name").and_then(|v| v.as_str()).map(str::to_string);
+                let ty = r.get("data_type").and_then(|v| v.as_str()).unwrap_or("geometry").to_string();
+                let type_schema = r.get("type_schema").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let full_ty = if !type_schema.is_empty() && type_schema != "public" { format!("{type_schema}.{ty}") } else { ty };
+
+                let key = (schema.clone(), name.clone());
+                if seen.insert(key) {
+                    out.push(Table { schema, name, geom_col: col, geom_type: Some(full_ty) });
+                }
+            }
+            Ok(out)
+        }
+        Err(e) => {
+            // Fallback to duckdb_columns() if postgres_query encountered any unexpected issue
+            let fallback_select = format!(
+                "SELECT DISTINCT schema_name, table_name FROM duckdb_columns() WHERE database_name = 'src' AND starts_with(data_type, 'GEOMETRY') ORDER BY ALL LIMIT {LIST_LIMIT}"
+            );
+            let rows = fetch(dir, &prelude, Some(database), &fallback_select, LIST_TIMEOUT).map_err(|_| e)?;
+            Ok(rows
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|r| {
+                    Some(Table {
+                        schema: r.get("schema_name")?.as_str()?.to_string(),
+                        name: r.get("table_name")?.as_str()?.to_string(),
+                        geom_col: None,
+                        geom_type: Some("GEOMETRY".into()),
+                    })
+                })
+                .collect())
+        }
+    }
+}
+
+/// The available non-template databases of a PostgreSQL server.
+pub fn databases_of(database: &Database) -> Result<Vec<String>> {
+    let dir = cache_dir().ok_or_else(|| DataError::Format("no cache folder for DuckDB results".into()))?;
+    if !available() {
+        return Err(missing());
+    }
+    std::fs::create_dir_all(&dir)?;
+    match database {
+        Database::File(_) => Ok(Vec::new()),
+        Database::Postgres(_) => {
+            let prelude = prelude(&dir, Some(database), false)?;
+            let pg_sql = "SELECT datname::text FROM pg_database WHERE datistemplate = false ORDER BY datname;";
+            let select = format!("SELECT datname FROM postgres_query('src', {})", literal(pg_sql));
+            let rows = fetch(&dir, &prelude, Some(database), &select, LIST_TIMEOUT)?;
+            Ok(rows.as_array().into_iter().flatten().filter_map(|r| r.get("datname")?.as_str().map(str::to_string)).collect())
+        }
+    }
+}
+
+/// The available non-system schemas of a PostgreSQL database.
+pub fn schemas_of(database: &Database) -> Result<Vec<String>> {
+    let dir = cache_dir().ok_or_else(|| DataError::Format("no cache folder for DuckDB results".into()))?;
+    if !available() {
+        return Err(missing());
+    }
+    std::fs::create_dir_all(&dir)?;
+    match database {
+        Database::File(_) => Ok(vec!["main".to_string()]),
+        Database::Postgres(_) => {
+            let prelude = prelude(&dir, Some(database), false)?;
+            let pg_sql = "SELECT nspname::text AS schema_name FROM pg_catalog.pg_namespace WHERE nspname NOT LIKE 'pg_%' AND nspname NOT IN ('information_schema', 'pg_toast') ORDER BY nspname;";
+            let select = format!("SELECT schema_name FROM postgres_query('src', {})", literal(pg_sql));
+            match fetch(&dir, &prelude, Some(database), &select, LIST_TIMEOUT) {
+                Ok(rows) => {
+                    let list: Vec<String> = rows.as_array().into_iter().flatten().filter_map(|r| r.get("schema_name")?.as_str().map(str::to_string)).collect();
+                    if !list.is_empty() {
+                        return Ok(list);
+                    }
+                }
+                Err(_) => {}
+            }
+            let duckdb_sql = "SELECT DISTINCT schema_name FROM duckdb_schemas() WHERE database_name = 'src' AND schema_name NOT LIKE 'pg_%' AND schema_name NOT IN ('information_schema') ORDER BY schema_name;";
+            let rows = fetch(&dir, &prelude, Some(database), duckdb_sql, LIST_TIMEOUT)?;
+            Ok(rows.as_array().into_iter().flatten().filter_map(|r| r.get("schema_name")?.as_str().map(str::to_string)).collect())
+        }
+    }
+}
+
+/// Tests a database connection.
+pub fn test_connection(database: &Database) -> Result<()> {
+    let dir = cache_dir().ok_or_else(|| DataError::Format("no cache folder for DuckDB results".into()))?;
+    if !available() {
+        return Err(missing());
+    }
+    std::fs::create_dir_all(&dir)?;
+    let prelude = prelude(&dir, Some(database), false)?;
+    match database {
+        Database::File(_) => {
+            let _ = fetch(&dir, &prelude, Some(database), "SELECT 1 AS ok", LIST_TIMEOUT)?;
+            Ok(())
+        }
+        Database::Postgres(_) => {
+            let select = format!("SELECT 1 AS ok FROM postgres_query('src', {})", literal("SELECT 1;"));
+            let _ = fetch(&dir, &prelude, Some(database), &select, LIST_TIMEOUT)?;
+            Ok(())
+        }
+    }
 }
 
 /// The table of a database named `name` (`table` or `schema.table`, any case).
@@ -651,8 +933,20 @@ pub fn find_table(database: &Path, name: &str) -> Result<Table> {
 /// The table of a database, file or connection, named `name`.
 pub fn find_table_of(database: &Database, name: &str) -> Result<Table> {
     let all = tables_of(database)?;
+    let clean = name.trim().trim_matches('"');
+    let dot_clean = if clean.contains('.') {
+        clean.split('.').map(|part| part.trim_matches('"')).collect::<Vec<_>>().join(".")
+    } else {
+        clean.to_string()
+    };
     all.into_iter()
-        .find(|t| t.label().eq_ignore_ascii_case(name) || t.name.eq_ignore_ascii_case(name))
+        .find(|t| {
+            t.label().eq_ignore_ascii_case(name)
+                || t.label().eq_ignore_ascii_case(clean)
+                || t.label().eq_ignore_ascii_case(&dot_clean)
+                || t.name.eq_ignore_ascii_case(name)
+                || t.name.eq_ignore_ascii_case(clean)
+        })
         .ok_or_else(|| DataError::Format(format!("no table '{name}' with a geometry column")))
 }
 
@@ -672,9 +966,56 @@ pub fn convert_table_of(database: &Database, table: &Table, crs: Option<&str>) -
                 return Err(missing());
             }
             std::fs::create_dir_all(&dir)?;
-            run_in(&dir, &Query { sql: &table.sql(), database: Some(database), crs }, true)
+            let query_sql = table_query_sql(&dir, database, table)?;
+            run_in(&dir, &Query { sql: &query_sql, database: Some(database), crs }, true)
         }
     }
+}
+
+fn table_query_sql(dir: &Path, database: &Database, table: &Table) -> Result<String> {
+    if !table.is_sde() {
+        return Ok(table.sql());
+    }
+    let col = table.geom_col.as_deref().unwrap_or("shape");
+    let prelude = prelude(dir, Some(database), false)?;
+    let col_sql = format!(
+        "SELECT a.attname::text AS col \
+         FROM pg_catalog.pg_attribute a \
+         JOIN pg_catalog.pg_class c ON c.oid = a.attrelid \
+         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace \
+         WHERE lower(n.nspname) = lower({}) AND lower(c.relname) = lower({}) AND a.attnum > 0 AND NOT a.attisdropped \
+         ORDER BY a.attnum;",
+        literal(&table.schema),
+        literal(&table.name)
+    );
+    let select = format!("SELECT col FROM postgres_query('src', {})", literal(&col_sql));
+    let cols: Vec<String> = match fetch(dir, &prelude, Some(database), &select, LIST_TIMEOUT) {
+        Ok(rows) => rows.as_array().into_iter().flatten().filter_map(|r| r.get("col")?.as_str().map(str::to_string)).collect(),
+        Err(_) => Vec::new(),
+    };
+
+    let pg_sql = if !cols.is_empty() {
+        let select_items: Vec<String> = cols
+            .iter()
+            .map(|c| {
+                if c.eq_ignore_ascii_case(col) {
+                    format!("sde.st_astext({}) AS geometry", ident(c))
+                } else {
+                    ident(c)
+                }
+            })
+            .collect();
+        format!("SELECT {} FROM {}.{}", select_items.join(", "), ident(&table.schema), ident(&table.name))
+    } else if col.eq_ignore_ascii_case("geometry") {
+        format!("SELECT *, sde.st_astext({}) AS __rgis_wkt FROM {}.{}", ident(col), ident(&table.schema), ident(&table.name))
+    } else {
+        format!("SELECT *, sde.st_astext({}) AS geometry FROM {}.{}", ident(col), ident(&table.schema), ident(&table.name))
+    };
+
+    Ok(format!(
+        "FROM (SELECT * EXCLUDE (geometry), ST_GeomFromText(geometry) AS geometry FROM postgres_query('src', {}))",
+        literal(&pg_sql)
+    ))
 }
 
 fn convert_table_in(dir: &Path, database: &Path, table: &Table, crs: Option<&str>) -> Result<Output> {
@@ -800,8 +1141,24 @@ mod tests {
         assert!(is_duckdb_name("a.duckdb") && is_duckdb_name("B.DDB") && !is_duckdb_name("a.db") && !is_duckdb_name("duckdb"));
         assert_eq!(literal("it's"), "'it''s'");
         assert_eq!(ident("a\"b"), "\"a\"\"b\"");
-        assert_eq!(Table { schema: "main".into(), name: "t".into() }.label(), "t");
-        assert_eq!(Table { schema: "s".into(), name: "t".into() }.label(), "s.t");
+        assert_eq!(Table::new("main", "t").label(), "t");
+        assert_eq!(Table::new("s", "t").label(), "s.t");
+        let non_sde = Table::new("public", "parcels");
+        assert!(!non_sde.is_sde());
+        assert_eq!(non_sde.sql(), "FROM \"public\".\"parcels\"");
+        let sde_table = Table {
+            schema: "sde".into(),
+            name: "boundaries".into(),
+            geom_col: Some("shape".into()),
+            geom_type: Some("sde.st_geometry".into()),
+        };
+        assert!(sde_table.is_sde());
+        assert!(sde_table.sql().contains("sde.st_astext(\"shape\") AS geometry"));
+        assert!(sde_table.sql().contains("ST_GeomFromText(geometry) AS geometry"));
+        assert!(sde_table.sql().contains("postgres_query('src'"));
+        let wrapped = wrap_sde_query_if_needed("SELECT *, sde.st_astext(shape) AS geometry FROM \"sde\".\"roads\"");
+        assert!(wrapped.contains("postgres_query('src'"));
+        assert!(wrapped.contains("ST_GeomFromText(geometry) AS geometry"));
         assert!(check_crs(Some("EPSG:2263")).is_ok() && check_crs(None).is_ok());
         assert!(check_crs(Some("EPSG:2263'; --")).is_err() && check_crs(Some("")).is_err());
         assert_eq!(type_crs("GEOMETRY('EPSG:3857')"), Some("EPSG:3857"));

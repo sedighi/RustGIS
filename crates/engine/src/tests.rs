@@ -2917,7 +2917,10 @@ fn duckdb_queries_and_databases() {
     assert_eq!(listed, json!({"count": 2, "layers": ["lakes", "towns"]}));
     // The database commands take a DuckDB file too.
     let listed = s.run("info.databaseTables", &json!({"database": db.display().to_string()})).unwrap();
-    assert_eq!(listed, json!({"count": 2, "layers": ["lakes", "towns"]}));
+    assert_eq!(listed["count"], 2);
+    assert_eq!(listed["layers"], json!(["lakes", "towns"]));
+    assert_eq!(listed["schemas"], json!(["main"]));
+    assert_eq!(listed["tables"].as_array().unwrap().len(), 2);
     let r = s.run("layer.addDatabase", &json!({"database": db.display().to_string(), "layer": "lakes", "name": "L"})).unwrap();
     assert_eq!(r["features"], 1);
     // A query over the database's tables.
@@ -2962,6 +2965,64 @@ fn postgres_databases() {
     // A query over the database's tables.
     let r = s.run("layer.addSql", &json!({"sql": format!("SELECT * FROM {first} LIMIT 3"), "database": conn, "name": "Q"})).unwrap();
     assert!(r["features"].as_u64().unwrap() <= 3, "{r}");
+}
+
+#[test]
+fn database_connection_and_sde_support() {
+    let p = json!({
+        "host": "localhost",
+        "port": "5432",
+        "user": "sde",
+        "dbname": "gis_sde",
+        "password": "secret_password"
+    });
+    let db = crate::cmd::layer::database_param(&p).unwrap();
+    assert_eq!(db, rustgis_data::source::duckdb::Database::Postgres("host=localhost port=5432 user=sde dbname=gis_sde".into()));
+    assert_eq!(db.label(), "postgres:host=localhost port=5432 user=sde dbname=gis_sde");
+    assert_eq!(db.short(), "gis_sde");
+
+    // Passing "database": "gdbelectric" together with host must resolve to Postgres, NOT a file!
+    let p_db = json!({
+        "host": "localhost",
+        "port": "5432",
+        "user": "postgres",
+        "database": "gdbelectric",
+        "password": "secret_password"
+    });
+    let db2 = crate::cmd::layer::database_param(&p_db).unwrap();
+    assert_eq!(db2, rustgis_data::source::duckdb::Database::Postgres("host=localhost port=5432 user=postgres dbname=gdbelectric".into()));
+    assert_eq!(db2.short(), "gdbelectric");
+
+    let sde_query = "SELECT *, sde.st_astext(shape) AS geometry FROM sde.roads";
+    let wrapped = rustgis_data::source::duckdb::wrap_sde_query_if_needed(sde_query);
+    assert!(wrapped.contains("postgres_query('src'"));
+    assert!(wrapped.contains("ST_GeomFromText(geometry) AS geometry"));
+
+    let t = rustgis_data::source::duckdb::Table {
+        schema: "sde".into(),
+        name: "parcels".into(),
+        geom_col: Some("shape".into()),
+        geom_type: Some("sde.st_geometry".into()),
+    };
+    assert!(t.is_sde());
+    let sql = t.sql();
+    assert!(sql.contains("postgres_query('src'"));
+    assert!(sql.contains("sde.st_astext(\"shape\") AS geometry"));
+    assert!(sql.contains("ST_GeomFromText(geometry) AS geometry"));
+
+    // Any table in schema "sde" is also recognized as an SDE table
+    let t_sde_schema = rustgis_data::source::duckdb::Table {
+        schema: "sde".into(),
+        name: "cables".into(),
+        geom_col: None,
+        geom_type: None,
+    };
+    assert!(t_sde_schema.is_sde());
+
+    let mut s = Session::new(Project::default());
+    assert!(s.run("info.databaseList", &json!({})).is_err());
+    assert!(s.run("info.databaseSchemas", &json!({})).is_err());
+    assert!(s.run("info.databaseTest", &json!({})).is_err());
 }
 
 #[test]

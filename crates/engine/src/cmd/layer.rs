@@ -30,7 +30,16 @@ pub fn commands() -> Vec<C> {
         ),
         C::new("info.databaseTables", "List Database Tables", "Home › Add › Add Data From Database", database_tables)
             .view()
-            .params(r#"{"database": "as layer.addDatabase", "password"?: string}"#),
+            .params(r#"{"database"?: "as layer.addDatabase", "host"?: string, "port"?: number|string, "user"?: string, "dbname"?: string, "password"?: string, "schema"?: string}"#),
+        C::new("info.databaseList", "List Databases", "Home › Add › Add Data From Database", database_list)
+            .view()
+            .params(r#"{"database"?: string, "host"?: string, "port"?: number|string, "user"?: string, "password"?: string}"#),
+        C::new("info.databaseSchemas", "List Database Schemas", "Home › Add › Add Data From Database", database_schemas)
+            .view()
+            .params(r#"{"database"?: string, "host"?: string, "port"?: number|string, "user"?: string, "dbname"?: string, "password"?: string}"#),
+        C::new("info.databaseTest", "Test Database Connection", "Home › Add › Add Data From Database", database_test)
+            .view()
+            .params(r#"{"database"?: string, "host"?: string, "port"?: number|string, "user"?: string, "dbname"?: string, "password"?: string}"#),
         C::new("layer.loadAll", "Load All Features", "Layers", load_all).when(need_streamed).params(r#"{"layer"?: name|id}"#),
         C::new("layer.addUrl", "Add Data From URL", "Home › Add", add_url).params(
             r#"{"url": "https://…/data.geojson|.csv|.parquet|.fgb|.gpkg|.zip|.kml|.kmz|.gpx|.tif (the format from the address, else the contents) | a .pmtiles archive", "name"?: text, "layer"?: "one layer of a zip, KML or GPX", "zoom"?: "bool: true zooms to what was added; false keeps the view of a GeoParquet or FlatGeobuf read in place (zoomed to only when the map was empty)", "x"?, "y"?, "wkt"?, "crs"?, "delimiter"?, "paperSpace"?, "stream"? (as layer.addData), "whole"?: "bool: download a cloud-optimised GeoTIFF whole (as a raster layer) instead of reading it in place"}"#,
@@ -982,13 +991,35 @@ fn add_gdal(s: &mut Session, p: &Value, path: &str) -> CmdResult {
     add_converted(s, p, path, &original, parts)
 }
 
-/// The database a command names in `database`, with the `password` given remembered for the
-/// session.
+/// The database a command names in `database`, or assembled from `host`, `port`, `user`, `dbname`,
+/// with the `password` given remembered for the session.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn database_param(p: &Value) -> Option<rustgis_data::source::duckdb::Database> {
     use rustgis_data::source::duckdb::{Database, remember_password};
-    let d = ps(p, "database").map(str::trim).filter(|d| !d.is_empty())?;
-    let db = match Database::parse(d) {
+    let db_param = ps(p, "database").map(str::trim).filter(|d| !d.is_empty());
+    let host = ps(p, "host").map(str::trim).filter(|h| !h.is_empty());
+
+    let db_str = if let Some(d) = db_param.filter(|d| {
+        let l = d.to_ascii_lowercase();
+        l.starts_with("postgres:") || l.starts_with("postgresql://") || l.starts_with("postgres://")
+    }) {
+        d.to_string()
+    } else if let Some(host) = host {
+        let port = ps(p, "port").map(str::trim).filter(|pt| !pt.is_empty()).unwrap_or("5432");
+        let user = ps(p, "user").map(str::trim).filter(|u| !u.is_empty()).unwrap_or("postgres");
+        let dbname = ps(p, "dbname")
+            .or_else(|| ps(p, "db"))
+            .or(db_param)
+            .map(str::trim)
+            .filter(|db| !db.is_empty())
+            .unwrap_or("postgres");
+        format!("postgres:host={host} port={port} user={user} dbname={dbname}")
+    } else if let Some(d) = db_param {
+        d.to_string()
+    } else {
+        return None;
+    };
+    let db = match Database::parse(&db_str) {
         Database::File(f) => Database::File(std::path::absolute(&f).unwrap_or(f)),
         pg => pg,
     };
@@ -1008,9 +1039,85 @@ fn database_tables(_s: &mut Session, p: &Value) -> CmdResult {
     #[cfg(not(target_arch = "wasm32"))]
     {
         let db = database_param(p).ok_or("database is required")?;
+        let schema_filter = ps(p, "schema").map(str::trim).filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("all"));
         let tables = rustgis_data::source::duckdb::tables_of(&db).map_err(|e| format!("{}: {e}", db.short()))?;
-        let layers: Vec<String> = tables.iter().map(|t| t.label()).collect();
-        Ok(json!({"count": layers.len(), "layers": layers}))
+        let filtered: Vec<&rustgis_data::source::duckdb::Table> = match schema_filter {
+            Some(sf) => tables.iter().filter(|t| t.schema.eq_ignore_ascii_case(sf)).collect(),
+            None => tables.iter().collect(),
+        };
+        let layers: Vec<String> = filtered.iter().map(|t| t.label()).collect();
+        let tables_json: Vec<Value> = filtered
+            .iter()
+            .map(|t| {
+                json!({
+                    "schema": t.schema,
+                    "name": t.name,
+                    "label": t.label(),
+                    "geometry_column": t.geom_col,
+                    "geometry_type": t.geom_type,
+                    "is_sde": t.is_sde(),
+                })
+            })
+            .collect();
+        let mut schemas = rustgis_data::source::duckdb::schemas_of(&db).unwrap_or_default();
+        for t in &tables {
+            if !schemas.contains(&t.schema) {
+                schemas.push(t.schema.clone());
+            }
+        }
+        schemas.sort();
+        schemas.dedup();
+        Ok(json!({
+            "count": layers.len(),
+            "layers": layers,
+            "tables": tables_json,
+            "schemas": schemas,
+        }))
+    }
+}
+
+/// The available non-template databases of a PostgreSQL server.
+fn database_list(_s: &mut Session, p: &Value) -> CmdResult {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = p;
+        Err("databases are read through DuckDB in the desktop app".into())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let db = database_param(p).ok_or("database is required")?;
+        let databases = rustgis_data::source::duckdb::databases_of(&db).map_err(|e| format!("{}: {e}", db.short()))?;
+        Ok(json!({"count": databases.len(), "databases": databases}))
+    }
+}
+
+/// The available non-system schemas of a PostgreSQL database.
+fn database_schemas(_s: &mut Session, p: &Value) -> CmdResult {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = p;
+        Err("databases are read through DuckDB in the desktop app".into())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let db = database_param(p).ok_or("database is required")?;
+        let schemas = rustgis_data::source::duckdb::schemas_of(&db).map_err(|e| format!("{}: {e}", db.short()))?;
+        Ok(json!({"count": schemas.len(), "schemas": schemas}))
+    }
+}
+
+/// Tests a database connection.
+fn database_test(_s: &mut Session, p: &Value) -> CmdResult {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = p;
+        Err("databases are read through DuckDB in the desktop app".into())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let db = database_param(p).ok_or("database is required")?;
+        rustgis_data::source::duckdb::test_connection(&db).map_err(|e| format!("{}: {e}", db.short()))?;
+        Ok(json!({"ok": true, "message": "Connection successful"}))
     }
 }
 
@@ -1131,7 +1238,14 @@ fn add_sql(s: &mut Session, p: &Value) -> CmdResult {
                 }
                 out.clone()
             }
-            None => duckdb::run(&duckdb::Query { sql, database: database.as_ref(), crs }).map_err(|e| e.to_string())?,
+            None => {
+                let wrapped_sql = if matches!(database, Some(duckdb::Database::Postgres(_))) {
+                    duckdb::wrap_sde_query_if_needed(sql)
+                } else {
+                    sql.to_string()
+                };
+                duckdb::run(&duckdb::Query { sql: &wrapped_sql, database: database.as_ref(), crs }).map_err(|e| e.to_string())?
+            }
         };
         let name = ps(p, "name").map(str::trim).filter(|n| !n.is_empty()).unwrap_or("Query");
         let origin = |family| rustgis_map::source::DuckdbOrigin {

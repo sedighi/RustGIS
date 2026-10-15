@@ -8,6 +8,57 @@ use serde_json::{Value, json};
 use crate::RustGisApp;
 use crate::theme::{Tokens, semibold};
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct DbTableItem {
+    pub schema: String,
+    pub name: String,
+    pub label: String,
+    pub geometry_column: Option<String>,
+    pub geometry_type: Option<String>,
+    pub is_sde: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct DatabaseDialogState {
+    pub conn_type: String,
+    pub host: String,
+    pub port: String,
+    pub user: String,
+    pub password: String,
+    pub database: String,
+    pub databases: Vec<String>,
+    pub schema: String,
+    pub schemas: Vec<String>,
+    pub tables: Vec<DbTableItem>,
+    pub table_filter: String,
+    pub selected_table: Option<String>,
+    pub duckdb_path: String,
+    pub crs: String,
+    pub status_msg: Option<(bool, String)>,
+}
+
+impl Default for DatabaseDialogState {
+    fn default() -> Self {
+        Self {
+            conn_type: "postgres".into(),
+            host: "localhost".into(),
+            port: "5432".into(),
+            user: "postgres".into(),
+            password: String::new(),
+            database: "postgres".into(),
+            databases: Vec::new(),
+            schema: String::new(),
+            schemas: Vec::new(),
+            tables: Vec::new(),
+            table_filter: String::new(),
+            selected_table: None,
+            duckdb_path: String::new(),
+            crs: String::new(),
+            status_msg: None,
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Dialogs {
     pub open: Option<&'static str>,
@@ -24,6 +75,7 @@ pub struct Dialogs {
     pub list: Vec<String>,
     /// Add Delimited Text's file, picked before the dialog opens.
     pub csv: Option<CsvFile>,
+    pub db: DatabaseDialogState,
 }
 
 /// A file picked for Add Delimited Text.
@@ -163,7 +215,7 @@ pub fn show(app: &mut RustGisApp, ctx: &egui::Context) {
     egui::Window::new(tl!(title)).id(egui::Id::new("dialog")).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, vec2(0.0, -40.0)).show(ctx, |ui| {
         ui.set_width(match which {
             "coordinateSystem" | "zarr" => 660.0,
-            "addTiles" | "addUrl" | "addService" | "stac" | "s3" | "sourcecoop" | "opendata" => 560.0,
+            "addTiles" | "addUrl" | "addService" | "stac" | "s3" | "sourcecoop" | "opendata" | "addDatabase" => 560.0,
             _ => 440.0,
         });
         ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
@@ -724,73 +776,405 @@ fn add_url(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
     })
 }
 
-/// Add From Database: a PostgreSQL/PostGIS connection (or a DuckDB file), its password (kept for
-/// the session only) and one table or all of them.
+/// Add From Database: an ArcGIS Pro-style Database Connection dialog supporting PostgreSQL,
+/// PostGIS, Esri SDE (st_geometry), and DuckDB files.
 fn add_database(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
-    ui.label(egui::RichText::new(tl!("A PostgreSQL connection (host=… port=… dbname=… user=…, or a postgresql:// address) or a DuckDB file. Read through DuckDB; the password is kept until RustGIS closes, never in the project.")).weak());
-    // A bare connection string is a PostgreSQL one.
-    let database = |a: &str| {
-        let a = a.trim();
-        if a.contains('=') && !a.contains("://") && !a.to_ascii_lowercase().starts_with("postgres:") {
-            format!("postgres:{a}")
-        } else {
-            a.to_string()
-        }
-    };
-    let mut list = false;
-    egui::Grid::new("database").num_columns(2).spacing(vec2(10.0, 8.0)).show(ui, |ui| {
-        ui.label(tl!("Connection"));
-        ui.add(egui::TextEdit::singleline(&mut app.dialogs.a).hint_text("host=localhost dbname=gis user=postgres").desired_width(280.0));
-        ui.end_row();
-        ui.label(tl!("Password"));
-        ui.add(
-            egui::TextEdit::singleline(&mut app.dialogs.b).password(true).hint_text(tl!("none, or from PGPASSWORD")).desired_width(280.0),
-        );
-        ui.end_row();
-        ui.label(tl!("Table"));
-        ui.horizontal(|ui| {
-            let shown = if app.dialogs.c.is_empty() { tl!("All tables with geometry").to_string() } else { app.dialogs.c.clone() };
-            egui::ComboBox::from_id_salt("db_table").selected_text(shown).width(190.0).show_ui(ui, |ui| {
-                ui.selectable_value(&mut app.dialogs.c, String::new(), tl!("All tables with geometry"));
-                for t in app.dialogs.list.clone() {
-                    ui.selectable_value(&mut app.dialogs.c, t.clone(), t);
+    let t = Tokens::get(ui.ctx());
+    ui.label(
+        egui::RichText::new(tl!(
+            "Connect to a PostgreSQL/PostGIS database or Esri Enterprise Geodatabase. Passwords remain isolated in memory and are never saved to disk."
+        ))
+        .weak(),
+    );
+
+    let is_pg = app.dialogs.db.conn_type == "postgres";
+
+    // 1. Connection Type Dropdown
+    ui.horizontal(|ui| {
+        ui.label(tl!("Connection Type:"));
+        let shown = if is_pg { tl!("PostgreSQL / PostGIS / Esri Geodatabase") } else { tl!("DuckDB File") };
+        egui::ComboBox::from_id_salt("db_conn_type").selected_text(shown).width(260.0).show_ui(ui, |ui| {
+            ui.selectable_value(&mut app.dialogs.db.conn_type, "postgres".into(), tl!("PostgreSQL / PostGIS / Esri Geodatabase"));
+            ui.selectable_value(&mut app.dialogs.db.conn_type, "duckdb".into(), tl!("DuckDB File"));
+        });
+    });
+
+    ui.separator();
+
+    if !is_pg {
+        // DuckDB File Connection
+        egui::Grid::new("duckdb_grid").num_columns(2).spacing(vec2(10.0, 8.0)).show(ui, |ui| {
+            ui.label(tl!("DuckDB File"));
+            ui.horizontal(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut app.dialogs.db.duckdb_path).desired_width(280.0));
+                if !cfg!(target_arch = "wasm32")
+                    && ui.button(tl!("Browse…")).clicked()
+                    && let Some(p) = pick_open(&["duckdb", "ddb"], tl!("DuckDB database"))
+                {
+                    app.dialogs.db.duckdb_path = p;
                 }
             });
-            list = ui.button(tl!("List Tables")).clicked();
+            ui.end_row();
+
+            ui.label(tl!("Coordinate system"));
+            ui.add(
+                egui::TextEdit::singleline(&mut app.dialogs.db.crs).hint_text(tl!("EPSG:4326 (optional override)")).desired_width(280.0),
+            );
+            ui.end_row();
         });
-        ui.end_row();
-        ui.label(tl!("Coordinate system"));
-        ui.add(egui::TextEdit::singleline(&mut app.dialogs.text).hint_text(tl!("of a geometry that doesn't say")).desired_width(280.0));
-        ui.end_row();
-    });
-    if list {
-        let p = json!({"database": database(&app.dialogs.a), "password": app.dialogs.b});
-        match app.run("info.databaseTables", p) {
-            Ok(v) => {
-                app.dialogs.list = v["layers"].as_array().into_iter().flatten().filter_map(|t| t.as_str().map(str::to_string)).collect();
-                app.dialogs.error = None;
-                app.dialogs.info = Some(crate::i18n::fmt("{n} tables with geometry", &[("n", &app.dialogs.list.len().to_string())]));
+
+        if ui.button(tl!("List Tables / Feature Classes")).clicked() {
+            let p = json!({"database": app.dialogs.db.duckdb_path.trim()});
+            match app.run("info.databaseTables", p) {
+                Ok(v) => {
+                    let layers: Vec<String> =
+                        v["layers"].as_array().into_iter().flatten().filter_map(|t| t.as_str().map(str::to_string)).collect();
+                    app.dialogs.db.tables = layers
+                        .into_iter()
+                        .map(|l| DbTableItem {
+                            schema: "main".into(),
+                            name: l.clone(),
+                            label: l,
+                            geometry_column: None,
+                            geometry_type: Some("GEOMETRY".into()),
+                            is_sde: false,
+                        })
+                        .collect();
+                    app.dialogs.db.status_msg = Some((
+                        false,
+                        crate::i18n::fmt("Found {n} tables with geometry", &[("n", &app.dialogs.db.tables.len().to_string())]),
+                    ));
+                }
+                Err(e) => {
+                    app.dialogs.db.status_msg = Some((true, e));
+                }
             }
-            Err(e) => {
-                app.dialogs.info = None;
-                app.dialogs.error = Some(e);
+        }
+    } else {
+        // PostgreSQL / PostGIS / Esri Geodatabase modular connection form
+        egui::Grid::new("pg_grid").num_columns(2).spacing(vec2(10.0, 8.0)).show(ui, |ui| {
+            ui.label(tl!("Server / Host"));
+            ui.horizontal(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut app.dialogs.db.host).hint_text("127.0.0.1 or localhost").desired_width(180.0));
+                ui.label(tl!("Port"));
+                ui.add(egui::TextEdit::singleline(&mut app.dialogs.db.port).hint_text("5432").desired_width(50.0));
+            });
+            ui.end_row();
+
+            ui.label(tl!("Username"));
+            ui.add(egui::TextEdit::singleline(&mut app.dialogs.db.user).hint_text("postgres or sde").desired_width(240.0));
+            ui.end_row();
+
+            ui.label(tl!("Password"));
+            ui.add(egui::TextEdit::singleline(&mut app.dialogs.db.password).password(true).hint_text(tl!("Password")).desired_width(240.0));
+            ui.end_row();
+
+            ui.label(tl!("Database"));
+            ui.horizontal(|ui| {
+                if app.dialogs.db.databases.is_empty() {
+                    ui.add(egui::TextEdit::singleline(&mut app.dialogs.db.database).hint_text("postgres").desired_width(160.0));
+                } else {
+                    let sel = if app.dialogs.db.database.is_empty() { "postgres" } else { &app.dialogs.db.database };
+                    let prev_db = app.dialogs.db.database.clone();
+                    egui::ComboBox::from_id_salt("db_select_dropdown").selected_text(sel).width(160.0).show_ui(ui, |ui| {
+                        for d in app.dialogs.db.databases.clone() {
+                            ui.selectable_value(&mut app.dialogs.db.database, d.clone(), d);
+                        }
+                    });
+                    if prev_db != app.dialogs.db.database {
+                        let current_db = if app.dialogs.db.database.trim().is_empty() { "postgres" } else { app.dialogs.db.database.trim() };
+                        let sp = json!({
+                            "host": app.dialogs.db.host.trim(),
+                            "port": app.dialogs.db.port.trim(),
+                            "user": app.dialogs.db.user.trim(),
+                            "password": app.dialogs.db.password,
+                            "dbname": current_db,
+                        });
+                        if let Ok(sv) = app.run("info.databaseSchemas", sp) {
+                            app.dialogs.db.schemas =
+                                sv["schemas"].as_array().into_iter().flatten().filter_map(|s| s.as_str().map(str::to_string)).collect();
+                        }
+                        app.dialogs.db.schema.clear();
+                        app.dialogs.db.tables.clear();
+                        app.dialogs.db.selected_table = None;
+                    }
+                }
+
+                if ui.button(tl!("Refresh / Connect")).clicked() {
+                    let db_target = if app.dialogs.db.database.trim().is_empty() { "postgres" } else { app.dialogs.db.database.trim() };
+                    let p = json!({
+                        "host": app.dialogs.db.host.trim(),
+                        "port": app.dialogs.db.port.trim(),
+                        "user": app.dialogs.db.user.trim(),
+                        "password": app.dialogs.db.password,
+                        "dbname": db_target,
+                    });
+                    match app.run("info.databaseList", p.clone()) {
+                        Ok(v) => {
+                            app.dialogs.db.databases =
+                                v["databases"].as_array().into_iter().flatten().filter_map(|d| d.as_str().map(str::to_string)).collect();
+                            if !app.dialogs.db.databases.contains(&app.dialogs.db.database)
+                                && let Some(first) = app.dialogs.db.databases.first()
+                            {
+                                app.dialogs.db.database = first.clone();
+                            }
+                            let current_db = if app.dialogs.db.database.trim().is_empty() { "postgres" } else { app.dialogs.db.database.trim() };
+                            let sp = json!({
+                                "host": app.dialogs.db.host.trim(),
+                                "port": app.dialogs.db.port.trim(),
+                                "user": app.dialogs.db.user.trim(),
+                                "password": app.dialogs.db.password,
+                                "dbname": current_db,
+                            });
+                            if let Ok(sv) = app.run("info.databaseSchemas", sp) {
+                                app.dialogs.db.schemas =
+                                    sv["schemas"].as_array().into_iter().flatten().filter_map(|s| s.as_str().map(str::to_string)).collect();
+                            }
+                            app.dialogs.db.status_msg = Some((
+                                false,
+                                crate::i18n::fmt("Found {n} databases", &[("n", &app.dialogs.db.databases.len().to_string())]),
+                            ));
+                        }
+                        Err(e) => {
+                            app.dialogs.db.status_msg = Some((true, e));
+                        }
+                    }
+                }
+            });
+            ui.end_row();
+
+            ui.label(tl!("Schema"));
+            let schema_shown =
+                if app.dialogs.db.schema.is_empty() { tl!("All Schemas").to_string() } else { app.dialogs.db.schema.clone() };
+            egui::ComboBox::from_id_salt("schema_dropdown").selected_text(schema_shown).width(240.0).show_ui(ui, |ui| {
+                ui.selectable_value(&mut app.dialogs.db.schema, String::new(), tl!("All Schemas"));
+                for s in app.dialogs.db.schemas.clone() {
+                    ui.selectable_value(&mut app.dialogs.db.schema, s.clone(), s);
+                }
+            });
+            ui.end_row();
+
+            ui.label(tl!("Coordinate system"));
+            ui.add(
+                egui::TextEdit::singleline(&mut app.dialogs.db.crs).hint_text(tl!("EPSG:4326 (optional override)")).desired_width(240.0),
+            );
+            ui.end_row();
+        });
+
+        // Action Buttons: Test Connection & List Tables
+        ui.horizontal(|ui| {
+            if ui.button(tl!("Test Connection")).clicked() {
+                let db_target = if app.dialogs.db.database.trim().is_empty() { "postgres" } else { app.dialogs.db.database.trim() };
+                let p = json!({
+                    "host": app.dialogs.db.host.trim(),
+                    "port": app.dialogs.db.port.trim(),
+                    "user": app.dialogs.db.user.trim(),
+                    "password": app.dialogs.db.password,
+                    "dbname": db_target,
+                });
+                match app.run("info.databaseTest", p.clone()) {
+                    Ok(_) => {
+                        app.dialogs.db.status_msg = Some((false, tl!("Connection test succeeded").to_string()));
+                        if app.dialogs.db.schemas.is_empty() {
+                            if let Ok(sv) = app.run("info.databaseSchemas", p) {
+                                app.dialogs.db.schemas =
+                                    sv["schemas"].as_array().into_iter().flatten().filter_map(|s| s.as_str().map(str::to_string)).collect();
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        app.dialogs.db.status_msg = Some((true, e));
+                    }
+                }
             }
+
+            if ui.button(tl!("List Tables / Feature Classes")).clicked() {
+                let db_target = if app.dialogs.db.database.trim().is_empty() { "postgres" } else { app.dialogs.db.database.trim() };
+                let mut p = json!({
+                    "host": app.dialogs.db.host.trim(),
+                    "port": app.dialogs.db.port.trim(),
+                    "user": app.dialogs.db.user.trim(),
+                    "password": app.dialogs.db.password,
+                    "dbname": db_target,
+                });
+                if !app.dialogs.db.schema.trim().is_empty() {
+                    p["schema"] = json!(app.dialogs.db.schema.trim());
+                }
+                match app.run("info.databaseTables", p) {
+                    Ok(v) => {
+                        if let Some(tables_arr) = v.get("tables").and_then(Value::as_array) {
+                            app.dialogs.db.tables = tables_arr
+                                .iter()
+                                .filter_map(|t| {
+                                    Some(DbTableItem {
+                                        schema: t.get("schema")?.as_str()?.to_string(),
+                                        name: t.get("name")?.as_str()?.to_string(),
+                                        label: t.get("label")?.as_str()?.to_string(),
+                                        geometry_column: t.get("geometry_column").and_then(Value::as_str).map(str::to_string),
+                                        geometry_type: t.get("geometry_type").and_then(Value::as_str).map(str::to_string),
+                                        is_sde: t.get("is_sde").and_then(Value::as_bool).unwrap_or(false),
+                                    })
+                                })
+                                .collect();
+                        } else {
+                            let layers: Vec<String> =
+                                v["layers"].as_array().into_iter().flatten().filter_map(|t| t.as_str().map(str::to_string)).collect();
+                            app.dialogs.db.tables = layers
+                                .into_iter()
+                                .map(|l| DbTableItem {
+                                    schema: "public".into(),
+                                    name: l.clone(),
+                                    label: l,
+                                    geometry_column: None,
+                                    geometry_type: None,
+                                    is_sde: false,
+                                })
+                                .collect();
+                        }
+                        if let Some(schemas_arr) = v.get("schemas").and_then(Value::as_array) {
+                            let fetched_schemas: Vec<String> = schemas_arr.iter().filter_map(|s| s.as_str().map(str::to_string)).collect();
+                            if !fetched_schemas.is_empty() {
+                                app.dialogs.db.schemas = fetched_schemas;
+                            }
+                        }
+                        let sde_count = app.dialogs.db.tables.iter().filter(|t| t.is_sde).count();
+                        let msg = if sde_count > 0 {
+                            crate::i18n::fmt(
+                                "Found {n} spatial tables ({sde} Esri SDE)",
+                                &[("n", &app.dialogs.db.tables.len().to_string()), ("sde", &sde_count.to_string())],
+                            )
+                        } else {
+                            crate::i18n::fmt("Found {n} spatial tables", &[("n", &app.dialogs.db.tables.len().to_string())])
+                        };
+                        app.dialogs.db.status_msg = Some((false, msg));
+                    }
+                    Err(e) => {
+                        app.dialogs.db.status_msg = Some((true, e));
+                    }
+                }
+            }
+        });
+    }
+
+    // Status Message Display
+    if let Some((is_err, ref msg)) = app.dialogs.db.status_msg {
+        if is_err {
+            ui.label(egui::RichText::new(msg).color(egui::Color32::from_rgb(220, 50, 50)));
+        } else {
+            ui.label(egui::RichText::new(msg).color(egui::Color32::from_rgb(40, 160, 40)));
         }
     }
-    buttons(app, ui, "Add", |app| {
-        let mut p = json!({"database": database(&app.dialogs.a), "password": app.dialogs.b});
-        for (key, v) in [("layer", &app.dialogs.c), ("crs", &app.dialogs.text)] {
-            if !v.trim().is_empty() {
-                p[key] = json!(v.trim());
+
+    // Tables / Feature Classes List Area
+    ui.separator();
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(tl!("Tables / Feature Classes")).strong());
+        if !app.dialogs.db.tables.is_empty() {
+            ui.add(egui::TextEdit::singleline(&mut app.dialogs.db.table_filter).hint_text(tl!("Filter tables…")).desired_width(180.0));
+        }
+    });
+
+    let filter_text = app.dialogs.db.table_filter.trim().to_ascii_lowercase();
+    let schema_filter = app.dialogs.db.schema.trim();
+    let filtered_tables: Vec<DbTableItem> = app
+        .dialogs
+        .db
+        .tables
+        .iter()
+        .filter(|t| {
+            if !schema_filter.is_empty() && !t.schema.eq_ignore_ascii_case(schema_filter) {
+                return false;
+            }
+            if !filter_text.is_empty() && !t.label.to_ascii_lowercase().contains(&filter_text) {
+                return false;
+            }
+            true
+        })
+        .cloned()
+        .collect();
+
+    let mut clicked_table = None;
+    egui::ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
+        if filtered_tables.is_empty() {
+            if app.dialogs.db.tables.is_empty() {
+                ui.label(egui::RichText::new(tl!("Click \"List Tables / Feature Classes\" to discover tables.")).weak());
+            } else {
+                ui.label(egui::RichText::new(tl!("No tables matching filter.")).weak());
+            }
+        } else {
+            for t in &filtered_tables {
+                let is_sel = app.dialogs.db.selected_table.as_deref() == Some(&t.label);
+                let badge = if t.is_sde {
+                    format!(" [Esri SDE: {}]", t.geometry_column.as_deref().unwrap_or("shape"))
+                } else if let Some(ref col) = t.geometry_column {
+                    format!(" [PostGIS: {col}]")
+                } else {
+                    String::new()
+                };
+                let row_text = format!("{}{badge}", t.label);
+                if ui.selectable_label(is_sel, row_text).clicked() {
+                    clicked_table = Some(t.label.clone());
+                }
             }
         }
-        let r = app.run("layer.addDatabase", p).map(|_| ());
-        // The password is the session's to keep, not the dialog's.
-        if r.is_ok() {
-            app.dialogs.b.clear();
+    });
+    if let Some(t) = clicked_table {
+        app.dialogs.db.selected_table = Some(t);
+    }
+
+    // Action buttons row: Cancel and Add to Map
+    let can_add = app.dialogs.db.selected_table.is_some();
+    let mut close = false;
+    ui.separator();
+    ui.add_space(4.0);
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+        ui.add_enabled_ui(can_add, |ui| {
+            let add_btn = crate::widgets::dialog_button(ui, tl!("Add to Map"), Some(t.accent), vec2(100.0, 28.0));
+            if add_btn.clicked() {
+                if let Some(ref sel_label) = app.dialogs.db.selected_table.clone() {
+                    let res = if !is_pg {
+                        let mut p = json!({
+                            "database": app.dialogs.db.duckdb_path.trim(),
+                            "layer": sel_label,
+                        });
+                        if !app.dialogs.db.crs.trim().is_empty() {
+                            p["crs"] = json!(app.dialogs.db.crs.trim());
+                        }
+                        app.run("layer.addDatabase", p)
+                    } else {
+                        let mut p = json!({
+                            "host": app.dialogs.db.host.trim(),
+                            "port": app.dialogs.db.port.trim(),
+                            "user": app.dialogs.db.user.trim(),
+                            "dbname": if app.dialogs.db.database.trim().is_empty() { "postgres" } else { app.dialogs.db.database.trim() },
+                            "password": app.dialogs.db.password,
+                            "layer": sel_label,
+                        });
+                        if !app.dialogs.db.crs.trim().is_empty() {
+                            p["crs"] = json!(app.dialogs.db.crs.trim());
+                        }
+                        app.run("layer.addDatabase", p)
+                    };
+
+                    match res {
+                        Ok(_) => {
+                            app.dialogs.db.password.clear();
+                            close = true;
+                        }
+                        Err(e) => {
+                            app.dialogs.db.status_msg = Some((true, e));
+                        }
+                    }
+                }
+            }
+        });
+
+        if crate::widgets::dialog_button(ui, tl!("Cancel"), None, vec2(84.0, 28.0)).clicked() {
+            close = true;
         }
-        r
-    })
+    });
+
+    close
 }
 
 /// Add Tile Layer: an XYZ/TMS/WMS template, vector tiles or a MapLibre style by address.
