@@ -24,7 +24,8 @@ This guide walks through RustGIS by task. Each page covers one part of the app:
 - **Quick Access Toolbar** (top left): New, Open, Save, Undo and Redo, plus any commands you add
   under **Help › Customize › Quick Access**.
 - **Layers pane** (left): the map's layers in drawing order, with their legends. Tick a layer to
-  show or hide it; right-click it to move it, zoom to it, rename or remove it and more.
+  show or hide it; drag it up or down to change the drawing order; right-click it to zoom to it,
+  rename or remove it and more.
   The Style and Data tabs act on the layer selected here.
 - **Map view**: one tab per map and layout. The buttons at the top right zoom in, zoom out and go
   to the full extent; the north arrow and scale bar sit in the corners; tile credits at the bottom
@@ -67,7 +68,8 @@ A project (`.rgis`) holds maps, layouts, reports, presentations, notebooks, styl
 models. Vector data added from files is stored inside the project, so a project file is
 self-contained; rasters are referenced by path on the desktop and stored inside the project in
 the web app. **Project › New** starts a blank map or the World Atlas sample; **Save** and **Save
-As** write the project. See [Data › Project items](data.md#project-items) for the other files
+As** write the project, named after its file; a project opened from a file is named after that
+file too. See [Data › Project items](data.md#project-items) for the other files
 RustGIS reads and writes.
 
 Every change is a command, and every command can be undone (++ctrl+z++) and redone

@@ -1,0 +1,5 @@
+# Built by maturin develop / pip install, never committed.
+python/rustgis/_rustgis*.so
+python/rustgis/_rustgis*.pyd
+dist/
+.pytest_cache/

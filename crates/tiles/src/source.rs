@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 
 use crate::cache::{self, Payload, State, Want};
 use crate::style::{Source, Style};
-use crate::{address, mbtiles, pmtiles, template};
+use crate::{address, cog, mbtiles, pmtiles, template};
 
 /// The kind of address.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -25,6 +25,8 @@ pub enum Kind {
     PmTiles,
     /// An MBTiles archive (raster or vector, as its metadata says): a file, or an upload.
     MbTiles,
+    /// A cloud-optimised GeoTIFF by its web address, read in place by range.
+    Cog,
 }
 
 /// A tile layer, as far as fetching and drawing it goes.
@@ -38,12 +40,15 @@ pub struct Spec {
     pub tile_size: u32,
     pub tms: bool,
     pub attribution: String,
+    /// The vector tiles' layer names, when the service says them (an OGC API collection's): drawn
+    /// in colours of their own, as an archive's layers are.
+    pub layers: Vec<String>,
 }
 
 impl Spec {
     fn key(&self) -> String {
         format!(
-            "{:?}|{}|{}|{}|{}|{}|{}|{}",
+            "{:?}|{}|{}|{}|{}|{}|{}|{}|{}",
             self.kind,
             self.url,
             self.subdomains.join(","),
@@ -51,7 +56,9 @@ impl Spec {
             self.max_zoom,
             self.tile_size,
             self.tms,
-            self.attribution
+            self.attribution,
+            // Each name with its length, so ["a,b"] and ["a", "b"] differ.
+            self.layers.iter().map(|l| format!("{}:{l}", l.len())).collect::<String>()
         )
     }
 }
@@ -137,6 +144,24 @@ pub fn resolve(spec: &Spec) -> Resolve {
             Ok(None) => return Resolve::Pending,
             Err(e) => return Resolve::Failed(format!("{}: {e}", spec.url)),
         },
+        Kind::Cog => match cog::info(&spec.url) {
+            Ok(Some(info)) => {
+                let archive = Archive {
+                    tiles: cog::template(&spec.url),
+                    vector: false,
+                    min_zoom: info.min_zoom,
+                    max_zoom: info.max_zoom,
+                    attribution: String::new(),
+                    layers: Vec::new(),
+                };
+                match archive_style(spec, archive) {
+                    Some(d) => d,
+                    None => return Resolve::Failed("the raster style could not be made".into()),
+                }
+            }
+            Ok(None) => return Resolve::Pending,
+            Err(e) => return Resolve::Failed(e),
+        },
         Kind::MbTiles => match mbtiles::info(&spec.url) {
             Ok(info) => {
                 let archive = Archive {
@@ -174,6 +199,25 @@ pub fn resolve(spec: &Spec) -> Resolve {
                 return Resolve::Failed(format!("{u}: mapbox:// addresses need Mapbox's own library"));
             }
             let u = template::join(&base, &u);
+            // An ArcGIS vector tile service answers its TileJSON-like description as JSON only
+            // when asked (`?f=json`); its styles point at the service itself.
+            let path = u.split(['?', '#']).next().unwrap_or(&u).trim_end_matches('/').to_string();
+            // The query's other parameters (a token) stay; `f` is the one asked for.
+            let others: Vec<&str> = u
+                .split('#')
+                .next()
+                .and_then(|x| x.split_once('?'))
+                .map(|(_, q)| q)
+                .unwrap_or("")
+                .split('&')
+                .filter(|kv| !kv.is_empty() && !kv.split_once('=').map(|(k, _)| k).unwrap_or(kv).eq_ignore_ascii_case("f"))
+                .collect();
+            let u = if path.to_ascii_lowercase().ends_with("/vectortileserver") {
+                // With the slash, so the tile paths it gives resolve inside the service.
+                if others.is_empty() { format!("{path}/?f=json") } else { format!("{path}/?f=json&{}", others.join("&")) }
+            } else {
+                u
+            };
             // A style's TileJSON is the style's choice; a vector layer's is the user's.
             if let Err(e) = address::check(&u, (spec.kind == Kind::Style).then_some(base.as_str())) {
                 return Resolve::Failed(e);
@@ -197,7 +241,10 @@ pub fn resolve(spec: &Spec) -> Resolve {
         } else if let Source::Vector { tiles, .. } | Source::Raster { tiles, .. } = src {
             for t in tiles.iter_mut() {
                 // Tiles from an archive: read from the archive the layer names.
-                if (spec.kind == Kind::PmTiles && pmtiles::is_tile(t)) || (spec.kind == Kind::MbTiles && mbtiles::is_tile(t)) {
+                if (spec.kind == Kind::PmTiles && pmtiles::is_tile(t))
+                    || (spec.kind == Kind::MbTiles && mbtiles::is_tile(t))
+                    || (spec.kind == Kind::Cog && cog::is_tile(t))
+                {
                     continue;
                 }
                 *t = template::join(&base, t);
@@ -328,9 +375,15 @@ fn archive_style(spec: &Spec, info: Archive) -> Option<Value> {
         *doc.get_mut("sources")?.get_mut("vector")? = source;
         return Some(doc);
     }
+    Some(named_layers_style(spec, source, &names))
+}
+
+/// Each named vector layer in a colour of its own (an archive's that isn't a basemap, or the
+/// layers a service named).
+fn named_layers_style(spec: &Spec, source: Value, names: &[String]) -> Value {
     const COLOURS: [&str; 8] = ["#e6550d", "#3182bd", "#31a354", "#756bb1", "#d6616b", "#8c6d31", "#17becf", "#bcbd22"];
     let mut layers = Vec::new();
-    // Each archive starts the palette somewhere of its own, so two archives look apart.
+    // Each source starts the palette somewhere of its own, so two of them look apart.
     let start = spec.url.bytes().fold(0usize, |h, b| h.wrapping_mul(31).wrapping_add(usize::from(b)));
     for (i, name) in names.iter().take(64).enumerate() {
         let c = COLOURS.get(start.wrapping_add(i) % COLOURS.len()).copied().unwrap_or("#3182bd");
@@ -341,10 +394,18 @@ fn archive_style(spec: &Spec, info: Archive) -> Option<Value> {
         layers.push(json!({"id": format!("{name}-point"), "type": "circle", "source": "vector", "source-layer": name,
             "filter": ["==", "$type", "Point"], "paint": {"circle-color": c, "circle-radius": 3, "circle-stroke-color": "#ffffff", "circle-stroke-width": 1}}));
     }
-    Some(json!({"version": 8, "sources": {"vector": source}, "layers": layers}))
+    json!({"version": 8, "sources": {"vector": source}, "layers": layers})
 }
 
 fn vector_style(spec: &Spec) -> Option<Value> {
+    // Layers the service named: each in a colour of its own.
+    // They keep their own colours even when their names are a basemap's (the archive guess), and
+    // the template's options (`tms`, `{s}`) apply as for any template.
+    if !spec.layers.is_empty() && spec.url.contains("{z}") {
+        let source = json!({"type": "vector", "tiles": templates(spec), "minzoom": spec.min_zoom, "maxzoom": spec.max_zoom, "attribution": spec.attribution});
+        let names: Vec<String> = spec.layers.iter().take(64).cloned().collect();
+        return Some(named_layers_style(spec, source, &names));
+    }
     let mut doc: Value = serde_json::from_str(DEFAULT_STYLE).ok()?;
     let source = if spec.url.contains("{z}") {
         json!({"type": "vector", "tiles": templates(spec), "minzoom": spec.min_zoom, "maxzoom": spec.max_zoom})
@@ -392,6 +453,7 @@ mod tests {
             tile_size: 256,
             tms: false,
             attribution: "&copy; <a href=\"x\">OSM</a>".into(),
+            layers: Vec::new(),
         }
     }
 
@@ -405,6 +467,34 @@ mod tests {
         }
         let Resolve::Ready(v) = resolve(&spec(Kind::Vector, "https://tiles.example.com/{z}/{x}/{y}.pbf")) else { panic!("not ready") };
         assert!(v.style.layers.len() > 10);
+        // Layers a service named (an OGC API collection's) are drawn each in a colour of its own.
+        let mut named = spec(Kind::Vector, "https://tiles.example.com/vineyards/{z}/{y}/{x}?f=mvt");
+        named.layers = vec!["vineyards".into()];
+        let Resolve::Ready(v) = resolve(&named) else { panic!("not ready") };
+        assert_eq!(v.style.layers.len(), 3, "fill, line and point of the one layer");
+        // Named layers keep their own colours even when the names are a basemap's, and the
+        // template's options apply (TMS rows, subdomains).
+        let mut basemapish = spec(Kind::Vector, "https://{s}.tiles.example.com/osm/{z}/{y}/{x}.pbf");
+        basemapish.layers = vec!["water".into(), "roads".into(), "buildings".into()];
+        basemapish.tms = true;
+        let Resolve::Ready(v) = resolve(&basemapish) else { panic!("not ready") };
+        assert_eq!(v.style.layers.len(), 9, "three named layers, not the basemap style");
+        match v.style.sources.first().map(|s| &s.1) {
+            Some(Source::Vector { tiles, .. }) => {
+                assert_eq!(tiles.len(), 3);
+                assert!(tiles.iter().all(|t| t.contains("{-y}") && !t.contains("{s}")), "{tiles:?}");
+            }
+            _ => panic!("no vector source"),
+        }
+    }
+
+    #[test]
+    fn layer_lists_key_apart() {
+        let mut one = spec(Kind::Vector, "https://t.example.com/{z}/{x}/{y}.pbf");
+        one.layers = vec!["a,b".into()];
+        let mut two = one.clone();
+        two.layers = vec!["a".into(), "b".into()];
+        assert_ne!(one.key(), two.key());
     }
 
     #[test]

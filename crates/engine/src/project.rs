@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use rustgis_data::Dataset;
+use rustgis_data::{Dataset, Feature, Field, GeometryType};
 use rustgis_map::Map;
 use serde::{Deserialize, Serialize};
 
@@ -30,7 +30,11 @@ pub struct Project {
     pub maps: Vec<Map>,
     pub active_map: usize,
     #[serde(default)]
-    pub tables: Vec<Dataset>,
+    pub tables: Vec<Table>,
+    /// The id the next standalone table gets: removing a table, or undoing its addition, doesn't
+    /// free its id.
+    #[serde(default)]
+    next_table_id: u32,
     #[serde(default)]
     pub gp_history: Vec<GpRecord>,
     #[serde(default)]
@@ -41,6 +45,9 @@ pub struct Project {
     /// Saved symbology, applied to layers by name.
     #[serde(default)]
     pub styles: Vec<StyleItem>,
+    /// Custom colour ramps, offered beside the built-in ones (renderers keep their own copy).
+    #[serde(default)]
+    pub ramps: Vec<rustgis_map::color::CustomRamp>,
     /// Step-by-step tasks: guided command sequences.
     #[serde(default)]
     pub tasks: Vec<Task>,
@@ -82,6 +89,62 @@ pub struct Project {
     pub shared: Vec<crate::cmd::sharing::SharedItem>,
     #[serde(default)]
     pub data_stores: Vec<crate::cmd::sharing::DataStore>,
+}
+
+/// A standalone table: a dataset without geometry, under an id that stays with it. Names can
+/// repeat and positions change, so the id is what says which table is meant.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(from = "TableFile")]
+pub struct Table {
+    /// Unique among the project's tables, and never 0 once the project is loaded.
+    pub id: u32,
+    #[serde(flatten)]
+    pub dataset: Dataset,
+}
+
+/// A table as a file holds it: the dataset's fields beside the id (absent from files written
+/// before tables had ids). Read field by field, since `flatten` would buffer every row first.
+#[derive(Deserialize)]
+struct TableFile {
+    #[serde(default)]
+    id: u32,
+    name: String,
+    geometry_type: GeometryType,
+    fields: Vec<Field>,
+    features: Vec<Feature>,
+    #[serde(default)]
+    source: Option<String>,
+}
+
+impl From<TableFile> for Table {
+    fn from(t: TableFile) -> Self {
+        let TableFile { id, name, geometry_type, fields, features, source } = t;
+        Table { id, dataset: Dataset { name, geometry_type, fields, features, source, windowed: false } }
+    }
+}
+
+/// The table a name or an id written as text stands for, as its position among `tables`: the
+/// first of that name (names can repeat), else the first of that name ignoring case, else the
+/// one of that id. The one rule commands and tools find a table by.
+pub fn find_table(tables: &[Table], text: &str) -> Option<usize> {
+    tables
+        .iter()
+        .position(|t| t.name == text)
+        .or_else(|| tables.iter().position(|t| t.name.eq_ignore_ascii_case(text)))
+        .or_else(|| text.trim().parse::<u32>().ok().and_then(|id| tables.iter().position(|t| t.id == id)))
+}
+
+impl std::ops::Deref for Table {
+    type Target = Dataset;
+    fn deref(&self) -> &Dataset {
+        &self.dataset
+    }
+}
+
+impl std::ops::DerefMut for Table {
+    fn deref_mut(&mut self) -> &mut Dataset {
+        &mut self.dataset
+    }
 }
 
 /// A unit of work tracked in the Workflow Manager.
@@ -192,10 +255,12 @@ impl Project {
             maps: vec![Map::new("Map")],
             active_map: 0,
             tables: Vec::new(),
+            next_table_id: 1,
             gp_history: Vec::new(),
             layouts: Vec::new(),
             folders: Vec::new(),
             styles: Vec::new(),
+            ramps: Vec::new(),
             tasks: Vec::new(),
             gp_env: GpEnvironment::default(),
             models: Vec::new(),
@@ -213,6 +278,46 @@ impl Project {
         }
     }
 
+    /// The standalone table of an id.
+    pub fn table(&self, id: u32) -> Option<&Table> {
+        self.tables.iter().find(|t| t.id == id)
+    }
+
+    /// An id no table has, for the next one.
+    fn new_table_id(&mut self) -> u32 {
+        let mut id = self.next_table_id.max(1);
+        while self.tables.iter().any(|t| t.id == id) {
+            id = id.wrapping_add(1).max(1);
+        }
+        self.next_table_id = id.wrapping_add(1).max(1);
+        id
+    }
+
+    /// Keeps the ids given in another state of the project from being given again in this one,
+    /// which takes its place (undo, redo): the counter never goes back.
+    pub(crate) fn keep_table_ids(&mut self, other: &Project) {
+        self.next_table_id = self.next_table_id.max(other.next_table_id);
+    }
+
+    /// Adds a standalone table, and returns the id it got.
+    pub fn add_table(&mut self, dataset: Dataset) -> u32 {
+        let id = self.new_table_id();
+        self.tables.push(Table { id, dataset });
+        id
+    }
+
+    /// Adds a tool's output table in place of the tables of its name, as running the tool again
+    /// replaces its result: the first of them keeps its id, so a view open on it stays on it.
+    pub fn put_table(&mut self, dataset: Dataset) -> u32 {
+        let id = match self.tables.iter().find(|t| t.name == dataset.name) {
+            Some(t) => t.id,
+            None => self.new_table_id(),
+        };
+        self.tables.retain(|t| t.name != dataset.name);
+        self.tables.push(Table { id, dataset });
+        id
+    }
+
     /// Repairs invariants after loading (at least one map; a valid active index).
     pub fn normalize(&mut self) {
         if self.maps.is_empty() {
@@ -221,6 +326,23 @@ impl Project {
         if self.active_map >= self.maps.len() {
             self.active_map = 0;
         }
+        // Tables from before they had ids (0), or with an id repeated by a hand edit, get new
+        // ones; the others keep theirs, which commands and views may hold. The new ones come
+        // after every id given so far, so none is that of a table removed earlier.
+        let mut ids = std::collections::HashSet::new();
+        let stale: Vec<usize> = self.tables.iter().enumerate().filter(|(_, t)| t.id == 0 || !ids.insert(t.id)).map(|(i, _)| i).collect();
+        let top = self.tables.iter().map(|t| t.id).max().unwrap_or(0);
+        let mut next = self.next_table_id.max(top.wrapping_add(1)).max(1);
+        for i in stale {
+            while !ids.insert(next) {
+                next = next.wrapping_add(1).max(1);
+            }
+            if let Some(t) = self.tables.get_mut(i) {
+                t.id = next;
+            }
+        }
+        let top = self.tables.iter().map(|t| t.id).max().unwrap_or(0);
+        self.next_table_id = self.next_table_id.max(top.wrapping_add(1)).max(1);
         self.layouts.truncate(200);
         for l in &mut self.layouts {
             l.clamp();
@@ -246,6 +368,15 @@ impl Project {
         unique_names(self.presentations.iter_mut().map(|p| &mut p.name));
         unique_names(self.notebooks.iter_mut().map(|nb| &mut nb.name));
         unique_names(self.dl_models.iter_mut().map(|m| &mut m.name));
+        // Custom ramps are found by name, before them the built-in schemes: a hand edit's repeated
+        // or built-in name gets a suffix, so every ramp stays reachable.
+        self.ramps.truncate(MAX_ITEMS);
+        for r in &mut self.ramps {
+            if rustgis_map::Ramp::from_name(r.name()).is_some() {
+                r.name_mut().push_str(" (custom)");
+            }
+        }
+        unique_names(self.ramps.iter_mut().map(|r| r.name_mut()));
         for m in &mut self.maps {
             // A projection this version can't use (a hand edit, or a newer file) falls back to
             // Web Mercator rather than being named while another is drawn.

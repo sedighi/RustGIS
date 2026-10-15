@@ -162,7 +162,7 @@ pub fn commands() -> Vec<C> {
             let steps = v.get("steps").cloned().ok_or("not a RustGIS web tool (no steps)")?;
             s.run("model.new", &json!({"name": name, "steps": steps, "imported": true}))
         })
-        .params(r#"{"path"?: "*.rgistool", "text"?: tool JSON}"#),
+        .params(r#"{"path"?: "*.rgistool", "text"?: tool JSON, "data"?: base64 file}"#),
     ]
 }
 
@@ -193,7 +193,7 @@ pub fn share_bytes(s: &mut Session, kind: &str, p: &Value) -> Result<(String, Ve
         "geodataService" => {
             let m = map_of(s, p)?;
             let mut layers: Vec<&Dataset> = m.layers.iter().filter(|l| !l.is_raster() && !l.graphics).map(|l| &l.dataset).collect();
-            layers.extend(s.project.tables.iter());
+            layers.extend(s.project.tables.iter().map(|t| &t.dataset));
             Ok((m.name.clone(), ogc_zip(&m.name, &layers, &[])?, m.name.clone()))
         }
         "webTool" => {

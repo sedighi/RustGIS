@@ -186,6 +186,19 @@ fn specs() -> Vec<ToolSpec> {
     out
 }
 
+/// Where a tool sits: `GeoLibre › Terrain › Derivatives`, from its manifest's `taxonomy`
+/// (geolibre-rust's menu grouping). A runner too old to list one gives the coarse `category`:
+/// `GeoLibre › Raster`.
+fn toolbox_of(m: &Value, category: &str) -> String {
+    let taxonomy = m.get("taxonomy");
+    let part = |k: &str| taxonomy.and_then(|t| t.get(k)).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
+    match (part("category"), part("subcategory")) {
+        (Some(top), Some(sub)) => format!("GeoLibre › {top} › {sub}"),
+        (Some(top), None) => format!("GeoLibre › {top}"),
+        _ => format!("GeoLibre › {category}"),
+    }
+}
+
 fn spec_of(m: &Value) -> Option<(ToolSpec, Meta)> {
     let id = m.get("id")?.as_str()?;
     let name = m.get("display_name").and_then(Value::as_str).filter(|n| !n.is_empty()).unwrap_or(id);
@@ -257,7 +270,7 @@ fn spec_of(m: &Value) -> Option<(ToolSpec, Meta)> {
     let spec = ToolSpec {
         id: leak(format!("{PREFIX}{id}")),
         name: leak(name),
-        toolbox: leak(format!("GeoLibre › {category}")),
+        toolbox: leak(toolbox_of(m, &category)),
         summary: leak(summary),
         params: Box::leak(params.into_boxed_slice()),
         run: rustgis_analysis::external_placeholder,

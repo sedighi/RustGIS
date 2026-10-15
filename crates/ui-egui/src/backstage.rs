@@ -53,7 +53,7 @@ pub fn show(app: &mut RustGisApp, ui: &mut Ui) {
                 ui.painter().text(
                     pos2(r.min.x + 50.0, r.center().y),
                     Align2::LEFT_CENTER,
-                    label,
+                    crate::i18n::t(label),
                     if sel { semibold(14.0) } else { regular(14.0) },
                     egui::Color32::WHITE,
                 );

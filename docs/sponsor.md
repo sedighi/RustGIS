@@ -64,5 +64,5 @@ you.
 ## See also
 
 - [User Guide](user-guide/index.md): what RustGIS can do today.
-- [Comparison](comparison.md): RustGIS beside GeoLibre, QGIS and ArcGIS.
+- [Comparison](comparison/index.md): RustGIS beside GeoLibre, QGIS and ArcGIS.
 - [Contributing](contributing.md): the development setup and quality gate.

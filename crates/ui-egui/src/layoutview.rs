@@ -86,7 +86,8 @@ fn handles(r: Rect) -> [Pos2; 8] {
     ]
 }
 
-/// A rectangle after dragging handle `h` by (dx, dy) mm.
+/// A rectangle after dragging handle `h` by (dx, dy) mm. A side the handle doesn't move keeps its
+/// size, so widening a hairline rule leaves it a hairline.
 fn resized((x, y, w, h): (f64, f64, f64, f64), handle: usize, dx: f64, dy: f64) -> (f64, f64, f64, f64) {
     let (mut x0, mut y0, mut x1, mut y1) = (x, y, x + w, y + h);
     match handle {
@@ -99,7 +100,10 @@ fn resized((x, y, w, h): (f64, f64, f64, f64), handle: usize, dx: f64, dy: f64) 
         6 => (x0, y1) = (x0 + dx, y1 + dy),
         _ => x0 += dx,
     }
-    (x0.min(x1), y0.min(y1), (x1 - x0).abs().max(2.0), (y1 - y0).abs().max(2.0))
+    let (sizes_x, sizes_y) = (!matches!(handle, 1 | 5), !matches!(handle, 3 | 7));
+    let w = if sizes_x { (x1 - x0).abs().max(2.0) } else { w };
+    let h = if sizes_y { (y1 - y0).abs().max(2.0) } else { h };
+    (x0.min(x1), y0.min(y1), w, h)
 }
 
 pub fn show(app: &mut RustGisApp, ui: &mut Ui) {
@@ -541,5 +545,20 @@ fn properties(app: &mut RustGisApp, ui: &mut Ui, layout: &Layout, li: usize) {
     if ui.button(tl!("Delete Element")).clicked() {
         let _ = app.run("layout.removeElement", json!({"layout": li, "element": id}));
         app.layout.selected = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resized;
+
+    #[test]
+    fn widening_a_hairline_keeps_it_thin() {
+        let rule = (10.0, 30.0, 100.0, 0.15);
+        assert_eq!(resized(rule, 3, 20.0, 5.0), (10.0, 30.0, 120.0, 0.15));
+        assert_eq!(resized(rule, 7, -10.0, 0.0), (0.0, 30.0, 110.0, 0.15));
+        // Corner and top/bottom handles size the height, at least 2 mm.
+        assert_eq!(resized(rule, 4, 0.0, 0.5), (10.0, 30.0, 100.0, 2.0));
+        assert_eq!(resized(rule, 5, 0.0, 0.5), (10.0, 30.0, 100.0, 2.0));
     }
 }

@@ -8,6 +8,7 @@
 pub mod cmd;
 pub mod project;
 pub mod sample;
+pub mod sources;
 #[cfg(test)]
 mod tests;
 
@@ -27,6 +28,7 @@ use serde_json::Value;
 pub type CmdResult = Result<Value, String>;
 
 /// A command.
+#[derive(Clone, Copy)]
 pub struct CommandSpec {
     pub id: &'static str,
     pub label: &'static str,
@@ -48,6 +50,12 @@ fn always(_: &Session) -> Option<&'static str> {
 }
 
 impl CommandSpec {
+    /// The top-level keys its [`params`](CommandSpec::params) description names, or `None` when
+    /// the description is not a `{"key": …}` object (nothing to check against).
+    pub fn param_keys(&self) -> Option<Vec<&'static str>> {
+        param_keys(self.params)
+    }
+
     pub const fn new(id: &'static str, label: &'static str, location: &'static str, run: fn(&mut Session, &Value) -> CmdResult) -> Self {
         CommandSpec { id, label, location, shortcut: "", params: "{}", mutates: true, enabled: always, run }
     }
@@ -68,6 +76,61 @@ impl CommandSpec {
         self.enabled = f;
         self
     }
+}
+
+/// The keys of a `{"key": …, "other"?: …}` description: quoted words at the top level that open
+/// an entry (after `{` or a top-level `,`, followed by `?`, `:`, `,`, `}` or `|`) or an
+/// alternative (after `|`, followed by `?` or `:`, as in `"path": folder | "url": …` or
+/// `"lon" | "x": number`).
+pub fn param_keys(desc: &str) -> Option<Vec<&str>> {
+    #[derive(PartialEq)]
+    enum At {
+        Value,
+        Entry,
+        Alternative,
+    }
+    let bytes = desc.as_bytes();
+    if bytes.iter().find(|c| !c.is_ascii_whitespace()) != Some(&b'{') {
+        return None;
+    }
+    let (mut keys, mut depth, mut at, mut i) = (Vec::new(), 0usize, At::Value, 0);
+    while let Some(&c) = bytes.get(i) {
+        match c {
+            b'"' => {
+                let end = bytes.get(i + 1..).and_then(|r| r.iter().position(|&c| c == b'"')).map_or(bytes.len(), |n| i + 1 + n);
+                let next = bytes.get(end + 1..).and_then(|r| r.iter().find(|c| !c.is_ascii_whitespace()));
+                let key = match at {
+                    At::Entry => matches!(next, Some(b'?' | b':' | b',' | b'}' | b'|')),
+                    At::Alternative => matches!(next, Some(b'?' | b':')),
+                    At::Value => false,
+                };
+                if depth == 1 && key {
+                    keys.extend(desc.get(i + 1..end));
+                }
+                at = At::Value;
+                i = end;
+            }
+            b'{' | b'[' | b'(' => {
+                depth += 1;
+                at = if depth == 1 { At::Entry } else { At::Value };
+            }
+            b'}' | b']' | b')' => {
+                depth = depth.saturating_sub(1);
+                at = At::Value;
+            }
+            b',' if depth == 1 => at = At::Entry,
+            b'|' if depth == 1 => at = At::Alternative,
+            c if c.is_ascii_whitespace() => {}
+            _ => at = At::Value,
+        }
+        i += 1;
+    }
+    Some(keys)
+}
+
+/// `s` cut to `n` characters, with `…` when cut.
+fn clip(s: &str, n: usize) -> String {
+    if s.chars().count() > n { s.chars().take(n).chain(['…']).collect() } else { s.to_string() }
 }
 
 pub struct Registry {
@@ -196,6 +259,9 @@ pub struct Session {
     pub project: Project,
     pub path: Option<PathBuf>,
     pub dirty: bool,
+    /// Favourite, recent and saved data sources (kept with the app's preferences, not the
+    /// project).
+    pub sources: sources::Sources,
     pub registry: Registry,
     /// Bumped on every change so views can cache.
     pub revision: u64,
@@ -209,6 +275,8 @@ pub struct Session {
     notices_given: u64,
     /// Layer whose attribute table is open.
     pub table_layer: Option<u32>,
+    /// The standalone table shown in the attribute table instead of a layer, by its id.
+    pub table_standalone: Option<u32>,
     /// Edits per layer id since the project was last saved (Edit › Status). A failed command's
     /// are rolled back; undo doesn't subtract them, since they count edits made, not the net change.
     pub edit_counts: std::collections::HashMap<u32, cmd::design::EditCounts>,
@@ -251,11 +319,18 @@ pub struct Session {
     history_projection: String,
     /// Finished asynchronous tool runs waiting for `gp.finish` (the browser's GeoLibre tools).
     pub(crate) pending: Vec<PendingRun>,
-    #[cfg_attr(not(feature = "geolibre"), allow(dead_code))]
     pub(crate) next_pending: u64,
     /// Asynchronous runs started and not yet complete: (id, job, resolved params, start time).
     #[cfg(feature = "geolibre")]
     pub(crate) started: Vec<(u64, rustgis_geolibre::Job, serde_json::Value, u64)>,
+    /// Data downloads of this project under way (Add Data › From URL), by id.
+    downloading: Vec<u64>,
+    /// Downloads that landed, waiting for `layer.addDownload`.
+    pub(crate) downloaded: Vec<(u64, Vec<u8>)>,
+    /// Query results the app ran off the frame (the SQL pane), waiting for `layer.addSql {"ran"}`:
+    /// the id, the query and database (label) they came from, and the result.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) sql_results: Vec<(u64, String, Option<String>, rustgis_data::source::duckdb::Output)>,
 }
 
 /// A finished tool run, held until `gp.finish` applies it.
@@ -309,10 +384,13 @@ impl Session {
         #[cfg(feature = "geolibre")]
         rustgis_geolibre::register();
         rustgis_plugins::tools::register();
+        // FlatGeobuf and GeoParquet by their web address are read through the tile fetchers.
+        render::rustgis_tiles::remote::install();
         Session {
             project,
             path: None,
             dirty: false,
+            sources: sources::Sources::default(),
             registry: Registry { commands: cmd::all() },
             revision: 1,
             tool: Tool::Explore,
@@ -321,6 +399,7 @@ impl Session {
             notices: Vec::new(),
             notices_given: 0,
             table_layer: None,
+            table_standalone: None,
             clipboard: None,
             keep_tool: false,
             active_layout: None,
@@ -346,7 +425,52 @@ impl Session {
             next_pending: 0,
             #[cfg(feature = "geolibre")]
             started: Vec::new(),
+            downloading: Vec::new(),
+            downloaded: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            sql_results: Vec::new(),
         }
+    }
+
+    /// Keeps a query's result the app ran off the frame, for `layer.addSql {"ran": id}`, with the
+    /// query and database it came from: the command takes it only for that same query, so the
+    /// layer's saved query is the one that made it. A few at a time: past that many, the oldest
+    /// are forgotten.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn sql_ran(&mut self, sql: &str, database: Option<&str>, out: rustgis_data::source::duckdb::Output) -> u64 {
+        self.next_pending = self.next_pending.wrapping_add(1);
+        if self.sql_results.len() >= 8 {
+            self.sql_results.remove(0);
+        }
+        let database = database.and_then(|d| cmd::layer::database_param(&serde_json::json!({"database": d}))).map(|d| d.label());
+        self.sql_results.push((self.next_pending, sql.to_string(), database, out));
+        self.next_pending
+    }
+
+    /// Starts a data download for this project (the front end fetches it): its id, for
+    /// [`Session::download_landed`].
+    pub fn download_started(&mut self) -> u64 {
+        self.next_pending = self.next_pending.wrapping_add(1);
+        // A few at a time: past that many, the oldest are forgotten.
+        if self.downloading.len() >= 64 {
+            self.downloading.remove(0);
+        }
+        self.downloading.push(self.next_pending);
+        self.next_pending
+    }
+
+    /// Hands over a download's bytes, for `layer.addDownload {"id"}`; `false` when it was dropped
+    /// (another project was opened meanwhile).
+    pub fn download_landed(&mut self, id: u64, bytes: Vec<u8>) -> bool {
+        let Some(i) = self.downloading.iter().position(|d| *d == id) else { return false };
+        self.downloading.remove(i);
+        self.downloaded.push((id, bytes));
+        true
+    }
+
+    /// Forgets a download that failed.
+    pub fn download_failed(&mut self, id: u64) {
+        self.downloading.retain(|d| *d != id);
     }
 
     pub fn map(&self) -> &Map {
@@ -362,7 +486,20 @@ impl Session {
         if id.starts_with(rustgis_plugins::PREFIX) {
             return self.run_plugin(id, params);
         }
-        let Some(spec) = self.registry.get(id) else { return Err(format!("unknown command '{id}'")) };
+        let Some(&spec) = self.registry.get(id) else { return Err(format!("unknown command '{id}'")) };
+        // Keys the command does not read: said, so a script or an agent can correct itself.
+        if let (Value::Object(given), Some(known)) = (params, spec.param_keys()) {
+            // Bounded: the keys come from the caller (the first few, each clipped).
+            let unknown: Vec<&String> = given.keys().filter(|k| !known.contains(&k.as_str())).collect();
+            if !unknown.is_empty() {
+                let mut said: Vec<String> = unknown.iter().take(5).map(|k| format!("'{}'", clip(k, 40))).collect();
+                if unknown.len() > 5 {
+                    said.push(format!("{} more", unknown.len() - 5));
+                }
+                let reads = if known.is_empty() { "no parameters".to_string() } else { known.join(", ") };
+                self.notify(format!("{id} ignores {} (it reads {reads})", said.join(", ")), false);
+            }
+        }
         // Layer conditions apply to the layer the parameters name, falling back to the active one.
         let named = params.get("layer").and_then(|_| self.layer_id(params).ok());
         let active = self.active_layer;
@@ -383,7 +520,14 @@ impl Session {
                 return Err(format!("{label}: {} is read in place from its file; Load All Features (layer.loadAll) to edit it", l.name));
             }
         }
-        self.guarded(label, mutates, |s| run(s, params))
+        let res = self.guarded(label, mutates, |s| run(s, params));
+        // What was added, for the Data Sources pane's Recent list.
+        if res.is_ok()
+            && let Some(src) = sources::added_by(id, params)
+        {
+            self.sources.note(src);
+        }
+        res
     }
 
     /// Runs `f` as the command `label`: when it `mutates`, the project is snapshotted for undo
@@ -482,11 +626,16 @@ impl Session {
         self.pending.clear();
         #[cfg(feature = "geolibre")]
         self.started.clear();
+        self.downloading.clear();
+        self.downloaded.clear();
+        #[cfg(not(target_arch = "wasm32"))]
+        self.sql_results.clear();
     }
 
     pub(crate) fn undo(&mut self) -> bool {
         let Some((p, label)) = self.undo.pop() else { return false };
         let cur = std::mem::replace(&mut self.project, p);
+        self.project.keep_table_ids(&cur);
         self.redo.push((cur, label));
         self.touch_all_geometry();
         true
@@ -495,6 +644,7 @@ impl Session {
     pub(crate) fn redo(&mut self) -> bool {
         let Some((p, label)) = self.redo.pop() else { return false };
         let cur = std::mem::replace(&mut self.project, p);
+        self.project.keep_table_ids(&cur);
         self.undo.push((cur, label));
         self.touch_all_geometry();
         true
@@ -613,6 +763,22 @@ impl Session {
         {
             self.table_layer = None;
         }
+        if self.table_standalone.is_some_and(|id| self.project.table(id).is_none()) {
+            self.table_standalone = None;
+        }
+    }
+
+    /// A colour ramp by name: one of the built-in ones, else one of the project's custom ramps.
+    pub fn ramp(&self, name: &str) -> Result<rustgis_map::Ramp, String> {
+        rustgis_map::Ramp::from_name(name)
+            .or_else(|| {
+                self.project
+                    .ramps
+                    .iter()
+                    .find(|r| r.name().eq_ignore_ascii_case(name.trim()))
+                    .map(|r| rustgis_map::Ramp::Custom(Box::new(r.clone())))
+            })
+            .ok_or_else(|| format!("unknown colour scheme '{name}'"))
     }
 
     /// Resolves a `layer` parameter (name or id), defaulting to the active layer.
@@ -632,6 +798,20 @@ impl Session {
             _ => {
                 self.active_layer.filter(|id| map.layer(*id).is_some()).ok_or_else(|| "select a layer in the Layers pane first".to_string())
             }
+        }
+    }
+
+    /// Resolves a `table` parameter to a standalone table's position in the project: by its id,
+    /// or by text as [`project::find_table`] reads it (a name, else an id).
+    pub fn table_index(&self, p: &Value) -> Result<usize, String> {
+        let tables = &self.project.tables;
+        match p.get("table") {
+            Some(Value::Number(n)) => n
+                .as_u64()
+                .and_then(|id| tables.iter().position(|t| u64::from(t.id) == id))
+                .ok_or_else(|| format!("no standalone table with id {n}")),
+            Some(Value::String(s)) => project::find_table(tables, s).ok_or_else(|| format!("no standalone table named '{s}'")),
+            _ => Err("give the table's name or id (\"table\")".to_string()),
         }
     }
 

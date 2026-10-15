@@ -72,7 +72,7 @@ Then ask, for example:
 | `list_layers` | The map: its layers (name, type, feature count, fields, visibility, selection), basemap, centre and scale |
 | `view_map` | The map as a PNG image, at the current view |
 | `search_commands` | Finds RustGIS commands by words: their ids, ribbon locations and parameters |
-| `run_command` | Runs a command by id with JSON parameters; each run is one undo step. The result names the layers it added (`layersAdded`) and what the command said beside it (`notices`) |
+| `run_command` | Runs a command by id with JSON parameters; each run is one undo step. The result names the layers it added (`layersAdded`) and what the command said beside it (`notices`), including any parameters it ignored (`layer.moveDown ignores 'steps' (it reads layer)`) |
 | `search_tools` | Finds geoprocessing tools by words |
 | `describe_tool` | A geoprocessing tool's parameters |
 | `run_tool` | Runs a geoprocessing tool; its output is added to the map as a new layer (with `layersAdded` and `notices` as for `run_command`) |

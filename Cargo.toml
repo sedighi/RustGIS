@@ -28,6 +28,7 @@ rustgis-assistant = { path = "crates/assistant" }
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 log = "0.4"
 # std::time that also works in the browser (std panics on wasm32-unknown-unknown).
 web-time = "1"
@@ -39,9 +40,11 @@ csv = "1"
 tiny-skia = "0.12"
 image = { version = "0.25", default-features = false, features = ["png"] }
 ab_glyph = "0.2"
-# Rasters: GeoTIFF decoding/encoding, and coordinate systems by EPSG code (all pure Rust, so the
-# browser build keeps working).
+# Rasters: GeoTIFF decoding/encoding, and coordinate systems by EPSG code (pure Rust, except the
+# Zstandard decoder `rustgis-data` turns on, C that clang compiles for the browser build too).
 tiff = "0.11"
+# The tests' Zstandard-compressed GeoTIFFs (the version the tiff crate decodes with).
+zstd = { version = "0.13", default-features = false }
 proj4rs = { version = "0.2", default-features = false }
 crs-definitions = { version = "0.6", default-features = false, features = ["proj4"] }
 base64 = "0.22"
@@ -60,6 +63,13 @@ bytes = "1"
 flatgeobuf = { version = "6", default-features = false }
 geozero = { version = "0.15", default-features = false, features = ["with-wkb"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
+# Excel and OpenDocument spreadsheets, in pure Rust (the browser too).
+calamine = { version = "0.36", default-features = false }
+laz = { version = "0.13", default-features = false }
+# Zarr chunk codecs, in pure Rust (the browser too): LZ4 (blosc's usual codec; already in the
+# build through parquet) and a zstd decoder.
+lz4_flex = { version = "0.14", default-features = false, features = ["std", "safe-decode", "checked-decode"] }
+ruzstd = { version = "0.9", default-features = false, features = ["std"] }
 
 # ui
 egui = "0.36"
@@ -87,3 +97,11 @@ opt-level = 1
 opt-level = 3
 lto = "thin"
 codegen-units = 16
+
+# The web app's build (Trunk, `data-cargo-profile` in apps/rustgis-web/index.html): whole-program
+# LTO in one codegen unit makes the WebAssembly about a sixth smaller, a quicker download for
+# the web app. Slower to build, so native releases keep thin LTO.
+[profile.web]
+inherits = "release"
+lto = "fat"
+codegen-units = 1

@@ -21,6 +21,9 @@ web-time = { workspace = true }
 # The system's preferred interface languages (the browser's on the web).
 sys-locale = { version = "0.3", features = ["js"] }
 
+# Pictures kept with features (photo thumbnails), shown in the identify popup.
+image = { workspace = true, features = ["jpeg"] }
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rfd = { workspace = true }
 

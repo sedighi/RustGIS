@@ -1,5 +1,5 @@
-//! GDAL, optionally: formats the built-in readers don't know (KML, GPX, File Geodatabase, DXF,
-//! GML, MapInfo, OpenStreetMap…) read through GDAL's `ogr2ogr` program when it is installed.
+//! GDAL, optionally: formats the built-in readers don't know (File Geodatabase, DWG, MapInfo TAB,
+//! OpenStreetMap XML…) read through GDAL's `ogr2ogr` program when it is installed.
 //!
 //! Each layer is converted once into a FlatGeobuf with a spatial index (in WGS 84, reprojected by
 //! GDAL) in the cache folder, then read like any FlatGeobuf, so large files stream a view at a
@@ -15,7 +15,10 @@ use std::process::Command;
 /// (Not `.vrt`, which can point GDAL at any file on the machine, nor `.sqlite`, more often a plain
 /// database than a spatial one.)
 // KML, KMZ and GPX have built-in readers (`kml`, `gpx`), in the browser too.
-pub const EXTENSIONS: &[&str] = &["gml", "dxf", "gdb", "tab", "mif", "osm", "pbf", "geojsonl", "geojsons", "gmt"];
+// GML, MapInfo .mif, OSM PBF, TopoJSON and DXF have built-in readers too (`gml`, `mapinfo`, `osm`,
+// `topojson`, `dxf`). DWG, AutoCAD's own format, is read by GDAL only (its CAD driver, when built
+// in).
+pub const EXTENSIONS: &[&str] = &["dwg", "gdb", "tab", "osm", "geojsonl", "geojsons", "gmt"];
 
 /// Most layers converted from one file.
 const MAX_LAYERS: usize = 64;
@@ -111,7 +114,7 @@ pub fn layers(src: &Path) -> Result<Vec<String>> {
 
 /// Converts the dataset's layers (or just `layer`) to FlatGeobufs, reusing earlier conversions of
 /// the same file.
-/// `crs` gives the coordinate system of a file that doesn't say (`EPSG:2263`; a DXF often doesn't).
+/// `crs` gives the coordinate system of a file that doesn't say (`EPSG:2263`; a DWG often doesn't).
 /// Returns the converted layers, and the layers that couldn't be converted (with why), so a
 /// partial result is never mistaken for the whole file.
 pub fn convert(src: &Path, layer: Option<&str>, crs: Option<&str>) -> Result<(Vec<Converted>, Vec<String>)> {
@@ -311,7 +314,13 @@ mod tests {
 
     #[test]
     fn names() {
-        assert!(is_gdal_name("a.GML") && is_gdal_name("/x/roads.gdb/") && !is_gdal_name("t.gpx"));
+        assert!(
+            is_gdal_name("a.DWG")
+                && !is_gdal_name("a.dxf")
+                && is_gdal_name("/x/roads.gdb/")
+                && !is_gdal_name("t.gpx")
+                && !is_gdal_name("a.gml")
+        );
         assert!(!is_gdal_name("a.geojson") && !is_gdal_name("a.fgb") && !is_gdal_name("noext"));
         // A layer named like an option never reaches GDAL.
         let e = convert_one_in(&std::env::temp_dir(), Path::new("x.kml"), "-overwrite", None, None, true).unwrap_err();

@@ -2,31 +2,51 @@
 
 use std::path::Path;
 
-use rustgis_data::GeometryType;
+use rustgis_data::{GeometryType, photo};
 use rustgis_map::{ClassMethod, Marker, Ramp, Renderer, Rgba};
 use serde_json::{Value, json};
 
-use super::{b, f, need_feature_layer, need_layer, ps};
+use super::{b, f, need_feature_layer, need_layer, ps, uint};
 use crate::{CmdResult, CommandSpec as C, Session};
 
 pub fn commands() -> Vec<C> {
     vec![
         C::new("layer.addData", "Add Data", "Home › Add", add_data)
-            .params(r#"{"path": string, "name"?: string, "layer"?: "GeoPackage, GDAL or DuckDB layer", "stream"?: bool, "crs"?: "EPSG:… (or WKT) for a CSV's coordinates, or a GDAL or DuckDB file that doesn't say", "x"?: "CSV x/longitude column", "y"?: "CSV y/latitude column", "wkt"?: "CSV WKT geometry column", "delimiter"?: ","|";"|"\\t"|"|"}"#),
+            .params(r#"{"path": string, "name"?: string, "layer"?: "GeoPackage, GDAL, DuckDB or DXF layer", "paperSpace"?: "bool: a DXF's layout entities too", "stream"?: bool, "crs"?: "EPSG:… (or WKT) for a CSV's coordinates, or a GDAL or DuckDB file that doesn't say", "x"?: "CSV x/longitude column", "y"?: "CSV y/latitude column", "wkt"?: "CSV WKT geometry column", "delimiter"?: ","|";"|"\\t"|"|"}"#),
+        C::new("layer.addPhotos", "Add Photos", "Home › Add", add_photos).params(
+            r#"{"paths"?: [JPEG photo files], "folder"?: "a folder of photos (every JPEG in it)", "name"?: "the layer (default Photos; photos join it when it exists)"}"#,
+        ),
         C::new("info.fileLayers", "List Layers in File", "Home › Add › Add Data", file_layers)
             .view()
             .params(r#"{"path": string}"#),
-        C::new("layer.addSql", "Add Data From SQL", "Home › Add", add_sql).params(
-            r#"{"sql": "one DuckDB SELECT; DuckDB Spatial's ST_ functions, read_parquet('…'), web addresses", "name"?: string, "database"?: "a .duckdb file whose tables the query names", "crs"?: "EPSG:… of a geometry that doesn't say", "stream"?: bool}"#,
+        C::new("info.fileColumns", "List Columns in File", "Home › Add › Delimited Text", file_columns).view().params(
+            r#"{"path": "a delimited text file (CSV, TSV, TXT) or a spreadsheet", "delimiter"?: ","|";"|"\\t"|"|", "layer"?: "a spreadsheet's sheet (the first by default)"}"#,
         ),
+        C::new("layer.addSql", "Add Data From SQL", "Home › Add", add_sql).params(
+            r#"{"sql": "one DuckDB SELECT; DuckDB Spatial's ST_ functions, read_parquet('…'), web addresses", "name"?: string, "database"?: "a .duckdb file or a PostgreSQL connection (postgres:host=… dbname=…) whose tables the query names", "password"?: "the connection's, kept for this session only", "crs"?: "EPSG:… of a geometry that doesn't say", "stream"?: bool, "ran"?: "a result the app ran (the SQL pane)"}"#,
+        ),
+        C::new("layer.addDatabase", "Add Data From Database", "Home › Add", add_database).params(
+            r#"{"database": "postgres:host=… dbname=… user=… (or a postgresql:// address), or a .duckdb file", "password"?: "kept for this session only, never saved", "layer"?: "a table, as table or schema.table (default: every table with a geometry column)", "crs"?: "EPSG:… of a geometry that doesn't say", "name"?: string, "stream"?: bool}"#,
+        ),
+        C::new("info.databaseTables", "List Database Tables", "Home › Add › Add Data From Database", database_tables)
+            .view()
+            .params(r#"{"database": "as layer.addDatabase", "password"?: string}"#),
         C::new("layer.loadAll", "Load All Features", "Layers", load_all).when(need_streamed).params(r#"{"layer"?: name|id}"#),
+        C::new("layer.addUrl", "Add Data From URL", "Home › Add", add_url).params(
+            r#"{"url": "https://…/data.geojson|.csv|.parquet|.fgb|.gpkg|.zip|.kml|.kmz|.gpx|.tif (the format from the address, else the contents) | a .pmtiles archive", "name"?: text, "layer"?: "one layer of a zip, KML or GPX", "zoom"?: "bool: true zooms to what was added; false keeps the view of a GeoParquet or FlatGeobuf read in place (zoomed to only when the map was empty)", "x"?, "y"?, "wkt"?, "crs"?, "delimiter"?, "paperSpace"?, "stream"? (as layer.addData), "whole"?: "bool: download a cloud-optimised GeoTIFF whole (as a raster layer) instead of reading it in place"}"#,
+        ),
+        C::new("layer.addDownload", "Add Downloaded Data", "Home › Add", add_download)
+            .params(r#"{"id": a download the app finished (Add Data › From URL), "url": its address, "name"?: text, "layer"?: text, "zoom"?: bool, "x"?, "y"?, "wkt"?, "crs"?, "delimiter"?, "paperSpace"?, "stream"? (as layer.addData), "service"?: bool (a service's features: their axes and paging are checked), "coverage"?: bool (a WCS coverage: a GeoTIFF, else the service's error)}"#),
+        C::new("layer.addEncodedPolyline", "Add Encoded Polyline", "Home › Add", add_encoded_polyline).params(
+            r#"{"polyline": "encoded polyline text" | [texts] (one line each), "precision"?: 5 (Google) | 6 (OSRM, Valhalla), "name"?: text}"#,
+        ),
         C::new("layer.addDataText", "Add Data (from text)", "Home › Add", add_data_text).params(r#"{"fileName": "name.geojson|.csv|.tsv", "text": string, "name"?: text, "x"?, "y"?, "wkt"?, "crs"?, "delimiter"? (as layer.addData, for delimited text)}"#),
         C::new("layer.addSample", "Add Sample Data", "Home › Add › Add Data", add_sample).params(r#"{"name": "countries"|"cities"|"rivers"|"lakes"}"#),
         C::new("layer.remove", "Remove", "Layers", remove).key("Delete").when(need_layer).params(r#"{"layer"?: name|id}"#),
         C::new("layer.select", "Select Layer", "Layers", |s, p| {
             s.active_layer = Some(s.layer_id(p)?);
             Ok(Value::Null)
-        })
+        }).params(r#"{"layer"?: name|id (default: the active layer)}"#)
         .view(),
         C::new("layer.rename", "Rename", "Layers", |s, p| {
             let n = s_req(p, "name")?.trim().chars().take(200).collect::<String>();
@@ -45,31 +65,32 @@ pub fn commands() -> Vec<C> {
                 }
             }
             Ok(r)
-        })
+        }).params(r#"{"layer"?, "name": string}"#)
         .when(need_layer),
         C::new("layer.visibility", "Visibility", "Layers", |s, p| {
             let on = b(p, "visible");
             with(s, p, |l| l.visible = on.unwrap_or(!l.visible))
-        })
+        }).params(r#"{"layer"?, "visible"?: bool (toggles when omitted)}"#)
         .when(need_layer),
-        C::new("layer.moveUp", "Move Up", "Layers", |s, p| move_layer(s, p, -1)).when(need_layer),
-        C::new("layer.moveDown", "Move Down", "Layers", |s, p| move_layer(s, p, 1)).when(need_layer),
+        C::new("layer.moveUp", "Move Up", "Layers", |s, p| move_layer(s, p, -1)).params(r#"{"layer"?: name|id (default: the active layer)}"#).when(need_layer),
+        C::new("layer.moveDown", "Move Down", "Layers", |s, p| move_layer(s, p, 1)).params(r#"{"layer"?: name|id (default: the active layer)}"#).when(need_layer),
+        C::new("layer.move", "Move", "Layers", move_to).when(need_layer).params(r#"{"layer"?: name|id, "to": position (0 = top)}"#),
         C::new("layer.zoomTo", "Zoom To Layer", "Layers", |s, p| {
             let id = s.layer_id(p)?;
-            let e = s.map().layer(id).map(|l| l.extent()).unwrap_or_default();
+            let e = s.map().layer(id).map(|l| l.shown_extent()).unwrap_or_default();
             if e.is_empty() {
                 return Err("the layer has no features".into());
             }
             s.zoom_to(&e);
             Ok(Value::Null)
-        })
+        }).params(r#"{"layer"?: name|id (default: the active layer)}"#)
         .view()
         .when(need_layer),
         C::new("layer.symbology", "Symbology", "Style › Drawing", symbology)
             .when(need_feature_layer)
             .params(r#"{"layer"?, "type": "single"|"unique"|"graduated"|"proportional", "field"?, "classes"?: 1..12, "method"?: "naturalBreaks"|"equalInterval"|"quantile", "ramp"?: string}"#),
         C::new("layer.ramp", "Color Scheme", "Style › Drawing", |s, p| {
-            let r = Ramp::from_name(s_req(p, "ramp")?).ok_or("unknown colour scheme")?;
+            let r = s.ramp(s_req(p, "ramp")?)?;
             with(s, p, |l| match &mut l.raster {
                 Some(rl) => rl.style.set_ramp(r),
                 None => {
@@ -77,7 +98,7 @@ pub fn commands() -> Vec<C> {
                     l.renderer.apply_ramp(r, g)
                 }
             })
-        })
+        }).params(r#"{"layer"?, "ramp": colour ramp name}"#)
         .when(need_layer),
         C::new("layer.color", "Symbol Color", "Style › Drawing", |s, p| {
             let c = Rgba::from_hex(s_req(p, "color")?).ok_or("color must be #RRGGBB or #RRGGBBAA")?;
@@ -91,7 +112,7 @@ pub fn commands() -> Vec<C> {
             })
         })
         .when(need_feature_layer)
-        .params(r##"{"layer"?, "color": "#RRGGBB"}"##),
+        .params(r##"{"layer"?, "color": "#RRGGBB"|"#RRGGBBAA"}"##),
         C::new("layer.outline", "Outline", "Style › Drawing", |s, p| {
             let c = s.get_color(p, "color")?;
             let w = f(p, "width").map(|w| w.clamp(0.0, 20.0) as f32);
@@ -107,7 +128,7 @@ pub fn commands() -> Vec<C> {
             })
         })
         .when(need_feature_layer)
-        .params(r##"{"layer"?, "color"?: "#RRGGBB", "width"?: number}"##),
+        .params(r##"{"layer"?, "color"?: "#RRGGBB"|"#RRGGBBAA", "width"?: number}"##),
         C::new("layer.marker", "Marker", "Style › Drawing", |s, p| {
             let shape = ps(p, "shape").map(|n| Marker::ALL.into_iter().find(|m| m.label().eq_ignore_ascii_case(n)).ok_or("unknown marker shape")).transpose()?;
             let size = f(p, "size").map(|v| v.clamp(1.0, 80.0) as f32);
@@ -143,12 +164,12 @@ pub fn commands() -> Vec<C> {
         C::new("layer.selectable", "Selectable", "Layers", |s, p| {
             let on = b(p, "on");
             with(s, p, |l| l.selectable = on.unwrap_or(!l.selectable))
-        })
+        }).params(r#"{"layer"?, "on"?: bool (toggles when omitted)}"#)
         .when(need_feature_layer),
         C::new("layer.expand", "Expand Legend", "Layers", |s, p| {
             let on = b(p, "on");
             with(s, p, |l| l.expanded = on.unwrap_or(!l.expanded))
-        })
+        }).params(r#"{"layer"?, "on"?: bool (toggles when omitted)}"#)
         .view()
         .when(need_layer),
         C::new("labels.enable", "Label", "Style › Labels", |s, p| {
@@ -166,7 +187,7 @@ pub fn commands() -> Vec<C> {
                 l.labels.field = fname.clone();
                 l.labels.enabled = true;
             })
-        })
+        }).params(r#"{"layer"?, "field": name}"#)
         .when(need_feature_layer),
         C::new("labels.style", "Text Symbol", "Style › Text Symbol", |s, p| {
             let size = f(p, "size").map(|v| v.clamp(4.0, 72.0) as f32);
@@ -188,7 +209,7 @@ pub fn commands() -> Vec<C> {
             })
         })
         .when(need_feature_layer)
-        .params(r##"{"layer"?, "size"?: number, "color"?: "#RRGGBB", "halo"?: bool, "bold"?: bool}"##),
+        .params(r##"{"layer"?, "size"?: number, "color"?: "#RRGGBB"|"#RRGGBBAA", "halo"?: bool, "bold"?: bool}"##),
         C::new("layer.definitionQuery", "Definition Query", "Data › Definition Query", |s, p| {
             let q = ps(p, "where").map(str::trim).unwrap_or("").to_string();
             let id = s.layer_id(p)?;
@@ -204,7 +225,7 @@ pub fn commands() -> Vec<C> {
         C::new("table.open", "Attribute Table", "Data › Table", |s, p| {
             s.table_layer = Some(s.layer_id(p)?);
             Ok(Value::Null)
-        })
+        }).params(r#"{"layer"?: name|id (default: the active layer)}"#)
         .view()
         .key("Ctrl+T")
         .when(need_feature_layer),
@@ -213,11 +234,22 @@ pub fn commands() -> Vec<C> {
             Ok(Value::Null)
         })
         .view(),
+        C::new("table.remove", "Remove Table", "Data › Table", |s, p| {
+            // The position this command took before tables had ids: refused, rather than
+            // removing the first table of the name where another was meant.
+            if p.get("at").is_some_and(|at| !at.is_null()) {
+                return Err("\"at\" is no longer read: give the table's id as \"table\" (info.project lists the ids)".into());
+            }
+            let i = s.table_index(p)?;
+            s.project.tables.remove(i);
+            Ok(Value::Null)
+        })
+        .params(r#"{"table": name|id (a standalone table; of tables sharing a name, the name is the first)} (the old position, "at", is refused)"#),
         C::new("layer.fields", "Fields", "Data › Data Design", |s, p| {
             let id = s.layer_id(p)?;
             let l = s.map().layer(id).ok_or("no layer")?;
             Ok(json!(l.dataset.fields.iter().map(|f| json!({"name": f.name, "type": f.ty.label(), "alias": f.alias})).collect::<Vec<_>>()))
-        })
+        }).params(r#"{"layer"?: name|id (default: the active layer)}"#)
         .view()
         .when(need_feature_layer),
     ]
@@ -258,10 +290,131 @@ pub fn add_dataset(s: &mut Session, mut ds: rustgis_data::Dataset) -> u32 {
     id
 }
 
+/// The photo layer single photos join (added by Add Data, dropped or uploaded one at a time).
+pub(crate) const PHOTOS: &str = "Photos";
+
+/// Adds photos as points: to the photo layer named `name` when there is one, else to a new one.
+/// `feed` hands the reader one photo at a time, so only one file's bytes are held at once; the
+/// reader stops taking photos when the layer is full. Photos without a GPS position are left out
+/// and named in a notice.
+pub(crate) fn add_photos_to(s: &mut Session, name: &str, feed: impl FnOnce(&mut photo::Reader)) -> CmdResult {
+    let existing = s.map().layers.iter().find(|l| l.name == name && photo::is_photo_layer(&l.dataset)).map(|l| l.id);
+    let held = existing.and_then(|id| s.map().layer(id)).map_or(0, |l| l.dataset.features.len());
+    let room = photo::MAX_PHOTOS.saturating_sub(held);
+    let mut reader = photo::Reader::new(name, room);
+    feed(&mut reader);
+    let (ds, report) = reader.finish();
+    for m in &report.messages {
+        s.notify(m.clone(), false);
+    }
+    if ds.features.is_empty() {
+        return Err(report.messages.first().cloned().unwrap_or_else(|| "no photo with a GPS position".into()));
+    }
+    // The reader took no more than there is room for; `take` keeps that so if it ever changes.
+    let added = ds.features.len().min(room);
+    let extent =
+        ds.features.iter().take(added).filter_map(|f| f.geometry.as_ref()).fold(rustgis_geom::Extent::EMPTY, |e, g| e.union(&g.extent()));
+    let id = match existing {
+        Some(id) => {
+            let l = s.map_mut().layer_mut(id).ok_or("no such layer")?;
+            for f in ds.features.into_iter().take(added) {
+                l.dataset.push(f.geometry, f.attrs);
+            }
+            l.touch_geometry();
+            s.active_layer = Some(id);
+            id
+        }
+        None => add_dataset(s, ds),
+    };
+    s.zoom_to(&extent);
+    Ok(json!({"layer": id, "photos": added, "skipped": report.skipped}))
+}
+
+/// The most folder entries `layer.addPhotos` lists (it keeps the first photos by name).
+#[cfg(not(target_arch = "wasm32"))]
+const MAX_LISTED: usize = 100_000;
+
+/// `layer.addPhotos`: photo files (or every JPEG in a folder) as points.
+fn add_photos(s: &mut Session, p: &Value) -> CmdResult {
+    let name = ps(p, "name").map(str::trim).filter(|n| !n.is_empty()).unwrap_or(PHOTOS).to_string();
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (s, name);
+        Err("in the web app, add photos by uploading them (Add Data)".into())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let mut paths: Vec<std::path::PathBuf> = p
+            .get("paths")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(std::path::PathBuf::from)
+            .collect();
+        if let Some(folder) = ps(p, "folder").map(str::trim).filter(|f| !f.is_empty()) {
+            let entries = std::fs::read_dir(folder).map_err(|e| format!("{folder}: {e}"))?;
+            // Sorted by name before the reader takes the first photos, so which ones are kept
+            // doesn't depend on the order the folder lists them in.
+            let mut found: Vec<std::path::PathBuf> = entries
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|p| photo::is_photo_name(&p.to_string_lossy()) && p.is_file())
+                .take(MAX_LISTED)
+                .collect();
+            found.sort();
+            paths.extend(found);
+        }
+        if paths.is_empty() {
+            return Err("give \"paths\" (photo files) or a \"folder\" of photos".into());
+        }
+        add_photos_to(s, &name, |reader| {
+            for (i, path) in paths.iter().enumerate() {
+                if reader.is_full() {
+                    reader.left_over(paths.len() - i);
+                    break;
+                }
+                let shown = path.display().to_string();
+                match std::fs::metadata(path) {
+                    Ok(m) if m.len() > photo::MAX_BYTES as u64 => {
+                        reader.leave_out(format!("{shown}: larger than {} MB", photo::MAX_BYTES >> 20))
+                    }
+                    // Read, parsed and thumbnailed, then the bytes are dropped before the next.
+                    Ok(_) => match std::fs::read(path) {
+                        Ok(bytes) => reader.add(&shown, &bytes),
+                        Err(e) => reader.leave_out(format!("{shown}: {e}")),
+                    },
+                    Err(e) => reader.leave_out(format!("{shown}: {e}")),
+                }
+            }
+        })
+    }
+}
+
 fn add_data(s: &mut Session, p: &Value) -> CmdResult {
     let path = s_req(p, "path")?;
+    // A geotagged photo: a point in the photo layer.
+    #[cfg(not(target_arch = "wasm32"))]
+    if rustgis_data::photo::is_photo_name(path) {
+        let name = ps(p, "name").map(str::trim).filter(|n| !n.is_empty()).unwrap_or(PHOTOS).to_string();
+        return add_photos(s, &json!({"paths": [path], "name": name}));
+    }
     if rustgis_data::raster::is_raster_name(path) {
         return super::raster::add_path(s, path, ps(p, "name").map(str::trim).filter(|n| !n.is_empty()));
+    }
+    // A Zarr store's folder: its first variable, or the one "layer" names.
+    #[cfg(not(target_arch = "wasm32"))]
+    if rustgis_data::raster::zarr::is_store(Path::new(path)) {
+        let mut q = json!({"path": path});
+        for (from, to) in [("layer", "variable"), ("name", "name"), ("crs", "crs")] {
+            if let Some(v) = p.get(from) {
+                q[to] = v.clone();
+            }
+        }
+        return super::zarr::add(s, &q);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    if rustgis_data::raster::gdal::is_gdal_raster_name(path) {
+        return super::raster::add_gdal_path(s, p, path);
     }
     if path.to_ascii_lowercase().ends_with(".rgislyr") {
         return add_layer_file(s, path);
@@ -301,7 +454,20 @@ fn add_data(s: &mut Session, p: &Value) -> CmdResult {
     }
     #[cfg(not(target_arch = "wasm32"))]
     if rustgis_data::source::duckdb::is_duckdb_name(path) {
-        return add_duckdb(s, p, path);
+        return add_tables(s, p, &rustgis_data::source::duckdb::Database::File(path.into()));
+    }
+    // A spreadsheet: one sheet ("layer"), read like delimited text.
+    if rustgis_data::sheets::is_sheet_name(path) {
+        let meta = std::fs::metadata(path).map_err(|e| format!("{path}: {e}"))?;
+        if meta.len() > super::raster::MAX_UPLOAD_BYTES as u64 {
+            return Err(format!("{path} is too large to open"));
+        }
+        let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+        return add_sheet(s, p, path, &bytes);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    if large_osm(path) {
+        return add_gdal(s, p, path);
     }
     if rustgis_data::io::is_multi_layer_name(path) {
         let meta = std::fs::metadata(path).map_err(|e| format!("{path}: {e}"))?;
@@ -314,7 +480,8 @@ fn add_data(s: &mut Session, p: &Value) -> CmdResult {
     }
     let delimited = read_delimited(p, path, || {
         let meta = std::fs::metadata(path).map_err(|e| format!("{path}: {e}"))?;
-        if meta.len() > super::raster::MAX_UPLOAD_BYTES as u64 {
+        // The limit the text readers keep without options too.
+        if meta.len() > rustgis_data::io::MAX_BYTES {
             return Err(format!("{path} is too large to open"));
         }
         std::fs::read(path).map_err(|e| format!("{path}: {e}"))
@@ -330,8 +497,48 @@ fn add_data(s: &mut Session, p: &Value) -> CmdResult {
 /// or KMZ's points, lines and polygons drawn in its styles, a GPX's waypoints, routes, tracks and
 /// track points. `"layer"` picks one by name; a name given applies to the first.
 pub(crate) fn add_layers(s: &mut Session, p: &Value, file_name: &str, bytes: &[u8]) -> CmdResult {
-    let mut reads = rustgis_data::io::read_layers(file_name, bytes).map_err(|e| e.to_string())?;
-    if let Some(want) = ps(p, "layer").map(str::trim).filter(|t| !t.is_empty()) {
+    // A LandXML file in a coordinate system it doesn't say.
+    let crs = ps(p, "crs").map(str::trim).filter(|c| !c.is_empty());
+    let landxml = rustgis_data::landxml::is_landxml_name(file_name)
+        || (file_name.to_ascii_lowercase().ends_with(".xml")
+            && rustgis_data::landxml::looks_like_landxml(&String::from_utf8_lossy(bytes.get(..bytes.len().min(4096)).unwrap_or(bytes))));
+    let lower = file_name.to_ascii_lowercase();
+    let kml = lower.ends_with(".kml") || lower.ends_with(".kmz");
+    // A KML's ground overlays (pictures) are raster layers, added after its placemarks.
+    let overlays = if kml && ps(p, "layer").is_none() { ground_overlays(s, file_name, bytes) } else { Vec::new() };
+    // A DXF drawing: its coordinate system (it never says) and one of its own layers.
+    let dxf = rustgis_data::dxf::is_dxf_name(file_name);
+    let mut reads = match crs.filter(|_| landxml) {
+        _ if dxf => {
+            let opts = rustgis_data::dxf::Options {
+                crs: crs.map(rustgis_data::raster::Crs::parse).transpose()?,
+                layer: ps(p, "layer").map(str::trim).filter(|l| !l.is_empty()),
+                paper_space: b(p, "paperSpace").unwrap_or(false),
+            };
+            rustgis_data::dxf::read(file_name, bytes, &opts)
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .map(|(dataset, report)| rustgis_data::io::LayerRead { dataset, report, styles: Vec::new() })
+                .collect()
+        }
+        Some(c) => {
+            let crs = rustgis_data::raster::Crs::parse(c)?;
+            rustgis_data::landxml::read(file_name, bytes, Some(crs))
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .map(|(dataset, report)| rustgis_data::io::LayerRead { dataset, report, styles: Vec::new() })
+                .collect()
+        }
+        None => match rustgis_data::io::read_layers(file_name, bytes) {
+            Ok(r) => r,
+            // A document of overlays only.
+            Err(_) if !overlays.is_empty() => Vec::new(),
+            Err(e) => return Err(e.to_string()),
+        },
+    };
+    if let Some(want) = ps(p, "layer").map(str::trim).filter(|t| !t.is_empty())
+        && !dxf
+    {
         let names: Vec<String> = reads.iter().map(|r| r.dataset.name.clone()).collect();
         // By its full name or its last word ("tracks" for "walk tracks").
         let pick = |n: &str| n.eq_ignore_ascii_case(want) || n.rsplit(' ').next().is_some_and(|w| w.eq_ignore_ascii_case(want));
@@ -361,6 +568,12 @@ pub(crate) fn add_layers(s: &mut Session, p: &Value, file_name: &str, bytes: &[u
             Err(e) => failed.push(format!("{name}: {e}")),
         }
     }
+    for (name, raster) in overlays {
+        match super::raster::add_overlay(s, &name, raster) {
+            Ok(r) => added.push(r),
+            Err(e) => failed.push(format!("{name}: {e}")),
+        }
+    }
     if added.is_empty() {
         return Err(failed.join("; "));
     }
@@ -376,6 +589,50 @@ pub(crate) fn add_layers(s: &mut Session, p: &Value, file_name: &str, bytes: &[u
         out["layer"] = first.clone();
     }
     Ok(out)
+}
+
+/// A KML or KMZ's ground overlays as rasters: pictures inside a KMZ, or files beside a KML on
+/// disk (by a relative path that stays in its folder). Overlays that can't be drawn are said.
+fn ground_overlays(s: &mut Session, file_name: &str, bytes: &[u8]) -> Vec<(String, rustgis_data::raster::Raster)> {
+    let (found, undrawn) = match rustgis_data::kml::ground_overlays(file_name, bytes) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    let mut notes = Vec::new();
+    let dir = Path::new(file_name).parent().filter(|d| d.is_absolute());
+    for (g, picture) in found {
+        let href = g.href.trim();
+        let picture = picture.or_else(|| {
+            // Beside the document: no web addresses, absolute paths or climbing out of its folder.
+            let rel = Path::new(href);
+            let safe = !href.contains("://")
+                    && rel.components().next().is_some()
+                    // Only names (no root, drive prefix or `..`), so it stays in the folder on
+                    // Windows too (`C:x`, `\\x`).
+                    && rel.components().all(|c| matches!(c, std::path::Component::Normal(_) | std::path::Component::CurDir));
+            if !safe {
+                return None;
+            }
+            let p = dir?.join(rel);
+            (std::fs::metadata(&p).ok()?.len() < 256 << 20).then(|| std::fs::read(p).ok()).flatten()
+        });
+        let Some(picture) = picture else {
+            notes.push(format!("{} (its picture {href} isn't in the file or beside it)", g.name));
+            continue;
+        };
+        match rustgis_data::raster::from_image(&g.name, &picture, g.bbox, g.rotation) {
+            Ok(r) => out.push((g.name.clone(), r)),
+            Err(e) => notes.push(format!("{} ({e})", g.name)),
+        }
+    }
+    if undrawn > 0 {
+        notes.push(format!("{undrawn} ground overlays without a picture or a box (LatLonBox)"));
+    }
+    if !notes.is_empty() {
+        s.notify(format!("{file_name}: {}", notes.join("; ")), false);
+    }
+    out
 }
 
 /// Draws a layer in the styles its file declares (KML): unique values of its `style` field, each
@@ -462,6 +719,30 @@ fn file_layers(_s: &mut Session, p: &Value) -> CmdResult {
     if !Path::new(path).is_file() {
         return Err(format!("{path}: no such file"));
     }
+    if rustgis_data::sheets::is_sheet_name(path) {
+        let meta = std::fs::metadata(path).map_err(|e| format!("{path}: {e}"))?;
+        if meta.len() > super::raster::MAX_UPLOAD_BYTES as u64 {
+            return Err(format!("{path} is too large to open"));
+        }
+        let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+        let layers = rustgis_data::sheets::sheet_names(&bytes).map_err(err)?;
+        return Ok(json!({"count": layers.len(), "layers": layers}));
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    if large_osm(path) {
+        let layers = rustgis_data::source::gdal::layers(Path::new(path)).map_err(err)?;
+        return Ok(json!({"count": layers.len(), "layers": layers}));
+    }
+    // A DXF drawing's own layers (the ones it draws on), picked with "layer".
+    if rustgis_data::dxf::is_dxf_name(path) {
+        let meta = std::fs::metadata(path).map_err(|e| format!("{path}: {e}"))?;
+        if meta.len() > rustgis_data::io::MAX_BYTES {
+            return Err(format!("{path} is too large to open"));
+        }
+        let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+        let layers = rustgis_data::dxf::layers(path, &bytes).map_err(err)?;
+        return Ok(json!({"count": layers.len(), "layers": layers}));
+    }
     if rustgis_data::io::is_multi_layer_name(path) {
         let meta = std::fs::metadata(path).map_err(|e| format!("{path}: {e}"))?;
         if meta.len() > super::raster::MAX_UPLOAD_BYTES as u64 {
@@ -543,7 +824,11 @@ pub(crate) fn add_source(s: &mut Session, p: &Value, origin: Origin<'_>) -> CmdR
         }
         .map_err(err)?;
         let info = src.info().clone();
-        let stream = b(p, "stream").unwrap_or(info.count.is_none_or(|c| c > rustgis_map::source::STREAM_ABOVE));
+        // A point cloud is always read in place, so a project keeps its file's path, not millions
+        // of points; its colours come from a sample of it.
+        let lidar = info.format == "LiDAR";
+        let style = if lidar { lidar_renderer(src.as_ref(), s.map().layers.len() as u32) } else { None };
+        let stream = b(p, "stream").unwrap_or(lidar || info.count.is_none_or(|c| c > rustgis_map::source::STREAM_ABOVE));
         // A name given applies to a single table.
         let name = match ps(p, "name").map(str::trim).filter(|n| !n.is_empty()) {
             Some(n) if ids.is_empty() => n.to_string(),
@@ -562,6 +847,9 @@ pub(crate) fn add_source(s: &mut Session, p: &Value, origin: Origin<'_>) -> CmdR
                 s.notify(format!("{unique}: {n}"), false);
             }
             let id = s.map_mut().add_streamed(unique.clone(), layer);
+            if let (Some(r), Some(l)) = (style.clone(), s.map_mut().layer_mut(id)) {
+                l.renderer = r;
+            }
             s.active_layer = Some(id);
             ids.push(id);
             streamed = true;
@@ -579,6 +867,9 @@ pub(crate) fn add_source(s: &mut Session, p: &Value, origin: Origin<'_>) -> CmdR
             ds.source = Some(label.clone());
             features += ds.features.len() as u64;
             let id = add_dataset(s, ds);
+            if let (Some(r), Some(l)) = (style.clone(), s.map_mut().layer_mut(id)) {
+                l.renderer = r;
+            }
             ids.push(id);
             for m in report.messages {
                 s.notify(m, false);
@@ -607,6 +898,58 @@ pub(crate) fn add_source(s: &mut Session, p: &Value, origin: Origin<'_>) -> CmdR
         out["skipped"] = json!(skipped.iter().take(MAX_SKIPPED_NAMED).collect::<Vec<_>>());
     }
     Ok(out)
+}
+
+/// ASPRS's standard classes, coloured as LiDAR viewers commonly show them.
+const ASPRS: [(i64, [u8; 3]); 13] = [
+    (0, [0xA8, 0xA8, 0xA8]),
+    (1, [0xA8, 0xA8, 0xA8]),
+    (2, [0xA6, 0x7C, 0x52]),
+    (3, [0xB5, 0xDB, 0x7E]),
+    (4, [0x5F, 0xB0, 0x4A]),
+    (5, [0x1F, 0x6E, 0x2C]),
+    (6, [0xE0, 0x5A, 0x3C]),
+    (7, [0xFF, 0x3D, 0xF2]),
+    (9, [0x3C, 0x8C, 0xDC]),
+    (10, [0x80, 0x60, 0x40]),
+    (11, [0x55, 0x55, 0x55]),
+    (17, [0xE6, 0xB8, 0x3A]),
+    (18, [0xFF, 0x3D, 0xF2]),
+];
+
+/// A point cloud's style: small dots by ASPRS class when it has several, else by elevation; from a
+/// sample of its points.
+fn lidar_renderer(src: &dyn rustgis_data::source::FeatureSource, seed: u32) -> Option<Renderer> {
+    let info = src.info();
+    let sample = src.read(&rustgis_data::source::Request { extent: None, limit: 100_000 }).ok()?;
+    let mut ds = rustgis_data::Dataset::new(info.name.clone(), GeometryType::Point, info.fields.clone());
+    ds.features = sample.features;
+    let mut base = rustgis_map::Symbol::default_for(GeometryType::Point, seed);
+    base.size = 2.0;
+    base.stroke_width = 0.0;
+    let classes = ds.field_index("classification").map(|i| ds.unique_values(i, 64).len()).unwrap_or(0);
+    if classes >= 2 {
+        let mut r = Renderer::unique(&ds, "classification", Ramp::Harbour, base).ok()?;
+        if let Renderer::Unique { classes, .. } = &mut r {
+            for (value, sym) in classes.iter_mut() {
+                if let Some((_, [red, g, b_])) = ASPRS.iter().find(|(c, _)| value.parse::<i64>().ok() == Some(*c)) {
+                    sym.fill = Rgba::rgb(*red, *g, *b_);
+                }
+            }
+        }
+        Some(r)
+    } else {
+        Renderer::graduated(&ds, "z", 7, ClassMethod::Quantile, Ramp::Terrain, base).ok()
+    }
+}
+
+/// An OpenStreetMap extract past what the native reader takes, opened through GDAL instead when it
+/// is installed (country-size extracts).
+#[cfg(not(target_arch = "wasm32"))]
+fn large_osm(path: &str) -> bool {
+    path.to_ascii_lowercase().ends_with(".pbf")
+        && std::fs::metadata(path).is_ok_and(|m| m.len() > rustgis_data::io::MAX_BYTES)
+        && rustgis_data::source::gdal::available()
 }
 
 /// Adds a file GDAL reads (KML, GPX, File Geodatabase, DXF…): each layer is converted once into an
@@ -639,17 +982,70 @@ fn add_gdal(s: &mut Session, p: &Value, path: &str) -> CmdResult {
     add_converted(s, p, path, &original, parts)
 }
 
-/// Adds the tables of a DuckDB database that have a geometry column (or the one `layer` names),
-/// each converted once into GeoParquet in the cache.
+/// The database a command names in `database`, with the `password` given remembered for the
+/// session.
 #[cfg(not(target_arch = "wasm32"))]
-fn add_duckdb(s: &mut Session, p: &Value, path: &str) -> CmdResult {
-    use rustgis_data::source::duckdb;
+pub fn database_param(p: &Value) -> Option<rustgis_data::source::duckdb::Database> {
+    use rustgis_data::source::duckdb::{Database, remember_password};
+    let d = ps(p, "database").map(str::trim).filter(|d| !d.is_empty())?;
+    let db = match Database::parse(d) {
+        Database::File(f) => Database::File(std::path::absolute(&f).unwrap_or(f)),
+        pg => pg,
+    };
+    if let (Database::Postgres(dsn), Some(pw)) = (&db, ps(p, "password").filter(|pw| !pw.is_empty())) {
+        remember_password(dsn, pw);
+    }
+    Some(db)
+}
+
+/// The tables of a database (a PostgreSQL connection or a DuckDB file) that have a geometry column.
+fn database_tables(_s: &mut Session, p: &Value) -> CmdResult {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = p;
+        Err("databases are read through DuckDB in the desktop app".into())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let db = database_param(p).ok_or("database is required")?;
+        let tables = rustgis_data::source::duckdb::tables_of(&db).map_err(|e| format!("{}: {e}", db.short()))?;
+        let layers: Vec<String> = tables.iter().map(|t| t.label()).collect();
+        Ok(json!({"count": layers.len(), "layers": layers}))
+    }
+}
+
+/// Adds the tables of a database (a PostgreSQL connection or a DuckDB file) that have a geometry
+/// column, or the one `layer` names.
+fn add_database(s: &mut Session, p: &Value) -> CmdResult {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (s, p);
+        Err("databases are read through DuckDB in the desktop app".into())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let db = database_param(p).ok_or("database is required")?;
+        add_tables(s, p, &db)
+    }
+}
+
+/// Adds the tables of a database that have a geometry column (or the one `layer` names): a
+/// DuckDB file's each converted once into GeoParquet in the cache, a connection's afresh.
+#[cfg(not(target_arch = "wasm32"))]
+fn add_tables(s: &mut Session, p: &Value, db: &rustgis_data::source::duckdb::Database) -> CmdResult {
+    use rustgis_data::source::duckdb::{self, Database};
     let crs = ps(p, "crs").map(str::trim).filter(|c| !c.is_empty());
-    let db = Path::new(path);
+    let (path, original) = match db {
+        Database::File(f) => {
+            (f.display().to_string(), std::path::absolute(f).map(|p| p.display().to_string()).unwrap_or_else(|_| f.display().to_string()))
+        }
+        Database::Postgres(_) => (db.short(), db.label()),
+    };
+    let path = path.as_str();
     let err = |e: rustgis_data::DataError| format!("{path}: {e}");
     let tables = match ps(p, "layer").map(str::trim).filter(|l| !l.is_empty()) {
-        Some(l) => vec![duckdb::find_table(db, l).map_err(err)?],
-        None => duckdb::tables(db).map_err(err)?,
+        Some(l) => vec![duckdb::find_table_of(db, l).map_err(err)?],
+        None => duckdb::tables_of(db).map_err(err)?,
     };
     if tables.is_empty() {
         return Err(format!("{path}: no tables with a geometry column"));
@@ -659,12 +1055,17 @@ fn add_duckdb(s: &mut Session, p: &Value, path: &str) -> CmdResult {
     let mut tables = tables;
     let skipped: Vec<String> =
         if total > duckdb::MAX_TABLES { tables.split_off(duckdb::MAX_TABLES).iter().map(|t| t.label()).collect() } else { Vec::new() };
-    let original = std::path::absolute(path).map(|p| p.display().to_string()).unwrap_or_else(|_| path.to_string());
     let mut parts = Vec::new();
+    let mut empty = 0usize;
     let single = tables.len() == 1;
     for t in tables {
-        let out = match duckdb::convert_table(db, &t, crs) {
+        let out = match duckdb::convert_table_of(db, &t, crs) {
             Ok(o) => o,
+            // Empty tables (common in a PostGIS database: its TIGER geocoder's) are left out quietly.
+            Err(rustgis_data::DataError::Format(m)) if !single && m == duckdb::NO_ROWS => {
+                empty += 1;
+                continue;
+            }
             // A table that fails doesn't stop the others.
             Err(e) if !single => {
                 s.notify(format!("{path}: {}: {e}", t.label()), true);
@@ -681,8 +1082,14 @@ fn add_duckdb(s: &mut Session, p: &Value, path: &str) -> CmdResult {
         };
         parts.extend(duckdb_parts(s, &t.label(), out, origin));
     }
+    if parts.is_empty() && empty > 0 {
+        return Err(format!("{path}: the tables with a geometry column are empty"));
+    }
     let mut out = add_converted(s, p, path, &original, parts)?;
     // Said once the tables are in: a failure above is the error instead.
+    if empty > 0 {
+        s.notify(format!("{path}: {empty} empty tables were left out"), false);
+    }
     if !skipped.is_empty() {
         s.notify(
             format!(
@@ -710,10 +1117,22 @@ fn add_sql(s: &mut Session, p: &Value) -> CmdResult {
     {
         use rustgis_data::source::duckdb;
         let crs = ps(p, "crs").map(str::trim).filter(|c| !c.is_empty());
-        let database = ps(p, "database").map(str::trim).filter(|d| !d.is_empty());
-        let full = database.map(|d| std::path::absolute(d).map(|p| p.display().to_string()).unwrap_or_else(|_| d.to_string()));
-        let q = duckdb::Query { sql, database: database.map(Path::new), crs };
-        let out = duckdb::run(&q).map_err(|e| e.to_string())?;
+        let database = database_param(p);
+        let full = database.as_ref().map(|d| d.label());
+        // A result the app ran off the frame (the SQL pane), taken only for the query and database
+        // it came from (the layer saves them); or the query run now.
+        let ran = p.get("ran").and_then(Value::as_u64);
+        let out = match ran {
+            Some(id) => {
+                let (_, ran_sql, ran_db, out) =
+                    s.sql_results.iter().find(|(r, ..)| *r == id).ok_or("that query result is no longer kept: run the query again")?;
+                if ran_sql != sql || *ran_db != full {
+                    return Err("that query result came from another query or database: run the query again".into());
+                }
+                out.clone()
+            }
+            None => duckdb::run(&duckdb::Query { sql, database: database.as_ref(), crs }).map_err(|e| e.to_string())?,
+        };
         let name = ps(p, "name").map(str::trim).filter(|n| !n.is_empty()).unwrap_or("Query");
         let origin = |family| rustgis_map::source::DuckdbOrigin {
             sql: Some(sql.to_string()),
@@ -728,7 +1147,12 @@ fn add_sql(s: &mut Session, p: &Value) -> CmdResult {
         if let Some(o) = q.as_object_mut() {
             o.remove("name");
         }
-        add_converted(s, &q, "the query", full.as_deref().unwrap_or("DuckDB query"), parts)
+        let added = add_converted(s, &q, "the query", full.as_deref().unwrap_or("DuckDB query"), parts)?;
+        // The result is used: forgotten once its layers are in (kept if adding failed).
+        if let Some(id) = ran {
+            s.sql_results.retain(|(r, ..)| *r != id);
+        }
+        Ok(added)
     }
 }
 
@@ -897,22 +1321,130 @@ pub(crate) fn add_layer_text(s: &mut Session, text: &str) -> CmdResult {
     Ok(json!({"layer": id}))
 }
 
+/// The most polylines added at once.
+const MAX_POLYLINES: usize = 10_000;
+
+/// Adds encoded polylines (routes from Google, OSRM or Valhalla) as a line layer.
+fn add_encoded_polyline(s: &mut Session, p: &Value) -> CmdResult {
+    use rustgis_data::{Dataset, Field, FieldType, Geometry, Value as V};
+    let texts: Vec<&str> = match p.get("polyline") {
+        Some(Value::String(t)) => vec![t.as_str()],
+        Some(Value::Array(a)) => a.iter().filter_map(Value::as_str).take(MAX_POLYLINES + 1).collect(),
+        _ => return Err("polyline is required (text, or a list of texts)".into()),
+    };
+    if texts.len() > MAX_POLYLINES {
+        return Err(format!("at most {MAX_POLYLINES} polylines at once"));
+    }
+    let precision = match f(p, "precision") {
+        Some(v) if v.fract() == 0.0 && (1.0..=10.0).contains(&v) => v as u32,
+        Some(v) => return Err(format!("precision {v}: give a whole number from 1 to 10 (5 for Google and OSRM, 6 for Valhalla)")),
+        None => 5,
+    };
+    let name = ps(p, "name").map(str::trim).filter(|n| !n.is_empty()).unwrap_or("Polyline");
+    let mut ds =
+        Dataset::new(name, GeometryType::Polyline, vec![Field::new("index", FieldType::Integer), Field::new("points", FieldType::Integer)]);
+    for (i, t) in texts.iter().enumerate() {
+        let pts = rustgis_data::interop::decode_polyline(t, precision).map_err(|e| format!("polyline {}: {e}", i + 1))?;
+        if pts.len() < 2 {
+            return Err(format!("polyline {}: a line needs at least two points", i + 1));
+        }
+        let n = pts.len() as i64;
+        ds.push_next(Some(Geometry::Line(vec![pts])), vec![V::Int(i as i64 + 1), V::Int(n)]);
+    }
+    add_read(s, p, (ds, rustgis_data::ReadReport::default()))
+}
+
+/// Adds a sheet of a spreadsheet (`"layer"` names it; the first by default), read like delimited
+/// text with the same options.
+pub(crate) fn add_sheet(s: &mut Session, p: &Value, file_name: &str, bytes: &[u8]) -> CmdResult {
+    let stem = Path::new(file_name).file_stem().and_then(|s| s.to_str()).unwrap_or("sheet");
+    let opts = csv_options(p)?.unwrap_or_default();
+    let sheet = ps(p, "layer").map(str::trim).filter(|l| !l.is_empty());
+    let read = rustgis_data::sheets::read(bytes, stem, sheet, &opts).map_err(|e| format!("{file_name}: {e}"))?;
+    add_read(s, p, read)
+}
+
 /// The `x`, `y`, `wkt`, `crs` and `delimiter` parameters for a delimited text file, when any is
 /// given.
-fn csv_options(p: &Value) -> Result<Option<rustgis_data::io::CsvOptions>, String> {
+pub(crate) fn csv_options(p: &Value) -> Result<Option<rustgis_data::io::CsvOptions>, String> {
     let text = |k: &str| ps(p, k).map(str::trim).filter(|v| !v.is_empty()).map(str::to_string);
     let (x, y, wkt, crs, delimiter) = (text("x"), text("y"), text("wkt"), text("crs"), ps(p, "delimiter"));
     if x.is_none() && y.is_none() && wkt.is_none() && crs.is_none() && delimiter.is_none() {
         return Ok(None);
     }
     let crs = crs.map(|c| rustgis_data::raster::Crs::parse(&c)).transpose()?;
-    let delimiter = match delimiter {
-        None => None,
-        Some("\\t" | "tab" | "\t") => Some(b'\t'),
-        Some(d) if d.len() == 1 && d.is_ascii() && !d.starts_with(['"', '\n', '\r']) => d.bytes().next(),
-        Some(d) => return Err(format!("delimiter '{d}': give one character, such as ; or \\t")),
-    };
+    let delimiter = parse_delimiter(delimiter)?;
     Ok(Some(rustgis_data::io::CsvOptions { x, y, wkt, crs, delimiter }))
+}
+
+/// A `delimiter` parameter: one character, or `\t`/`tab`.
+fn parse_delimiter(d: Option<&str>) -> Result<Option<u8>, String> {
+    match d {
+        None => Ok(None),
+        Some("\\t" | "tab" | "\t") => Ok(Some(b'\t')),
+        Some(d) if d.len() == 1 && d.is_ascii() && !d.starts_with(['"', '\n', '\r']) => Ok(d.bytes().next()),
+        Some(d) => Err(format!("delimiter '{d}': give one character, such as ; or \\t")),
+    }
+}
+
+fn file_columns(_s: &mut Session, p: &Value) -> CmdResult {
+    columns_in_file(s_req(p, "path")?, p)
+}
+
+/// `info.fileColumns` for the file at `path` (the desktop app's Add Delimited Text).
+pub fn columns_in_file(path: &str, p: &Value) -> CmdResult {
+    use std::io::Read;
+    if !Path::new(path).is_file() {
+        return Err(format!("{path}: no such file"));
+    }
+    // Add Data's limits: a spreadsheet is read whole, delimited text within the text readers' limit.
+    let sheet = rustgis_data::sheets::is_sheet_name(path);
+    let limit = if sheet { super::raster::MAX_UPLOAD_BYTES as u64 } else { rustgis_data::io::MAX_BYTES };
+    let meta = std::fs::metadata(path).map_err(|e| format!("{path}: {e}"))?;
+    if meta.len() > limit {
+        return Err(format!("{path} is too large to open"));
+    }
+    let mut bytes = Vec::new();
+    let read = if sheet {
+        std::fs::File::open(path).and_then(|mut f| f.read_to_end(&mut bytes))
+    } else {
+        std::fs::File::open(path).and_then(|f| f.take(COLUMNS_PREFIX as u64).read_to_end(&mut bytes))
+    };
+    read.map_err(|e| format!("{path}: {e}"))?;
+    columns_of(path, &bytes, p)
+}
+
+/// What `info.fileColumns` reads of delimited text: its header and first rows, not all of it.
+const COLUMNS_PREFIX: usize = 8 << 20;
+
+/// The columns of a delimited text file or a spreadsheet's sheet (`"layer"`), with the separator
+/// (`"delimiter"`, or the one found) and the x/y or WKT columns found by name:
+/// `{"columns", "x", "y", "wkt", "delimiter"}`. `info.fileColumns` for a file's bytes (the web
+/// app's Add Delimited Text).
+pub fn columns_of(name: &str, bytes: &[u8], p: &Value) -> CmdResult {
+    let err = |e: rustgis_data::DataError| format!("{name}: {e}");
+    let c = if rustgis_data::sheets::is_sheet_name(name) {
+        let sheet = ps(p, "layer").map(str::trim).filter(|l| !l.is_empty());
+        rustgis_data::sheets::columns(bytes, sheet).map_err(err)?
+    } else if is_delimited_name(name) {
+        let bytes = bytes.get(..COLUMNS_PREFIX).unwrap_or(bytes);
+        let text = match std::str::from_utf8(bytes) {
+            Ok(text) => text,
+            // The part read may end inside a character.
+            Err(e) if e.error_len().is_none() => std::str::from_utf8(bytes.get(..e.valid_up_to()).unwrap_or_default()).unwrap_or_default(),
+            Err(_) => return Err(format!("{name} is not UTF-8 text")),
+        };
+        rustgis_data::io::csv_columns(text, parse_delimiter(ps(p, "delimiter"))?).map_err(err)?
+    } else {
+        return Err(format!("{name}: not delimited text (CSV, TSV, TXT) or a spreadsheet"));
+    };
+    Ok(json!({
+        "columns": c.names,
+        "x": c.x,
+        "y": c.y,
+        "wkt": c.wkt,
+        "delimiter": c.delimiter.map(|d| char::from(d).to_string()),
+    }))
 }
 
 /// Whether a file name is delimited text (CSV, TSV, TXT).
@@ -938,6 +1470,185 @@ fn read_delimited(
     rustgis_data::io::read_csv_with(text, stem, &opts).map(Some).map_err(|e| format!("{name}: {e}"))
 }
 
+/// The file name for data downloaded from `url`: its last path segment when that has an extension
+/// RustGIS reads, else `<segment or "data">.<ext>` with the extension its contents suggest
+/// (an error when they suggest none).
+pub fn url_file_name(url: &str, bytes: &[u8]) -> Result<String, String> {
+    let path = url.split(['?', '#']).next().unwrap_or(url);
+    let path = path.split_once("://").map_or(path, |(_, rest)| rest.split_once('/').map_or("", |(_, p)| p));
+    let last: String = path
+        .rsplit('/')
+        .find(|p| !p.is_empty())
+        .unwrap_or("")
+        .chars()
+        .filter(|c| !c.is_control() && !matches!(c, '\\' | ':'))
+        .take(120)
+        .collect();
+    let ext = Path::new(&last).extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
+    let known = rustgis_data::io::READ_EXTENSIONS.contains(&ext.as_str()) || rustgis_data::raster::is_raster_name(&last) || ext == "tsv";
+    if known && ext != "json" {
+        return Ok(last);
+    }
+    let stem = Path::new(&last).file_stem().and_then(|s| s.to_str()).filter(|s| !s.is_empty()).unwrap_or("data");
+    match rustgis_data::io::sniff_extension(bytes) {
+        Some(ext) => Ok(format!("{stem}.{ext}")),
+        None => {
+            Err("not a data format RustGIS reads (GeoJSON, CSV, GeoParquet, FlatGeobuf, GeoPackage, zipped Shapefiles, KML, GPX, GeoTIFF)"
+                .into())
+        }
+    }
+}
+
+/// Downloads data from a web address and adds it (the command line, MCP and the assistant; the
+/// app downloads off the frame and adds the bytes).
+pub(crate) fn add_url(s: &mut Session, p: &Value) -> CmdResult {
+    let url = ps(p, "url").map(str::trim).filter(|u| !u.is_empty()).ok_or("url is required")?;
+    let lower = url.to_ascii_lowercase();
+    if !(lower.starts_with("https://") || lower.starts_with("http://") || lower.starts_with("s3://")) {
+        return Err(format!("{url}: give an http://, https:// or s3:// address (Add Data opens files)"));
+    }
+    // A PMTiles archive is read a tile at a time, never downloaded whole.
+    if lower.split(['?', '#']).next().is_some_and(|p| p.ends_with(".pmtiles")) {
+        let mut q = json!({"url": url, "kind": "pmtiles"});
+        if let Some(n) = ps(p, "name") {
+            q["name"] = json!(n);
+        }
+        return super::tiles::add(s, &q);
+    }
+    // A FlatGeobuf or GeoParquet: read in place by range when it has a spatial index (or a bbox
+    // covering), otherwise downloaded whole.
+    if rustgis_data::source::is_remote_name(url) && !super::b(p, "whole").unwrap_or(false) {
+        // In the browser nothing may wait: the app has fetched what opening needs already.
+        #[cfg(target_arch = "wasm32")]
+        let opened = rustgis_data::source::open_url_now(url);
+        #[cfg(not(target_arch = "wasm32"))]
+        let opened = rustgis_data::source::open_url_blocking(url);
+        match opened {
+            Ok(src) => return add_remote(s, p, url, src),
+            Err(e) if e.to_string().contains(rustgis_data::source::remote::READ_WHOLE) => {}
+            Err(e) => {
+                let e = e.to_string();
+                return Err(if e.starts_with(url) { e } else { format!("{url}: {e}") });
+            }
+        }
+    }
+    // A GeoTIFF: read in place when it is cloud-optimised (tiled), otherwise downloaded whole.
+    let tiff = is_tiff_url(url);
+    #[cfg(target_arch = "wasm32")]
+    {
+        // Nothing may wait here: a GeoTIFF is taken to be cloud-optimised (the layer says if not).
+        if tiff && !super::b(p, "whole").unwrap_or(false) {
+            return add_cog(s, p, url);
+        }
+        Err(format!("{url}: in the web app, use Home › Add Data › From URL"))
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        // Errors about the address itself name it already.
+        let named = |e: String| if e.starts_with(url) { e } else { format!("{url}: {e}") };
+        if tiff && !super::b(p, "whole").unwrap_or(false) && crate::render::rustgis_tiles::cog::probe_blocking(url).map_err(named)? {
+            return add_cog(s, p, url);
+        }
+        let bytes = crate::render::rustgis_tiles::cache::download_blocking(url).map_err(named)?;
+        let name = url_file_name(url, &bytes).map_err(named)?;
+        super::raster::add_named_bytes(s, p, name, bytes)
+    }
+}
+
+/// Adds a FlatGeobuf or GeoParquet by its address as a layer read in place: a view's features at
+/// a time, by range. The project keeps the address.
+fn add_remote(s: &mut Session, p: &Value, url: &str, src: Box<dyn rustgis_data::source::FeatureSource>) -> CmdResult {
+    let info = src.info().clone();
+    let name = ps(p, "name").map(str::trim).filter(|n| !n.is_empty()).map(str::to_string).unwrap_or_else(|| info.name.clone());
+    let empty_before = s.map().layers.is_empty();
+    let layer = rustgis_map::source::SourceLayer::from_path(url.to_string(), None, src);
+    let unique = unique_name(s, &name);
+    for n in &info.notes {
+        s.notify(format!("{unique}: {n}"), false);
+    }
+    let id = s.map_mut().add_streamed(unique.clone(), layer);
+    s.active_layer = Some(id);
+    let count = info.count.map(|c| c.to_string()).unwrap_or_else(|| "many".into());
+    s.notify(format!("{unique}: {count} features, read in place by range from its address, a view at a time"), false);
+    // Framed when it is the map's first layer, unless told to keep the view (a catalog's data for
+    // the view, such as Overture's).
+    if (empty_before || b(p, "zoom") == Some(true)) && b(p, "zoom") != Some(false) && !info.extent.is_empty() {
+        s.zoom_to(&info.extent);
+    }
+    Ok(json!({"layer": id, "layers": [id], "features": info.count, "streamed": true, "inPlace": true}))
+}
+
+/// Whether a web address names a GeoTIFF (by its path's extension).
+pub fn is_tiff_url(url: &str) -> bool {
+    let path = url.split(['?', '#']).next().unwrap_or(url).to_ascii_lowercase();
+    path.ends_with(".tif") || path.ends_with(".tiff")
+}
+
+/// Adds a cloud-optimised GeoTIFF by its address as a layer read in place (its tiles by range,
+/// as the view needs them), framed when its header is in.
+fn add_cog(s: &mut Session, p: &Value, url: &str) -> CmdResult {
+    let stem = url.split(['?', '#']).next().unwrap_or(url).rsplit('/').next().unwrap_or("GeoTIFF");
+    let stem = stem.rsplit_once('.').map(|(a, _)| a).unwrap_or(stem);
+    let name = ps(p, "name").map(str::trim).filter(|n| !n.is_empty()).unwrap_or(stem);
+    let mut r = super::tiles::add(s, &json!({"url": url, "kind": "cog", "name": name}))?;
+    if let Ok(Some(info)) = crate::render::rustgis_tiles::cog::info(url) {
+        let [w, so, e, n] = info.bounds;
+        s.zoom_to(&rustgis_geom::Extent::new(w, so, e, n));
+        r["bounds"] = json!(info.bounds);
+    }
+    r["inPlace"] = json!(true);
+    Ok(r)
+}
+
+/// Adds a download the app finished (its bytes handed to the session, not passed as text).
+fn add_download(s: &mut Session, p: &Value) -> CmdResult {
+    let id = f(p, "id").filter(|v| *v >= 0.0 && v.fract() == 0.0).map(|v| v as u64).ok_or("id is required")?;
+    let url = ps(p, "url").unwrap_or("data").to_string();
+    let i = s.downloaded.iter().position(|(d, _)| *d == id).ok_or("no such download (it was dropped when another project opened)")?;
+    let (_, bytes) = s.downloaded.remove(i);
+    // A service's features (Add From Service): its answer's axes and paging.
+    let bytes = if super::b(p, "service").unwrap_or(false) {
+        let label = ps(p, "name").unwrap_or(&url).to_string();
+        super::service::features_answer(s, &label, bytes)
+    } else {
+        bytes
+    };
+    // A WCS coverage (Add From Service): a GeoTIFF, or the service's error said as such.
+    let name = if super::b(p, "coverage").unwrap_or(false) {
+        super::service::coverage_check(ps(p, "name").unwrap_or(&url), &bytes)?;
+        "coverage.tif".to_string()
+    } else {
+        url_file_name(&url, &bytes).map_err(|e| format!("{url}: {e}"))?
+    };
+    let mut r = super::raster::add_named_bytes(s, p, name, bytes)?;
+    // `"zoom": true` zooms to everything added, whatever the map held (a link's data); `zoomed`
+    // says whether there was anything to zoom to (a tile archive adds no layer).
+    if b(p, "zoom") == Some(true) {
+        let zoomed = zoom_to_added(s, &r);
+        if let Some(o) = r.as_object_mut() {
+            o.insert("zoomed".into(), json!(zoomed));
+        }
+    }
+    Ok(r)
+}
+
+/// Zooms to the layers a command's result names (`layer`, `layers`), all of them together;
+/// whether any had an extent.
+fn zoom_to_added(s: &mut Session, r: &Value) -> bool {
+    let ids = r.get("layers").and_then(Value::as_array).into_iter().flatten().chain(r.get("layer"));
+    let e = ids
+        .filter_map(Value::as_u64)
+        .filter_map(|i| u32::try_from(i).ok())
+        .filter_map(|id| s.map().layer(id).map(|l| l.extent()))
+        .filter(|e| !e.is_empty())
+        .fold(rustgis_geom::Extent::EMPTY, |a, e| a.union(&e));
+    if e.is_empty() {
+        return false;
+    }
+    s.zoom_to(&e);
+    true
+}
+
 pub(crate) fn add_data_text(s: &mut Session, p: &Value) -> CmdResult {
     let name = s_req(p, "fileName")?;
     let text = s_req(p, "text")?;
@@ -955,8 +1666,8 @@ pub(crate) fn add_read(s: &mut Session, p: &Value, read: (rustgis_data::Dataset,
     }
     if ds.geometry_type == GeometryType::None {
         let name = ds.name.clone();
-        s.project.tables.push(ds);
-        return Ok(json!({"table": name}));
+        let id = s.project.add_table(ds);
+        return Ok(json!({"table": name, "id": id}));
     }
     let n = ds.features.len();
     let empty_before = s.map().layers.is_empty();
@@ -1007,10 +1718,36 @@ fn move_layer(s: &mut Session, p: &Value, d: i32) -> CmdResult {
     Ok(Value::Null)
 }
 
+/// Moves a layer to a position in the drawing order: 0 is the top, anything past the end the
+/// bottom. One command (and one undo step) however far the layer travels.
+fn move_to(s: &mut Session, p: &Value) -> CmdResult {
+    let id = s.layer_id(p)?;
+    let to = uint(p, "to").ok_or("to is required: the position in the drawing order, 0 at the top")?;
+    let m = s.map_mut();
+    let i = m.layer_index(id).ok_or("no such layer")?;
+    let to = usize::try_from(to).unwrap_or(usize::MAX).min(m.layers.len().saturating_sub(1));
+    if to == i {
+        return Err("the layer is already there".into());
+    }
+    let l = m.layers.remove(i);
+    m.layers.insert(to, l);
+    Ok(Value::Null)
+}
+
 fn symbology(s: &mut Session, p: &Value) -> CmdResult {
     let id = s.layer_id(p)?;
     let kind = ps(p, "type").unwrap_or("single").to_ascii_lowercase();
-    let ramp = ps(p, "ramp").and_then(Ramp::from_name);
+    // The layer's own ramp: kept when no other is named and the type stays, and found by name even
+    // after a custom ramp has been deleted from the project.
+    let current = s.map().layer(id).and_then(|l| match (&l.renderer, kind.as_str()) {
+        (Renderer::Graduated { ramp, .. }, "graduated" | "graduatedcolors")
+        | (Renderer::Unique { ramp, .. }, "unique" | "uniquevalues") => Some(ramp.clone()),
+        _ => None,
+    });
+    let ramp = match ps(p, "ramp") {
+        Some(n) => Some(s.ramp(n).or_else(|e| current.filter(|r| r.name().eq_ignore_ascii_case(n.trim())).ok_or(e))?),
+        None => current,
+    };
     let method = ps(p, "method").and_then(ClassMethod::from_name).unwrap_or_default();
     let classes = f(p, "classes").map(|c| c.clamp(1.0, 12.0) as usize).unwrap_or(5);
     let l = s.map().layer(id).ok_or("no such layer")?;

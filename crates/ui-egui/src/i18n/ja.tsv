@@ -1,6 +1,7 @@
 # ja interface catalog: English<TAB>translation
  by 	 ×
 (b4-b3)/(b4+b3)	(b4-b3)/(b4+b3)
+(filtered)	(フィルター適用)
 00:00 UTC	00:00 UTC
 06:00 UTC	06:00 UTC
 12:00 UTC	12:00 UTC
@@ -247,6 +248,7 @@ Checking for updates…	更新を確認しています…
 China	中国
 Choose a band combination to display the raster layer.	ラスター レイヤーを表示するバンドの組み合わせを選択します。
 Choose a contrast stretch for the raster layer.	ラスター レイヤーのコントラスト ストレッチを選択します。
+Choose a delimited text file or a spreadsheet, then pick its columns.	区切りテキストファイルまたはスプレッドシートを選び、次にその列を選択します。
 Choose a model.	モデルを選択してください。
 Choose a resampling type for the raster layer.	ラスター レイヤーのリサンプリング タイプを選択します。
 Choose extra buttons for the Quick Access Toolbar.	クイック アクセス ツールバーに追加するボタンを選択します。
@@ -323,6 +325,7 @@ Color Vision	色覚
 Color Vision Simulator	色覚シミュレーター
 Colormap	カラーマップ
 Colors from the raster's own color table.	ラスター自身のカラー テーブルの色。
+Columns named like longitude/latitude, easting/northing or geometry are picked for you.	longitude/latitude、easting/northing、geometry のような名前の列は自動的に選択されます。
 Combinations from the box above, one per line	上のボックスの値の組み合わせ (1 行に 1 つ)
 Command\nSearch	コマンド\n検索
 command is required	command は必須です
@@ -383,6 +386,7 @@ Create Polygon	ポリゴンの作成
 Create Profile	プロファイルの作成
 Create Thumbnail	サムネイルの作成
 Creates a point inside each input feature.	各入力フィーチャの内部にポイントを作成します。
+Creates points from a table's x and y coordinate fields.	テーブルの X および Y 座標フィールドからポイントを作成します。
 Creates polygons around input features at a given distance.	入力フィーチャの周囲に指定した距離でポリゴンを作成します。
 Cross Section	断面
 Cross Section (2 clicks)	断面 (2 クリック)
@@ -1307,6 +1311,7 @@ Remove Folder	フォルダーの削除
 Remove From Current Selection	現在の選択から除外
 Remove Keyframe	キーフレームの削除
 Remove Section	セクションの削除
+Remove Table	テーブルの削除
 Remove the last keyframe.	最後のキーフレームを削除します。
 Remove the layer from the map.	マップからレイヤーを削除します。
 Remove Tile Layer	タイル レイヤーの削除
@@ -1812,7 +1817,11 @@ World, equal-area: true sizes, shapes bend towards the edges.	世界、正積: �
 Worldview	国境
 Write a plugin	プラグインを作成
 X (mm)	X (mm)
+X Field	X フィールド
+XY Table To Point	XY テーブル → ポイント
+XY Table To Point…	XY テーブル → ポイント…
 Y (mm)	Y (mm)
+Y Field	Y フィールド
 Yes	はい
 You have version {version}.	現在のバージョンは {version} です。
 z (m)	z (m)

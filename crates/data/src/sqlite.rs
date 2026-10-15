@@ -442,15 +442,42 @@ fn parse_table(sql: &str) -> Result<Parsed, String> {
         let up = |s: &str| s.to_ascii_uppercase();
         if !first.quoted && matches!(up(&first.text).as_str(), "CONSTRAINT" | "PRIMARY" | "UNIQUE" | "CHECK" | "FOREIGN") {
             // A table constraint; a PRIMARY KEY (one column) may name the rowid's alias.
-            if let Some(p) = toks.iter().position(|t| !t.quoted && up(&t.text) == "PRIMARY") {
-                let cols: Vec<String> = toks
-                    .iter()
-                    .skip(p + 2)
-                    .filter(|t| t.quoted || !matches!(t.text.as_str(), "(" | ")" | ","))
-                    .map(|t| t.text.clone())
-                    .take_while(|t| !matches!(up(t).as_str(), "ASC" | "DESC" | "ON" | "CONFLICT"))
-                    .collect();
-                table_pk = Some(cols);
+            if let Some(p) = toks.iter().position(|t| !t.quoted && up(&t.text) == "PRIMARY")
+                && toks.get(p + 1).is_some_and(|t| !t.quoted && up(&t.text) == "KEY")
+                && let Some(open) = toks[p + 2..].iter().position(|t| !t.quoted && t.text == "(")
+            {
+                let open_idx = p + 2 + open;
+                let mut depth = 0usize;
+                let mut close_idx = None;
+                for (i, t) in toks.iter().enumerate().skip(open_idx) {
+                    if !t.quoted && t.text == "(" {
+                        depth += 1;
+                    } else if !t.quoted && t.text == ")" {
+                        depth = depth.saturating_sub(1);
+                        if depth == 0 {
+                            close_idx = Some(i);
+                            break;
+                        }
+                    }
+                }
+                if let Some(close) = close_idx {
+                    let mut cols = Vec::new();
+                    let mut in_entry = false;
+                    let mut depth = 0usize;
+                    for t in &toks[open_idx + 1..close] {
+                        if !t.quoted && t.text == "(" {
+                            depth += 1;
+                        } else if !t.quoted && t.text == ")" {
+                            depth = depth.saturating_sub(1);
+                        } else if !t.quoted && t.text == "," && depth == 0 {
+                            in_entry = false;
+                        } else if !in_entry && depth == 0 {
+                            cols.push(t.text.clone());
+                            in_entry = true;
+                        }
+                    }
+                    table_pk = Some(cols);
+                }
             }
             continue;
         }
@@ -684,6 +711,15 @@ mod tests {
         assert!(parse_create_table("CREATE TABLE t (a INT) /* not without rowid */").is_ok());
         let (cols, _) = parse_create_table("CREATE TABLE \"a(b\" (x INT, y TEXT) -- note (with parens)").unwrap();
         assert_eq!(cols.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["x", "y"]);
+        let (_, pk) = parse_create_table("CREATE TABLE t (z INTEGER, x INTEGER, y INTEGER, PRIMARY KEY (z ASC, x, y))").unwrap();
+        assert_eq!(pk, None, "composite primary key with ASC is not rowid");
+        let (_, pk) = parse_create_table("CREATE TABLE t (id INTEGER, other TEXT, PRIMARY KEY (id DESC, other))").unwrap();
+        assert_eq!(pk, None, "composite primary key with DESC is not rowid");
+        let p = parse_table("CREATE TABLE t (name TEXT, id INTEGER, PRIMARY KEY (name COLLATE NOCASE, id)) WITHOUT ROWID").unwrap();
+        assert_eq!(p.stored_order.as_deref(), Some(&[0, 1][..]));
+        let p = parse_table("CREATE TABLE shallow (data BLOB, z INTEGER, x INTEGER, y INTEGER, PRIMARY KEY (z ASC, x, y)) WITHOUT ROWID")
+            .unwrap();
+        assert_eq!(p.stored_order.as_deref(), Some(&[1, 2, 3, 0][..]));
     }
 
     #[test]
@@ -715,7 +751,9 @@ mod tests {
                 c.execute_batch(&format!(
                     "PRAGMA page_size = {page_size}; PRAGMA journal_mode = DELETE;
                      CREATE TABLE \"t\" (id INTEGER PRIMARY KEY, name TEXT, v REAL, b BLOB, n INTEGER);
-                     CREATE TABLE other (x);"
+                     CREATE TABLE other (x);
+                     CREATE TABLE comp (id INTEGER, other TEXT, PRIMARY KEY (id DESC, other));
+                     INSERT INTO comp VALUES (100, 'first');"
                 ))
                 .unwrap();
                 let tx = c.unchecked_transaction().unwrap();
@@ -736,7 +774,16 @@ mod tests {
             let bytes = std::fs::read(&path).unwrap();
             let db = Db::open(bytes.as_slice()).unwrap();
             let tables = db.tables().unwrap();
-            assert_eq!(tables.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["t", "other"]);
+            assert_eq!(tables.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["t", "other", "comp"]);
+            let comp = db.table("comp").unwrap();
+            assert_eq!(comp.rowid_column, None);
+            let mut comp_rows = Vec::new();
+            db.rows(&comp, |_, r| {
+                comp_rows.push(r.to_vec());
+                ControlFlow::Continue(())
+            })
+            .unwrap();
+            assert_eq!(comp_rows[0][0], Val::Int(100));
             let t = db.table("T").unwrap();
             assert_eq!(t.rowid_column, Some(0));
             assert_eq!(t.columns.len(), 6);
@@ -810,8 +857,9 @@ mod tests {
                 let c = rusqlite::Connection::open(&path).unwrap();
                 c.execute_batch(&format!(
                     "PRAGMA page_size = {page_size}; PRAGMA journal_mode = DELETE;
-                     CREATE TABLE shallow (data BLOB, z INTEGER, x INTEGER, y INTEGER, PRIMARY KEY (z, x, y)) WITHOUT ROWID;
-                     CREATE TABLE kv (k TEXT PRIMARY KEY, v) WITHOUT ROWID;"
+                     CREATE TABLE shallow (data BLOB, z INTEGER, x INTEGER, y INTEGER, PRIMARY KEY (z ASC, x, y)) WITHOUT ROWID;
+                     CREATE TABLE kv (k TEXT PRIMARY KEY, v) WITHOUT ROWID;
+                     CREATE TABLE collated (name TEXT, id INTEGER, PRIMARY KEY (name COLLATE NOCASE, id)) WITHOUT ROWID;"
                 ))
                 .unwrap();
                 let tx = c.unchecked_transaction().unwrap();
@@ -822,6 +870,7 @@ mod tests {
                     tx.execute("INSERT INTO shallow VALUES (?1, ?2, ?3, ?4)", rusqlite::params![blob, i % 7, i, 2000 - i]).unwrap();
                 }
                 tx.execute("INSERT INTO kv VALUES ('b', 2), ('a', 'one')", []).unwrap();
+                tx.execute("INSERT INTO collated VALUES ('alice', 1)", []).unwrap();
                 tx.commit().unwrap();
             }
             let bytes = std::fs::read(&path).unwrap();
@@ -860,6 +909,15 @@ mod tests {
             })
             .unwrap();
             assert_eq!(got, vec![vec![Val::Text("a".into()), Val::Text("one".into())], vec![Val::Text("b".into()), Val::Int(2)]]);
+            let collated = db.table("collated").unwrap();
+            assert_eq!(collated.stored_order.as_deref(), Some(&[0, 1][..]));
+            let mut collated_rows = Vec::new();
+            db.rows(&collated, |_, r| {
+                collated_rows.push(r.to_vec());
+                ControlFlow::Continue(())
+            })
+            .unwrap();
+            assert_eq!(collated_rows, vec![vec![Val::Text("alice".into()), Val::Int(1)]]);
             if page_size == 512 {
                 for cut in (0..bytes.len()).step_by(173) {
                     if let Ok(db) = Db::open(&bytes[..cut]) {

@@ -3,7 +3,7 @@
 //! `cargo run -p rustgis-ui-egui --example ui_shot -- script.jsonl`
 //!
 //! The script is JSON lines: `{"cmd": id, "params": {...}}` runs a command (ui.* included),
-//! `{"shot": "/abs/out.png"}` saves the window, `{"steps": n}` runs frames, `{"sleep": ms}` runs frames for that long, `{"click": label}` clicks the first widget whose label contains it, `{"dark": true}`
+//! `{"shot": "/abs/out.png"}` saves the window, `{"steps": n}` runs frames, `{"sleep": ms}` runs frames for that long, `{"click": label}` clicks the first widget whose label contains it (is it, with `"exact": true`), `{"dark": true}`
 //! switches theme, and `{"width": w, "height": h}` on the first line sets the size (default
 //! 1480×900 at 2×). The window opens the World Atlas sample.
 
@@ -71,7 +71,13 @@ fn main() {
                 harness.step();
             }
         } else if let Some(label) = l.get("click").and_then(|v| v.as_str()) {
-            match harness.query_all_by_label_contains(label).next() {
+            // `"exact": true`: the label is the whole of it (an Add button, not Add Data).
+            let node = if l.get("exact").and_then(|v| v.as_bool()) == Some(true) {
+                harness.query_all_by_label(label).next()
+            } else {
+                harness.query_all_by_label_contains(label).next()
+            };
+            match node {
                 Some(node) => node.click(),
                 None => eprintln!("nothing labelled '{label}'"),
             }

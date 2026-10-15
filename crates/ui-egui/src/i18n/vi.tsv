@@ -1,6 +1,7 @@
 # vi interface catalog: English<TAB>translation
  by 	 theo
 (b4-b3)/(b4+b3)	(b4-b3)/(b4+b3)
+(filtered)	(đã lọc)
 00:00 UTC	00:00 UTC
 06:00 UTC	06:00 UTC
 12:00 UTC	12:00 UTC
@@ -247,6 +248,7 @@ Checking for updates…	Đang kiểm tra cập nhật…
 China	Trung Quốc
 Choose a band combination to display the raster layer.	Chọn tổ hợp kênh để hiển thị lớp raster.
 Choose a contrast stretch for the raster layer.	Chọn kiểu kéo giãn độ tương phản cho lớp raster.
+Choose a delimited text file or a spreadsheet, then pick its columns.	Chọn một tệp văn bản phân tách hoặc một bảng tính, rồi chọn các cột của nó.
 Choose a model.	Hãy chọn một mô hình.
 Choose a resampling type for the raster layer.	Chọn kiểu lấy mẫu lại cho lớp raster.
 Choose extra buttons for the Quick Access Toolbar.	Chọn các nút bổ sung cho thanh công cụ truy cập nhanh.
@@ -323,6 +325,7 @@ Color Vision	Thị giác màu
 Color Vision Simulator	Trình mô phỏng thị giác màu
 Colormap	Bản đồ màu
 Colors from the raster's own color table.	Màu lấy từ bảng màu riêng của raster.
+Columns named like longitude/latitude, easting/northing or geometry are picked for you.	Các cột có tên như longitude/latitude, easting/northing hoặc geometry được chọn sẵn cho bạn.
 Combinations from the box above, one per line	Các tổ hợp từ ô phía trên, mỗi dòng một tổ hợp
 Command\nSearch	Tìm\nlệnh
 command is required	cần có lệnh
@@ -383,6 +386,7 @@ Create Polygon	Tạo vùng
 Create Profile	Tạo mặt cắt
 Create Thumbnail	Tạo ảnh thu nhỏ
 Creates a point inside each input feature.	Tạo một điểm bên trong mỗi đối tượng đầu vào.
+Creates points from a table's x and y coordinate fields.	Tạo các điểm từ các trường tọa độ x và y của một bảng.
 Creates polygons around input features at a given distance.	Tạo các vùng bao quanh đối tượng đầu vào theo khoảng cách cho trước.
 Cross Section	Mặt cắt ngang
 Cross Section (2 clicks)	Mặt cắt ngang (2 lần nhấp)
@@ -1307,6 +1311,7 @@ Remove Folder	Gỡ thư mục
 Remove From Current Selection	Bớt khỏi vùng chọn hiện tại
 Remove Keyframe	Gỡ khung hình chính
 Remove Section	Gỡ phần
+Remove Table	Gỡ bảng
 Remove the last keyframe.	Gỡ khung hình chính cuối cùng.
 Remove the layer from the map.	Gỡ lớp khỏi bản đồ.
 Remove Tile Layer	Gỡ lớp ô bản đồ
@@ -1812,7 +1817,11 @@ World, equal-area: true sizes, shapes bend towards the edges.	Thế giới, đ�
 Worldview	Biên giới
 Write a plugin	Viết plugin
 X (mm)	X (mm)
+X Field	Trường X
+XY Table To Point	Bảng XY thành điểm
+XY Table To Point…	Bảng XY thành điểm…
 Y (mm)	Y (mm)
+Y Field	Trường Y
 Yes	Có
 You have version {version}.	Bạn đang dùng phiên bản {version}.
 z (m)	z (m)

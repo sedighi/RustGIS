@@ -54,6 +54,16 @@ pub struct Popup {
     pub index: usize,
 }
 
+/// A notice shown as a toast.
+pub struct Toast {
+    pub text: String,
+    pub error: bool,
+    /// When it came, or was last hovered (it stays while the pointer is on it).
+    pub at: f64,
+    /// Its number, for a steady id.
+    pub id: u64,
+}
+
 pub struct MapView {
     texture: Option<egui::TextureHandle>,
     key: Option<Key>,
@@ -73,7 +83,9 @@ pub struct MapView {
     pub dms: bool,
     pub render_ms: u64,
     pub notices_seen: usize,
-    pub toasts: Vec<(String, bool, f64)>,
+    pub toasts: Vec<Toast>,
+    /// Toasts made so far, numbering each for a steady id.
+    pub toasts_made: u64,
     camera_moved: bool,
     /// The last snap: its inputs (pointer, camera, undo depth) and where it snapped, if anywhere,
     /// so snapping runs only when one of them changes rather than every frame.
@@ -81,6 +93,9 @@ pub struct MapView {
     /// The side-by-side map's last render (texture and labels) and what it was drawn for, so it
     /// redraws only when that map, the project or the view changes.
     split: Option<([f64; 8], egui::TextureHandle, Vec<PlacedLabel>)>,
+    /// The picture an identified feature carries (a photo's thumbnail, a `data:image/…` value):
+    /// a hash of the value, and its texture (or why it couldn't be read).
+    picture: Option<(u64, Result<egui::TextureHandle, String>)>,
     /// The tile layers' credits, from the last render.
     attribution: Vec<String>,
     /// Tile layer errors already reported.
@@ -108,9 +123,11 @@ impl Default for MapView {
             render_ms: 0,
             notices_seen: 0,
             toasts: Vec::new(),
+            toasts_made: 0,
             camera_moved: false,
             snap: None,
             split: None,
+            picture: None,
             attribution: Vec::new(),
             tile_errors: std::collections::HashSet::new(),
             last_render: -10.0,
@@ -1137,7 +1154,10 @@ fn popup(app: &mut RustGisApp, ui: &mut Ui, rect: Rect) {
     let info = if results > 1 { pp.info["results"][index].clone() } else { pp.info.clone() };
     let mut step: Option<usize> = None;
     let layer = info["layer"].as_str().unwrap_or("").to_string();
-    let attrs = info["attributes"].as_object().cloned().unwrap_or_default();
+    let mut attrs = info["attributes"].as_object().cloned().unwrap_or_default();
+    // A picture value (a photo's thumbnail) shows as the picture, not as its text.
+    let picture_key = attrs.iter().find(|(_, v)| v.as_str().is_some_and(is_picture)).map(|(k, _)| k.clone());
+    let picture = picture_key.and_then(|k| attrs.remove(&k)).and_then(|v| v.as_str().map(|s| picture_texture(app, ui.ctx(), s)));
     let title = if info["raster"].as_bool() == Some(true) {
         tl!("Pixel").to_string()
     } else {
@@ -1209,6 +1229,18 @@ fn popup(app: &mut RustGisApp, ui: &mut Ui, rect: Rect) {
                             });
                         });
                     });
+                if let Some(picture) = &picture {
+                    egui::Frame::NONE.inner_margin(egui::Margin { left: 12, right: 12, top: 8, bottom: 0 }).show(ui, |ui| match picture {
+                        Ok(tex) => {
+                            let size = tex.size_vec2();
+                            let scale = (ui.available_width() / size.x.max(1.0)).min(1.5);
+                            ui.add(egui::Image::new((tex.id(), size * scale)).corner_radius(CornerRadius::same(6)));
+                        }
+                        Err(e) => {
+                            ui.label(egui::RichText::new(e.as_str()).size(11.0).color(t.text_dim));
+                        }
+                    });
+                }
                 // A solid scroll bar in its own gutter, shown when the rows are taller than the
                 // limit (a floating one is invisible until hovered).
                 ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
@@ -1266,6 +1298,53 @@ fn popup(app: &mut RustGisApp, ui: &mut Ui, rect: Rect) {
     } else if let (Some(i), Some(pp)) = (step, &mut app.map.popup) {
         pp.index = i;
     }
+}
+
+/// Whether an attribute value is a picture (a `data:image/png` or `jpeg` address, as a photo's
+/// thumbnail is kept).
+pub(crate) fn is_picture(v: &str) -> bool {
+    v.starts_with("data:image/jpeg;base64,") || v.starts_with("data:image/png;base64,")
+}
+
+/// The texture of a picture value, decoded once and kept while the same value is shown.
+fn picture_texture(app: &mut RustGisApp, ctx: &egui::Context, value: &str) -> Result<egui::TextureHandle, String> {
+    use base64::Engine;
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    value.hash(&mut h);
+    let key = h.finish();
+    if let Some((k, t)) = &app.map.picture
+        && *k == key
+    {
+        return t.clone();
+    }
+    // Pictures kept with features are small (thumbnails); anything large isn't decoded here.
+    let decoded = (|| {
+        let data = value.split_once(",").map(|(_, d)| d).ok_or("not a picture")?;
+        if data.len() > 4 << 20 {
+            return Err("the picture is too large to show".to_string());
+        }
+        let bytes = base64::engine::general_purpose::STANDARD.decode(data).map_err(|e| e.to_string())?;
+        let img = decode_picture(&bytes)?;
+        let (w, h) = (img.width() as usize, img.height() as usize);
+        let color = egui::ColorImage::from_rgba_unmultiplied([w, h], img.as_raw());
+        Ok(ctx.load_texture("identify_picture", color, egui::TextureOptions::LINEAR))
+    })();
+    app.map.picture = Some((key, decoded.clone()));
+    decoded
+}
+
+/// A picture kept with a feature, decoded for the identify popup. A project's value is hostile:
+/// its size is checked before anything is decoded, so a small compressed picture can't unpack
+/// into a huge one.
+fn decode_picture(bytes: &[u8]) -> Result<image::RgbaImage, String> {
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().map_err(|e| e.to_string())?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(2048);
+    limits.max_image_height = Some(2048);
+    limits.max_alloc = Some(64 << 20);
+    reader.limits(limits);
+    Ok(reader.decode().map_err(|_| "the picture is too large to show, or isn't one".to_string())?.to_rgba8())
 }
 
 /// The on-screen navigator: a north compass, zoom in and out, and four pan arrows.
@@ -1384,5 +1463,23 @@ fn view_tabs(app: &mut RustGisApp, ui: &mut Ui, t: &Tokens) {
     ui.painter().text(pr.center(), Align2::CENTER_CENTER, "+", regular(15.0), t.text_dim);
     if resp.on_hover_text(tl!("New Map")).clicked() {
         let _ = app.run("map.new", Value::Null);
+    }
+}
+
+#[cfg(test)]
+mod picture_tests {
+    #[test]
+    fn large_pictures_are_refused_before_decoding() {
+        let png = |w: u32, h: u32| {
+            let mut out = Vec::new();
+            image::RgbaImage::new(w, h).write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png).unwrap();
+            out
+        };
+        assert!(super::decode_picture(&png(160, 120)).is_ok());
+        // A blank picture compresses to a few KB, but would unpack into far more than shown.
+        let bomb = png(4000, 4000);
+        assert!(bomb.len() < 4 << 20, "{}", bomb.len());
+        assert!(super::decode_picture(&bomb).is_err());
+        assert!(super::decode_picture(b"not a picture").is_err());
     }
 }

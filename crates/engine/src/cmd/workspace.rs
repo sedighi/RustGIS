@@ -145,7 +145,7 @@ pub fn commands() -> Vec<C> {
             profile(s, p, &[a, Coord::new(a.x + dx * t, a.y + dy * t)])
         })
         .view()
-        .params(r#"{"layer": elevation raster, "points": [[lon, lat], [lon, lat]] (a start and a direction)}"#),
+        .params(r#"{"layer": elevation raster, "samples"?: number (default 200), "points": [[lon, lat], [lon, lat]] (a start and a direction)}"#),
         C::new("profile.crossSection", "Cross Section", "View › Profile Viewing", |s, p| {
             // Across a line at a point: perpendicular, `width` metres long.
             let pts = points(p)?;
@@ -162,7 +162,7 @@ pub fn commands() -> Vec<C> {
         })
         .view()
         .params(
-            r#"{"layer": elevation raster, "points": [[lon, lat], [lon, lat]] (the line crossed), "at"?: 0..1 along it, "width"?: metres}"#,
+            r#"{"layer": elevation raster, "samples"?: number (default 200), "points": [[lon, lat], [lon, lat]] (the line crossed), "at"?: 0..1 along it, "width"?: metres}"#,
         ),
         C::new("profile.alongLine", "Profile Along a Line", "View › Profile Viewing", |s, p| {
             let lines = selected_lines(s, p, false)?;
@@ -170,14 +170,14 @@ pub fn commands() -> Vec<C> {
             profile(s, p, &first)
         })
         .view()
-        .params(r#"{"layer": elevation raster, "lines": line layer, "row"?: number (the first selected when omitted)}"#),
+        .params(r#"{"layer": elevation raster, "samples"?: number (default 200), "lines": line layer, "row"?: number (the first selected when omitted)}"#),
         C::new("profile.alongSelected", "Profile Along Selected Lines", "View › Profile Viewing", |s, p| {
             let lines = selected_lines(s, p, true)?;
             let out: Vec<Value> = lines.iter().take(50).map(|l| profile(s, p, l)).collect::<Result<_, _>>()?;
             Ok(Value::Array(out))
         })
         .view()
-        .params(r#"{"layer": elevation raster, "lines": line layer}"#),
+        .params(r#"{"layer": elevation raster, "samples"?: number (default 200), "lines": line layer}"#),
         // Infographics and diagnostics.
         C::new("info.infographic", "Infographics", "Home › Inspect", infographic)
             .view()

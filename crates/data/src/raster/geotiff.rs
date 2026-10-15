@@ -94,6 +94,46 @@ fn geo_tags<R: Read + Seek>(dec: &mut Decoder<R>) -> Result<Geo> {
     Ok(Geo { transform, crs, unknown_epsg: code.filter(|_| crs.is_none()), geographic_model, nodata, custom_error })
 }
 
+/// A cloud-optimised GeoTIFF's coordinate system, georeferencing and no-data value, from its first
+/// image (as [`read`] finds them).
+pub(crate) fn cog_geo<R: Read + Seek>(dec: &mut Decoder<R>) -> Result<(Crs, GeoTransform, Option<f64>)> {
+    let geo = geo_tags(dec)?;
+    let crs = match geo.crs {
+        Some(c) => c,
+        None if geo.geographic_model => Crs::LonLat,
+        None => match geo.unknown_epsg {
+            Some(code) => return Err(err(format!("the coordinate system EPSG:{code} isn't supported"))),
+            None => {
+                return Err(match geo.custom_error {
+                    Some(e) => DataError::Format(e),
+                    None => err("the file's coordinate system isn't recognised"),
+                });
+            }
+        },
+    };
+    Ok((crs, geo.transform, geo.nodata))
+}
+
+#[cfg(test)]
+pub(crate) mod tests_support {
+    /// A small GeoTIFF in strips (as [`super::write`] writes them).
+    pub(crate) fn strip_tiff() -> Vec<u8> {
+        let r = crate::raster::Raster::new(
+            "s",
+            4,
+            4,
+            vec![vec![1.0; 16]],
+            crate::raster::GeoTransform { origin_x: 0.0, origin_y: 1.0, pixel_width: 0.25, pixel_height: -0.25 },
+            crate::raster::Crs::LonLat,
+            None,
+            crate::raster::ColorHint::Gray,
+            "Float32",
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        super::write(&r, 0).unwrap_or_else(|e| panic!("{e}"))
+    }
+}
+
 /// A GeoKey's parameter: inline, or from the double or ASCII parameter tags.
 enum KeyValue {
     Short(u16),
@@ -216,7 +256,7 @@ fn samples<R: Read + Seek>(dec: &mut Decoder<R>) -> usize {
 /// A reader that shows palette images as grey ones: the `tiff` crate decodes no palette images, but
 /// decodes their colour indices as grey samples, and the colour table is read from the ColorMap tag
 /// as it is. The only change is the PhotometricInterpretation value (3 → 1) in each image's IFD.
-struct Unpaletted<R> {
+pub(crate) struct Unpaletted<R> {
     inner: R,
     /// Where each palette image's PhotometricInterpretation value is, and what to show there.
     patches: Vec<(u64, [u8; 2])>,
@@ -298,6 +338,19 @@ fn palette_patches<R: Read + Seek>(r: &mut R) -> Vec<(u64, [u8; 2])> {
     patches
 }
 
+/// Any reader, boxed: the decoder is compiled once for every kind of source (a file, bytes in
+/// memory, a COG's ranges), which keeps the browser build small.
+pub(crate) trait ReadSeek: Read + Seek {}
+impl<T: Read + Seek> ReadSeek for T {}
+
+/// What the decoder reads from.
+pub(crate) type Reader<'a> = Unpaletted<Box<dyn ReadSeek + 'a>>;
+
+/// A reader for the decoder.
+pub(crate) fn reader<'a>(r: impl Read + Seek + 'a) -> std::io::Result<Reader<'a>> {
+    Unpaletted::new(Box::new(r))
+}
+
 impl<R: Read + Seek> Unpaletted<R> {
     fn new(mut inner: R) -> std::io::Result<Self> {
         let patches = palette_patches(&mut inner);
@@ -334,7 +387,8 @@ impl<R: Seek> Seek for Unpaletted<R> {
 }
 
 /// Reads an image too large to hold, a strip or tile at a time, keeping every `k`-th pixel each
-/// way: an overview made as it is read, for a file that has none. Returns the bands.
+/// way: an overview made as it is read, for a file that has none. Returns the bands. With `k` 1,
+/// the whole image a tile at a time.
 fn decimate<R: Read + Seek>(
     dec: &mut Decoder<R>,
     w: u32,
@@ -399,12 +453,11 @@ fn decimate<R: Read + Seek>(
 /// fits, when the file has overviews; otherwise an overview is made as the image is read, a strip
 /// or tile at a time (a regular, not cloud-optimised, file).
 pub fn read<R: Read + Seek>(r: R, name: &str) -> Result<Raster> {
-    read_limited(r, name, MAX_SAMPLES)
+    read_limited(reader(r).map_err(err)?, name, MAX_SAMPLES)
 }
 
 /// [`read`], holding at most `max` samples (the tests' small limit exercises the overviews).
-fn read_limited<R: Read + Seek>(r: R, name: &str, max: usize) -> Result<Raster> {
-    let r = Unpaletted::new(r).map_err(err)?;
+fn read_limited(r: Reader<'_>, name: &str, max: usize) -> Result<Raster> {
     let palette = !r.patches.is_empty();
     let limits = {
         let mut l = Limits::default();
@@ -448,23 +501,31 @@ fn read_limited<R: Read + Seek>(r: R, name: &str, max: usize) -> Result<Raster> 
                 best = Some((index, ow, oh));
             }
         }
+        // Every k-th pixel of the full image, the fewest left out that fit.
+        let mut k = 2u32;
+        while !fits(full_w.div_ceil(k), full_h.div_ceil(k), spp, 4) {
+            k = k.saturating_mul(2);
+            if k > 1 << 20 {
+                break;
+            }
+        }
+        let (dw, dh) = (full_w.div_ceil(k), full_h.div_ceil(k));
+        let decimated = (k <= 1 << 20).then_some(u64::from(dw) * u64::from(dh));
         match best {
-            Some((index, ow, oh)) => {
+            // An overview at least as detailed as the full image read sparsely: only it is read.
+            Some((index, ow, oh)) if decimated.is_none_or(|d| u64::from(ow) * u64::from(oh) >= d) => {
                 dec.seek_to_image(index).map_err(err)?;
                 (w, h) = (ow, oh);
             }
-            // No overview: one is made as the full image is read.
-            None => {
-                dec.seek_to_image(0).map_err(err)?;
-                let mut k = 2u32;
-                while !fits(full_w.div_ceil(k), full_h.div_ceil(k), spp, 4) {
-                    k = k.saturating_mul(2);
-                    if k > 1 << 20 {
-                        return Err(err(format!("{full_w} × {full_h} pixels is too large to open")));
-                    }
+            // No overview, or only coarse ones (a 5000-pixel orthophoto with one of 157 pixels,
+            // issue #162): one is made as the full image is read.
+            _ => {
+                if decimated.is_none() {
+                    return Err(err(format!("{full_w} × {full_h} pixels is too large to open")));
                 }
+                dec.seek_to_image(0).map_err(err)?;
                 decimate_by = k;
-                (w, h) = (full_w.div_ceil(k), full_h.div_ceil(k));
+                (w, h) = (dw, dh);
             }
         }
         overview = Some((full_w, full_h));
@@ -497,8 +558,14 @@ fn read_limited<R: Read + Seek>(r: R, name: &str, max: usize) -> Result<Raster> 
     };
     let planar = dec.find_tag_unsigned::<u16>(Tag::PlanarConfiguration).ok().flatten() == Some(2);
     let n = (w as usize) * (h as usize);
-    let (values, data_type) = if decimate_by > 1 {
-        let (bands, dt) = decimate(&mut dec, full_w, full_h, nbands, planar, decimate_by)?;
+    // The decoder leaves out samples past the colour ones (RGB with an undefined fourth band, as
+    // in RGBI orthophotos) a tile row at a time, and writes a padded edge tile's whole width into
+    // the image: past its edge, over the start of the next row (issue #162). Such tiled images
+    // are read a tile at a time, as their chunks come back only as wide as the image.
+    let extra_samples = !planar && samples(&mut dec) > nbands && dec.find_tag_unsigned::<u32>(Tag::TileWidth).ok().flatten().is_some();
+    let (values, data_type) = if decimate_by > 1 || extra_samples {
+        let (iw, ih) = if decimate_by > 1 { (full_w, full_h) } else { (w, h) };
+        let (bands, dt) = decimate(&mut dec, iw, ih, nbands, planar, decimate_by)?;
         // Already one vector per band: laid out planar.
         (bands.into_iter().flatten().collect::<Vec<f32>>(), dt)
     } else {
@@ -506,7 +573,7 @@ fn read_limited<R: Read + Seek>(r: R, name: &str, max: usize) -> Result<Raster> 
         dec.read_image_to_buffer(&mut buf).map_err(err)?;
         to_f32(buf)
     };
-    let planar = planar || decimate_by > 1;
+    let planar = planar || decimate_by > 1 || extra_samples;
     if values.len() < n.saturating_mul(nbands) {
         return Err(err("couldn't read every band"));
     }
@@ -778,6 +845,48 @@ mod tests {
         }
     }
 
+    /// Recompresses a classic little-endian TIFF's strips with Zstandard (as GDAL's
+    /// `COMPRESS=ZSTD` does), appending them and repointing the strip offsets.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn zstd_strips(b: &mut Vec<u8>) {
+        let u16_at = |b: &[u8], i: usize| u16::from_le_bytes(b[i..i + 2].try_into().unwrap());
+        let u32_at = |b: &[u8], i: usize| u32::from_le_bytes(b[i..i + 4].try_into().unwrap()) as usize;
+        let ifd = u32_at(b, 4);
+        // A tag's directory entry.
+        let entry = |b: &[u8], tag: u16| (0..u16_at(b, ifd) as usize).map(|i| ifd + 2 + i * 12).find(|&e| u16_at(b, e) == tag).unwrap();
+        let (offsets, counts) = (entry(b, 273), entry(b, 279));
+        assert_eq!((u16_at(b, offsets + 2), u16_at(b, counts + 2)), (4, 4), "LONG strip tags");
+        let n = u32_at(b, offsets + 4);
+        let at = |b: &[u8], e: usize| if n == 1 { e + 8 } else { u32_at(b, e + 8) };
+        let (offsets, counts) = (at(b, offsets), at(b, counts));
+        for i in 0..n {
+            let (start, len) = (u32_at(b, offsets + i * 4), u32_at(b, counts + i * 4));
+            let packed = zstd::encode_all(&b[start..start + len], 3).unwrap();
+            let new_start = u32::try_from(b.len()).unwrap();
+            let new_len = u32::try_from(packed.len()).unwrap();
+            b.extend(packed);
+            b[offsets + i * 4..offsets + i * 4 + 4].copy_from_slice(&new_start.to_le_bytes());
+            b[counts + i * 4..counts + i * 4 + 4].copy_from_slice(&new_len.to_le_bytes());
+        }
+        let compression = entry(b, 259);
+        b[compression + 8..compression + 10].copy_from_slice(&50000u16.to_le_bytes());
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn zstd_compressed_files_are_read() {
+        // Issue #134: Zstandard is a usual compression for COGs (EnMAP's, among others).
+        let (w, h) = (8u32, 8u32);
+        let data: Vec<u8> = (0..w * h).map(|i| (i * 3 % 251) as u8).collect();
+        let mut bytes = grey8(w, h, &data, None);
+        zstd_strips(&mut bytes);
+        let r = read(std::io::Cursor::new(&bytes), "zstd").unwrap();
+        assert_eq!((r.width, r.height), (8, 8));
+        for (x, y) in [(0i64, 0i64), (7, 0), (3, 5), (7, 7)] {
+            assert_eq!(r.value(0, x, y), Some(f32::from(data[(y * 8 + x) as usize])), "{x},{y}");
+        }
+    }
+
     #[test]
     fn palette_images_read_their_colour_table() {
         let data: Vec<u8> = (0..64u32).map(|i| (i % 3) as u8).collect();
@@ -811,7 +920,7 @@ mod tests {
         let data: Vec<u8> = (0..w * h).map(|i| ((i % w + i / w) % 251) as u8).collect();
         let bytes = grey8(w, h, &data, None);
         let full = read(std::io::Cursor::new(&bytes), "full").unwrap();
-        let r = read_limited(std::io::Cursor::new(&bytes), "big", 10_000).unwrap();
+        let r = read_limited(reader(std::io::Cursor::new(&bytes)).unwrap(), "big", 10_000).unwrap();
         assert_eq!((r.width, r.height), (76, 51));
         assert_eq!(r.overview, Some((301, 203)));
         assert_eq!(r.transform.pixel_width, full.transform.pixel_width * 4.0);
@@ -819,6 +928,112 @@ mod tests {
         for (x, y) in [(0i64, 0i64), (1, 1), (75, 50), (74, 49), (30, 7)] {
             assert_eq!(r.value(0, x, y), full.value(0, x * 4, y * 4), "{x},{y}");
         }
+    }
+
+    /// A tiled, uncompressed RGB GeoTIFF with a fourth, undefined sample (an RGBI orthophoto's
+    /// layout), each image `(size, tile)` in turn: the first the full one, the rest overviews of
+    /// it. Sample `b` of pixel (x, y) at a `k`-times overview is `pixel(b, x·k, y·k)`; edge tiles
+    /// are padded with zeros.
+    fn rgbi_tiled(images: &[(u32, u32)], pixel: impl Fn(u32, u32, u32) -> u8) -> Vec<u8> {
+        let full = images.first().map_or(1, |i| i.0);
+        let mut out = vec![b'I', b'I', 42, 0, 0, 0, 0, 0];
+        let mut next_link = 4;
+        for (i, &(size, tile)) in images.iter().enumerate() {
+            let k = full / size;
+            let n = size.div_ceil(tile);
+            // The tiles' data first, then the IFD pointing at it.
+            let mut offsets = Vec::new();
+            for t in 0..n * n {
+                offsets.push(out.len() as u32);
+                for p in 0..tile * tile {
+                    let (x, y) = ((t % n) * tile + p % tile, (t / n) * tile + p / tile);
+                    for b in 0..4 {
+                        out.push(if x < size && y < size { pixel(b, x * k, y * k) } else { 0 });
+                    }
+                }
+            }
+            // Out-of-line values: (tag, type, count, bytes); type 3 short, 4 long, 12 double.
+            let shorts = |v: &[u16]| v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
+            let longs = |v: &[u32]| v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
+            let doubles = |v: &[f64]| v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
+            let counts = vec![tile * tile * 4; offsets.len()];
+            let mut e: Vec<(u16, u16, u32, Vec<u8>)> = vec![
+                (254, 4, 1, longs(&[u32::from(i > 0)])),
+                (256, 4, 1, longs(&[size])),
+                (257, 4, 1, longs(&[size])),
+                (258, 3, 4, shorts(&[8; 4])),
+                (259, 3, 1, shorts(&[1])),
+                (262, 3, 1, shorts(&[2])),
+                (277, 3, 1, shorts(&[4])),
+                (284, 3, 1, shorts(&[1])),
+                (322, 4, 1, longs(&[tile])),
+                (323, 4, 1, longs(&[tile])),
+                (324, 4, offsets.len() as u32, longs(&offsets)),
+                (325, 4, counts.len() as u32, longs(&counts)),
+                (338, 3, 1, shorts(&[0])),
+            ];
+            if i == 0 {
+                e.push((33550, 12, 3, doubles(&[0.2, 0.2, 0.0])));
+                e.push((33922, 12, 6, doubles(&[0.0, 0.0, 0.0, 641_000.0, 5_650_000.0, 0.0])));
+                e.push((34735, 3, 8, shorts(&[1, 1, 0, 1, 3072, 0, 1, 25832])));
+            }
+            let mut values: Vec<u8> = Vec::new();
+            let ifd_at = out.len() + out.len() % 2;
+            out.resize(ifd_at, 0);
+            let values_at = ifd_at + 2 + 12 * e.len() + 4;
+            let mut dir = (e.len() as u16).to_le_bytes().to_vec();
+            for (tag, ty, count, bytes) in &mut e {
+                dir.extend(tag.to_le_bytes());
+                dir.extend(ty.to_le_bytes());
+                dir.extend(count.to_le_bytes());
+                if bytes.len() <= 4 {
+                    bytes.resize(4, 0);
+                    dir.extend(bytes.iter());
+                } else {
+                    dir.extend(((values_at + values.len()) as u32).to_le_bytes());
+                    values.extend(bytes.iter());
+                }
+            }
+            out[next_link..next_link + 4].copy_from_slice(&(ifd_at as u32).to_le_bytes());
+            next_link = ifd_at + dir.len();
+            out.extend(dir);
+            out.extend([0; 4]);
+            out.extend(values);
+        }
+        out
+    }
+
+    #[test]
+    fn padded_tiles_with_an_extra_sample_stay_in_their_rows() {
+        // Issue #162: an RGBI orthophoto (5000 pixels in 128-pixel tiles) opened with black
+        // columns down its west edge, the padding of each row's last tile spilt into the next row.
+        let pixel = |b: u32, x: u32, y: u32| ((x + 3 * y + 60 * b) % 250 + 1) as u8;
+        let bytes = rgbi_tiled(&[(40, 16), (20, 16)], pixel);
+        let check = |r: &Raster, k: u32| {
+            assert_eq!((r.band_count(), r.color.clone()), (3, ColorHint::Rgb { alpha: false }));
+            for y in 0..r.height {
+                for x in 0..r.width {
+                    for b in 0..3 {
+                        let want = f32::from(pixel(b, x * k, y * k));
+                        assert_eq!(r.value(b as usize, i64::from(x), i64::from(y)), Some(want), "band {b} at {x},{y} (k {k})");
+                    }
+                }
+            }
+        };
+        // The full image, and the overview a smaller limit (the browser's) opens instead.
+        let r = read(std::io::Cursor::new(&bytes), "rgbi").unwrap();
+        assert_eq!((r.width, r.height, r.overview), (40, 40, None));
+        check(&r, 1);
+        let r = read_limited(reader(std::io::Cursor::new(&bytes)).unwrap(), "rgbi", 2_000).unwrap();
+        assert_eq!((r.width, r.height, r.overview), (20, 20, Some((40, 40))));
+        check(&r, 2);
+        assert_eq!(r.crs.epsg(), 25832);
+        // With only a coarse overview (the orthophoto's is 157 pixels), every 2nd pixel of the
+        // full image is read instead: four times the detail of the overview.
+        let coarse = rgbi_tiled(&[(40, 16), (10, 16)], pixel);
+        let r = read_limited(reader(std::io::Cursor::new(&coarse)).unwrap(), "rgbi", 2_000).unwrap();
+        assert_eq!((r.width, r.height, r.overview), (20, 20, Some((40, 40))));
+        check(&r, 2);
     }
 
     #[test]

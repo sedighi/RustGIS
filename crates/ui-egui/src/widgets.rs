@@ -36,7 +36,7 @@ pub fn enabled(app: &RustGisApp, id: &str) -> bool {
     }
 }
 
-fn why_disabled(app: &RustGisApp, id: &str) -> Option<&'static str> {
+pub fn why_disabled(app: &RustGisApp, id: &str) -> Option<&'static str> {
     app.session.registry.get(id).and_then(|s| (s.enabled)(&app.session))
 }
 
@@ -178,6 +178,19 @@ pub fn small_menu(ui: &mut Ui, app: &mut RustGisApp, icon: &str, label: &str, de
     });
 }
 
+/// A frameless button as a row of a menu or list. Such a button paints nothing behind its text,
+/// so the row's hover (or pressed) fill goes under it, `expand` wider than the row on each side.
+pub fn row_button(ui: &mut Ui, on: bool, button: egui::Button<'_>, expand: f32) -> Response {
+    let under = ui.painter().add(egui::Shape::Noop);
+    let resp = ui.add_enabled(on, button);
+    if on && (resp.hovered() || resp.is_pointer_button_down_on()) {
+        let t = Tokens::get(ui.ctx());
+        let fill = if resp.is_pointer_button_down_on() { t.pressed } else { t.hover };
+        ui.painter().set(under, egui::Shape::rect_filled(resp.rect.expand2(vec2(expand, 0.0)), CornerRadius::same(5), fill));
+    }
+    resp
+}
+
 /// Room for a menu row's icon before its label.
 const MENU_ICON_W: f32 = 22.0;
 
@@ -200,7 +213,7 @@ pub fn menu_item(ui: &mut Ui, app: &mut RustGisApp, icon: &str, label: &str, id:
     if !shortcut.is_empty() {
         button = button.right_text(shortcut);
     }
-    let resp = ui.add_enabled(on, button);
+    let resp = row_button(ui, on, button, 4.0);
     if !icon.is_empty() {
         let t = Tokens::get(ui.ctx());
         icons::paint(

@@ -8,6 +8,7 @@ pub mod effects;
 pub mod globe;
 pub mod graphics;
 pub mod layout;
+pub mod palette;
 pub mod presentation;
 pub mod projection;
 pub mod raster;
@@ -238,6 +239,13 @@ impl Layer {
             if src.error.is_some() || src.open().is_err() {
                 return false;
             }
+            // A source by its web address opens off the frame: an export waits for it.
+            if block {
+                src.wait_open(std::time::Duration::from_secs(60));
+            }
+            if !src.is_open() {
+                return src.is_pending();
+            }
         }
         // A failed read leaves nothing drawn for it (its error shows in Layers), not the
         // previous view's features.
@@ -386,6 +394,21 @@ impl Layer {
         }
     }
 
+    /// Extent in longitude/latitude of the features the definition query lets through (the whole
+    /// extent without a query, for rasters and for streamed layers, whose rows are only those read).
+    pub fn shown_extent(&self) -> Extent {
+        let query = self.definition_query.as_deref().is_some_and(|q| !q.trim().is_empty());
+        if !query || self.raster.is_some() || self.source.is_some() {
+            return self.extent();
+        }
+        self.visible_rows()
+            .iter()
+            .zip(&self.dataset.features)
+            .filter(|(v, _)| **v)
+            .filter_map(|(_, f)| f.geometry.as_ref())
+            .fold(Extent::EMPTY, |e, g| e.union(&g.extent()))
+    }
+
     pub fn selection_extent(&self) -> Extent {
         self.selection
             .iter()
@@ -403,6 +426,13 @@ impl Layer {
 pub struct Bookmark {
     pub name: String,
     pub camera: Camera,
+}
+
+/// What [`Map::layer_mark`] records.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LayerMark {
+    ids: Vec<u32>,
+    next: u32,
 }
 
 /// A map: an ordered list of layers (index 0 draws on top), a basemap and a camera.
@@ -534,6 +564,20 @@ impl Map {
         let id = self.next_layer_id.max(self.layers.iter().map(|l| l.id).max().unwrap_or(0) + 1);
         self.next_layer_id = id + 1;
         id
+    }
+
+    /// The map's layers as they stand (their ids in order, and the next id), cheap to take before
+    /// adding several layers that must all go in or none: see [`Map::restore_layers`].
+    pub fn layer_mark(&self) -> LayerMark {
+        LayerMark { ids: self.layers.iter().map(|l| l.id).collect(), next: self.next_layer_id }
+    }
+
+    /// Takes out the layers added since `mark` and puts the others back in its order, with the
+    /// layer ids it had (the layers' data is never copied).
+    pub fn restore_layers(&mut self, mark: &LayerMark) {
+        self.layers.retain(|l| mark.ids.contains(&l.id));
+        self.layers.sort_by_key(|l| mark.ids.iter().position(|id| *id == l.id).unwrap_or(usize::MAX));
+        self.next_layer_id = mark.next;
     }
 
     /// Inserts a layer on top of the layers of its kind: points above lines above polygons above
@@ -818,5 +862,20 @@ mod tests {
         assert_eq!(m.hits_in(&e, 1e6), vec![(id, vec![0])]);
         m.layers[0].definition_query = Some("n = 2".into());
         assert_eq!(m.hits_in(&e, 1e6), vec![]);
+    }
+
+    #[test]
+    fn shown_extent_follows_the_definition_query() {
+        let mut m = Map::new("Map");
+        m.add_dataset(points());
+        let l = &mut m.layers[0];
+        assert_eq!(l.shown_extent(), Extent::new(0.0, 0.0, 10.0, 10.0));
+        l.definition_query = Some("n = 2".into());
+        assert_eq!(l.shown_extent(), Extent::new(10.0, 10.0, 10.0, 10.0));
+        l.definition_query = Some("n = 3".into());
+        assert!(l.shown_extent().is_empty());
+        // An invalid query hides nothing.
+        l.definition_query = Some("n = = 2".into());
+        assert_eq!(l.shown_extent(), Extent::new(0.0, 0.0, 10.0, 10.0));
     }
 }

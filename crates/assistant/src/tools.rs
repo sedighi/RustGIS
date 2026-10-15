@@ -126,7 +126,7 @@ pub fn gate(s: &Session, call: &ToolCall) -> Option<String> {
         });
     }
     let spec = s.registry.get(&id)?;
-    if id == rustgis_engine::cmd::plugins::SQL {
+    if id == rustgis_engine::cmd::plugins::SQL || id == "sql.query" {
         let why = "it runs an SQL query, which can read files on this computer and addresses on the internet";
         // Views in a database the query opens run too, though the query doesn't show them.
         return Some(match params.get("database").and_then(Value::as_str).filter(|d| !d.trim().is_empty()) {

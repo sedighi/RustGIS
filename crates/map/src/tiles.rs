@@ -30,10 +30,15 @@ pub enum TileKind {
     /// for one added to the web app (kept in memory, not in the project).
     #[serde(rename = "mbtiles")]
     MbTiles,
+    /// A cloud-optimised GeoTIFF by its web address: drawn from the overview and tiles the view
+    /// needs, read by byte range.
+    #[serde(rename = "cog")]
+    Cog,
 }
 
 impl TileKind {
-    pub const ALL: [TileKind; 5] = [TileKind::Raster, TileKind::Vector, TileKind::Style, TileKind::PmTiles, TileKind::MbTiles];
+    pub const ALL: [TileKind; 6] =
+        [TileKind::Raster, TileKind::Vector, TileKind::Style, TileKind::PmTiles, TileKind::MbTiles, TileKind::Cog];
     pub fn code(self) -> &'static str {
         match self {
             TileKind::Raster => "raster",
@@ -41,6 +46,7 @@ impl TileKind {
             TileKind::Style => "style",
             TileKind::PmTiles => "pmtiles",
             TileKind::MbTiles => "mbtiles",
+            TileKind::Cog => "cog",
         }
     }
     pub fn label(self) -> &'static str {
@@ -50,6 +56,7 @@ impl TileKind {
             TileKind::Style => "Map style (JSON)",
             TileKind::PmTiles => "PMTiles archive",
             TileKind::MbTiles => "MBTiles archive",
+            TileKind::Cog => "Cloud-optimised GeoTIFF",
         }
     }
     pub fn from_code(s: &str) -> Option<TileKind> {
@@ -60,6 +67,7 @@ impl TileKind {
             "style" | "maplibre" | "mapbox" => Some(TileKind::Style),
             "pmtiles" => Some(TileKind::PmTiles),
             "mbtiles" => Some(TileKind::MbTiles),
+            "cog" | "geotiff" => Some(TileKind::Cog),
             _ => None,
         }
     }
@@ -115,6 +123,9 @@ pub struct TileLayer {
     /// The catalog entry it came from (`osm`, `esri-imagery`), when it came from one.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub id: String,
+    /// Vector tiles' layer names, when the service gave them (each drawn in a colour of its own).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub layers: Vec<String>,
 }
 
 fn max_zoom() -> u8 {
@@ -152,6 +163,7 @@ impl TileLayer {
             opacity: 1.0,
             overlay: false,
             id: String::new(),
+            layers: Vec::new(),
         }
     }
 
@@ -179,6 +191,9 @@ impl TileLayer {
             };
             self.name = if local { file() } else { host_of(&self.url).map(str::to_string) }.unwrap_or_else(|| "Tiles".into());
         }
+        // Layer names (a project file is hostile input): at most 64, each short and printable.
+        self.layers.retain(|l| !l.trim().is_empty() && l.len() <= 200 && !l.chars().any(char::is_control));
+        self.layers.truncate(64);
         self.max_zoom = self.max_zoom.min(MAX_ZOOM);
         self.min_zoom = self.min_zoom.min(self.max_zoom);
         self.tile_size = if self.tile_size >= 384 { 512 } else { 256 };
@@ -200,7 +215,7 @@ pub const UPLOAD: &str = "upload:";
 /// Whether a PMTiles or MBTiles archive address is a file rather than a web address.
 pub fn is_local_archive(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
-    !(lower.starts_with("https://") || lower.starts_with("http://"))
+    !(lower.starts_with("https://") || lower.starts_with("http://") || lower.starts_with("s3://"))
 }
 
 /// Whether an archive's file path may be read: absolute, a `.<ext>` file (`pmtiles`,
@@ -229,8 +244,8 @@ pub fn check_url(url: &str) -> Result<(), String> {
         return Err("the address is too long".into());
     }
     let lower = url.to_ascii_lowercase();
-    if !(lower.starts_with("https://") || lower.starts_with("http://")) {
-        return Err(format!("'{url}': tile addresses start with https:// or http://"));
+    if !(lower.starts_with("https://") || lower.starts_with("http://") || lower.starts_with("s3://")) {
+        return Err(format!("'{url}': tile addresses start with https://, http:// or s3://"));
     }
     if host_of(url).is_none_or(str::is_empty) {
         return Err(format!("'{url}' has no host"));

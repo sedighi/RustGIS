@@ -26,6 +26,12 @@ pub struct RasterLayer {
     /// The original file, kept in the project when there is no path (a browser upload).
     #[serde(default, skip_serializing_if = "Option::is_none", with = "b64")]
     pub embedded: Option<Arc<Vec<u8>>>,
+    /// For a raster GDAL reads: the subdataset added (a NetCDF variable), so it is read again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subdataset: Option<String>,
+    /// For a raster GDAL reads: the coordinate system given for a file that doesn't say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crs: Option<String>,
     pub style: RasterStyle,
     /// The pixels; `None` when the source couldn't be read.
     #[serde(skip)]
@@ -46,13 +52,29 @@ impl RasterLayer {
     /// A raster read from a file on disk.
     pub fn from_path(raster: Raster, path: impl Into<String>) -> RasterLayer {
         let style = RasterStyle::default_for(&raster);
-        RasterLayer { path: Some(path.into()), file_name: None, embedded: None, style, data: Some(Arc::new(raster)) }
+        RasterLayer {
+            path: Some(path.into()),
+            file_name: None,
+            embedded: None,
+            subdataset: None,
+            crs: None,
+            style,
+            data: Some(Arc::new(raster)),
+        }
     }
 
     /// A raster from a file's bytes, kept in the project.
     pub fn from_bytes(raster: Raster, file_name: impl Into<String>, bytes: Vec<u8>) -> RasterLayer {
         let style = RasterStyle::default_for(&raster);
-        RasterLayer { path: None, file_name: Some(file_name.into()), embedded: Some(Arc::new(bytes)), style, data: Some(Arc::new(raster)) }
+        RasterLayer {
+            path: None,
+            file_name: Some(file_name.into()),
+            embedded: Some(Arc::new(bytes)),
+            subdataset: None,
+            crs: None,
+            style,
+            data: Some(Arc::new(raster)),
+        }
     }
 
     /// Reads the pixels again from the path or the embedded file (after a project opens).
@@ -60,7 +82,7 @@ impl RasterLayer {
         let r = if let Some(bytes) = &self.embedded {
             rustgis_data::raster::read_bytes(self.file_name.as_deref().unwrap_or("raster.tif"), bytes)
         } else if let Some(p) = &self.path {
-            rustgis_data::raster::read_path(std::path::Path::new(p))
+            rustgis_data::raster::read_path_with(std::path::Path::new(p), self.subdataset.as_deref(), self.crs.as_deref())
         } else {
             return Err("the raster has no source".into());
         };
@@ -244,9 +266,9 @@ impl RasterRenderer {
     pub fn ramp(&self) -> Option<Ramp> {
         match self {
             RasterRenderer::Stretch { ramp, .. } | RasterRenderer::Classify { ramp, .. } | RasterRenderer::UniqueValues { ramp, .. } => {
-                Some(*ramp)
+                Some(ramp.clone())
             }
-            RasterRenderer::ShadedRelief { ramp, .. } => *ramp,
+            RasterRenderer::ShadedRelief { ramp, .. } => ramp.clone(),
             _ => None,
         }
     }
@@ -318,11 +340,11 @@ impl RasterStyle {
             RasterRenderer::Stretch { ramp: r, .. } | RasterRenderer::Classify { ramp: r, .. } => *r = ramp,
             RasterRenderer::ShadedRelief { ramp: r, .. } => *r = Some(ramp),
             RasterRenderer::UniqueValues { ramp: r, values, .. } => {
-                *r = ramp;
                 let n = values.len();
                 for (i, (_, c)) in values.iter_mut().enumerate() {
                     *c = ramp.pick(i, n);
                 }
+                *r = ramp;
             }
             RasterRenderer::Rgb { .. } | RasterRenderer::Colormap => {}
         }
@@ -557,11 +579,11 @@ impl RasterLayer {
             RasterRenderer::Stretch { band, ramp, invert } => {
                 let n = r.bands.get(*band).map(|b| Normalizer::new(self.style.stretch, &b.stats, &r.data_type));
                 let (lo, hi) = n.map(|n| (n.lo, n.hi)).unwrap_or((0.0, 1.0));
-                vec![RasterLegend::Ramp { ramp: *ramp, invert: *invert, high: fmt_num(hi), low: fmt_num(lo) }]
+                vec![RasterLegend::Ramp { ramp: ramp.clone(), invert: *invert, high: fmt_num(hi), low: fmt_num(lo) }]
             }
             RasterRenderer::ShadedRelief { ramp: Some(ramp), band, .. } => {
                 let s = r.bands.get(*band).map(|b| (b.stats.min, b.stats.max)).unwrap_or((0.0, 1.0));
-                vec![RasterLegend::Ramp { ramp: *ramp, invert: false, high: fmt_num(s.1), low: fmt_num(s.0) }]
+                vec![RasterLegend::Ramp { ramp: ramp.clone(), invert: false, high: fmt_num(s.1), low: fmt_num(s.0) }]
             }
             RasterRenderer::ShadedRelief { ramp: None, .. } => {
                 vec![RasterLegend::Ramp { ramp: Ramp::Greys, invert: true, high: "Lit".into(), low: "Shaded".into() }]

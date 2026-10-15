@@ -5,7 +5,7 @@ use std::path::Path;
 
 use rustgis_geom::{Coord, Extent};
 use rustgis_map::Rgba;
-use rustgis_map::layout::{ElementKind, FrameShape, Grid, Layout, MapSeries, PAGES, fit_scale};
+use rustgis_map::layout::{ElementKind, FrameShape, Grid, Layout, MIN_ELEMENT_MM, MapSeries, PAGES, fit_scale};
 use serde_json::{Value, json};
 
 use super::{b, f, ps};
@@ -30,7 +30,7 @@ pub fn commands() -> Vec<C> {
             Ok(json!({"layout": i}))
         })
         .view()
-        .params(r#"{"name": string}"#),
+        .params(r#"{"name": string | "layout": name|index}"#),
         C::new("layout.close", "Show Map", "Browser", |s, _| {
             s.active_layout = None;
             Ok(Value::Null)
@@ -42,7 +42,7 @@ pub fn commands() -> Vec<C> {
             s.active_layout = None;
             Ok(Value::Null)
         })
-        .params(r#"{"name"?: string}"#),
+        .params(r#"{"name"?: string, "layout"?: name|index (instead of name; default: the open layout)}"#),
         C::new("layout.rename", "Rename Layout", "Browser", |s, p| {
             let name: String = ps(p, "newName").map(str::trim).filter(|n| !n.is_empty()).ok_or("newName is required")?.chars().take(200).collect();
             let i = index(s, &by_name(p))?;
@@ -60,7 +60,7 @@ pub fn commands() -> Vec<C> {
             }
             Ok(json!({"name": unique}))
         })
-        .params(r#"{"name"?: string, "newName": string}"#),
+        .params(r#"{"name"?: string, "layout"?: name|index (instead of name; default: the open layout), "newName": string}"#),
         C::new("layout.page", "Page Size", "Publish › Page Setup", page).params(
             r#"{"layout"?, "page"?: page id, "orientation"?: "landscape"|"portrait", "width"?: mm, "height"?: mm}"#,
         ),
@@ -68,7 +68,7 @@ pub fn commands() -> Vec<C> {
             r#"{"layout"?, "shape"?: "rectangle"|"circle"|"ellipse"|"polygon"|"lasso", "points"?: [[u, v], …] (polygon/lasso, 0..1 across the frame), "map"?: name, "x"?, "y"?, "w"?, "h"?: mm}"#,
         ),
         C::new("layout.addElement", "Add Element", "Publish › Map Surrounds", add_element).params(
-            r##"{"layout"?, "kind": "northArrow"|"scaleBar"|"legend"|"text"|"dynamicText"|"picture"|"table"|"chart"|"rectangle"|"extentIndicator"|"grid", "frame"?: element id (default: the first map frame), "of"?: frame id (extentIndicator), "text"?, "size"?, "color"?: "#RRGGBB", "image"?: base64, "path"?: picture file, "layer"?, "field"?, "label"?, "rows"?, "step"?: degrees (grid), "x"?, "y"?, "w"?, "h"?: mm}"##,
+            r##"{"layout"?, "kind": "northArrow"|"scaleBar"|"legend"|"text"|"dynamicText"|"picture"|"table"|"chart"|"rectangle"|"extentIndicator"|"grid", "frame"?: element id (default: the first map frame), "of"?: frame id (extentIndicator), "text"?, "size"?, "color"?: "#RRGGBB"|"#RRGGBBAA", "bold"?: bool (text), "title"?: legend title (default "Legend"), "fill"?: "#RRGGBBAA" (rectangle), "width"?: outline width (rectangle), "image"?: base64, "path"?: picture file, "layer"?, "field"?, "label"?, "rows"?, "step"?: degrees, "labels"?: bool, "off"?: bool (grid), "x"?, "y"?, "w"?, "h"?: mm}"##,
         ),
         C::new("layout.update", "Element Properties", "Publish › Element", update).params(
             r##"{"layout"?, "element": id, "x"?, "y"?, "w"?, "h"?: mm, "name"?, "visible"?, "text"?, "size"?, "color"?, "bold"?, "title"?, "map"?, "scale"?, "center"?: [lon, lat], "layer"?, "field"?, "rows"?}"##,
@@ -80,7 +80,7 @@ pub fn commands() -> Vec<C> {
         })
         .params(r#"{"layout"?, "element": id}"#),
         C::new("layout.frameZoom", "Zoom Frame", "Publish › Map Frame", frame_zoom).params(
-            r#"{"layout"?, "element"?: frame id, "to"?: "view" (the map view's extent, the default)|"full"|"selection"|"layer", "layer"?}"#,
+            r#"{"layout"?, "element"?: frame id, "frame"?: (as element), "to"?: "view" (the map view's extent, the default)|"full"|"selection"|"layer", "layer"?}"#,
         ),
         C::new("layout.series", "Map Series", "Publish › Map Frames", series).params(
             r#"{"layout"?, "layer": index layer, "nameField"?: string, "frame"?: id, "margin"?: 0..1, "off"?: bool}"#,
@@ -261,7 +261,7 @@ fn place(p: &Value, l: &Layout, (dx, dy, dw, dh): (f64, f64, f64, f64)) -> Resul
     let v = |k: &str, d: f64| f(p, k).unwrap_or(d);
     let (x, y, w, h) = (v("x", dx), v("y", dy), v("w", dw.min(l.width - 10.0).max(5.0)), v("h", dh.min(l.height - 10.0).max(5.0)));
     if w <= 0.0 || h <= 0.0 || w > 5000.0 || h > 5000.0 || x.abs() > 5000.0 || y.abs() > 5000.0 {
-        return Err("element sizes are 0 to 5000 mm".into());
+        return Err("element sizes are more than 0 and up to 5000 mm".into());
     }
     Ok((x, y, w, h))
 }
@@ -520,10 +520,10 @@ fn update(s: &mut Session, p: &Value) -> CmdResult {
     if let Some(v) = num("y", -5000.0, 5000.0) {
         e.y = v;
     }
-    if let Some(v) = num("w", 1.0, 5000.0) {
+    if let Some(v) = num("w", MIN_ELEMENT_MM, 5000.0) {
         e.w = v;
     }
-    if let Some(v) = num("h", 1.0, 5000.0) {
+    if let Some(v) = num("h", MIN_ELEMENT_MM, 5000.0) {
         e.h = v;
     }
     if let Some(n) = ps(p, "name").map(str::trim).filter(|n| !n.is_empty()) {
@@ -635,7 +635,7 @@ fn frame_zoom(s: &mut Session, p: &Value) -> CmdResult {
         }
         "layer" => {
             let n = ps(p, "layer").ok_or("layer is required")?;
-            let e = m.layer_by_name(n).ok_or_else(|| format!("no layer '{n}'"))?.extent();
+            let e = m.layer_by_name(n).ok_or_else(|| format!("no layer '{n}'"))?.shown_extent();
             set_frame(s, li, frame, &e)?;
         }
         o => return Err(format!("unknown zoom '{o}'")),

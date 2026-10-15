@@ -12,7 +12,6 @@ use crate::{RustGisApp, icons};
 
 #[derive(Default)]
 pub struct TableState {
-    pub standalone: Option<String>,
     pub folder: Option<std::path::PathBuf>,
     sort: Option<(usize, bool)>,
     selected_only: bool,
@@ -22,7 +21,7 @@ pub struct TableState {
 
 pub fn show(app: &mut RustGisApp, ui: &mut Ui) {
     let layer_id = app.session.table_layer;
-    if layer_id.is_none() && app.table.standalone.is_none() {
+    if layer_id.is_none() && app.session.table_standalone.is_none() {
         return;
     }
     let t = Tokens::get(ui.ctx());
@@ -35,10 +34,10 @@ pub fn show(app: &mut RustGisApp, ui: &mut Ui) {
             // Data source: a layer or a standalone table.
             let (ds, selection, title): (Dataset, Vec<usize>, String) = match layer_id.and_then(|id| app.session.map().layer(id)) {
                 Some(l) => (l.dataset.clone(), l.selection.clone(), l.name.clone()),
-                None => match app.table.standalone.as_ref().and_then(|n| app.session.project.tables.iter().find(|t| &t.name == n)) {
-                    Some(tb) => (tb.clone(), Vec::new(), tb.name.clone()),
+                None => match app.session.table_standalone.and_then(|id| app.session.project.table(id)) {
+                    Some(tb) => (tb.dataset.clone(), Vec::new(), tb.name.clone()),
                     None => {
-                        app.table.standalone = None;
+                        app.session.table_standalone = None;
                         return;
                     }
                 },
@@ -89,7 +88,7 @@ pub fn show(app: &mut RustGisApp, ui: &mut Ui) {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.add(egui::Button::new(tl!("×")).frame(false)).on_hover_text(tl!("Close table")).clicked() {
                         app.session.table_layer = None;
-                        app.table.standalone = None;
+                        app.session.table_standalone = None;
                         app.table.editing = None;
                     }
                 });
@@ -170,8 +169,11 @@ pub fn show(app: &mut RustGisApp, ui: &mut Ui) {
                                         }
                                     } else {
                                         let v = ds.value(r, c);
-                                        let txt = egui::RichText::new(v.to_string()).size(11.5);
-                                        let txt = if matches!(v, V::Null) { txt.color(t.text_disabled).italics() } else { txt };
+                                        // A picture (a photo's thumbnail) is named, not spelled out.
+                                        let picture = matches!(v, V::Text(s) if crate::mapview::is_picture(s));
+                                        let shown = if picture { tl!("picture").to_string() } else { v.to_string() };
+                                        let txt = egui::RichText::new(shown).size(11.5);
+                                        let txt = if matches!(v, V::Null) || picture { txt.color(t.text_disabled).italics() } else { txt };
                                         let resp = ui.add(egui::Label::new(txt).sense(Sense::click()).truncate());
                                         if resp.double_clicked() && is_layer {
                                             app.table.editing =

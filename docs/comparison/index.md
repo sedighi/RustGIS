@@ -17,6 +17,10 @@ browser tab through WebAssembly.
     where those products are described in more depth. Found something wrong or out of date?
     Please [open an issue](https://github.com/opengeos/RustGIS/issues).
 
+Coming from QGIS? [RustGIS and QGIS](qgis.md) goes deeper: the pros and cons of each, how QGIS
+concepts map onto RustGIS, and how to use the two together. Deciding between RustGIS and its
+sibling? [RustGIS and GeoLibre](geolibre.md) compares the two in detail.
+
 ## RustGIS and GeoLibre
 
 RustGIS and GeoLibre are both [opengeos](https://github.com/opengeos) projects, and they share
@@ -36,7 +40,8 @@ They differ in how they are built and who they suit:
 
 If you want the widest data access and the most platforms, choose GeoLibre. If you want a
 compact native desktop GIS with a classic ribbon workflow and a fully scriptable command
-engine, choose RustGIS. Both keep your data on your machine.
+engine, choose RustGIS. Both keep your data on your machine. See
+[RustGIS and GeoLibre](geolibre.md) for a closer look.
 
 ## At a glance
 
@@ -57,12 +62,14 @@ engine, choose RustGIS. Both keep your data on your machine.
 
 | | **RustGIS** | **GeoLibre** | **QGIS** | **ArcGIS Pro** | **ArcGIS Online** |
 |---|---|---|---|---|---|
-| **Format breadth** | Focused: GeoJSON, CSV, Shapefile, GeoPackage, GeoParquet, FlatGeobuf, KML/KMZ and GPX in and out (large files read in place); GeoTIFF/COG and ASCII grids; WKT out; with GDAL installed, the vector formats it reads; with DuckDB, SQL queries over files and web addresses | Wide: DuckDB-WASM Spatial plus in-house readers | **Widest**: everything GDAL/OGR reads | Very wide, plus native Esri formats | Common upload formats |
-| **Cloud-native data** | GeoParquet, FlatGeobuf (large files read in place), PMTiles over HTTP byte ranges, cloud-optimised GeoTIFF (as files) | GeoParquet, FlatGeobuf, PMTiles, COG, Zarr, streamed over HTTP | GeoParquet, FlatGeobuf, PMTiles, COG, Zarr | GeoParquet, COG, Zarr | Hosted layers |
-| **Web maps and tiles** | XYZ/TMS/WMS raster tiles, Mapbox Vector Tiles, MapLibre styles | XYZ, WMS/WFS/WMTS, OGC API, vector tiles, MapLibre styles | Full OGC support, vector tiles | Full OGC support | Yes |
+| **Format breadth** | Focused: GeoJSON, CSV, Shapefile, GeoPackage, GeoParquet, FlatGeobuf, KML/KMZ and GPX in and out (large files read in place); GML, MapInfo MIF, OSM PBF, TopoJSON, DXF, LiDAR and spreadsheets in; GeoTIFF/COG and ASCII grids; WKT out; with GDAL installed, the vector formats it reads; with DuckDB, SQL queries over files and web addresses | Wide: DuckDB-WASM Spatial plus in-house readers | **Widest**: everything GDAL/OGR reads | Very wide, plus native Esri formats | Common upload formats |
+| **Cloud-native data** | GeoParquet, FlatGeobuf, PMTiles and cloud-optimised GeoTIFF read in place, large files and web addresses alike (by address, over HTTP byte ranges: a COG reads only the tiles the view needs, a FlatGeobuf only its index and the features in view, a GeoParquet its footer and the row groups in view, desktop and web), Zarr 2 and 3 stores (the chunks of the step picked, desktop and web), from `s3://` buckets too (private ones signed with a connection's keys, S3-compatible services by endpoint) | GeoParquet, FlatGeobuf, PMTiles, COG, Zarr, streamed over HTTP | GeoParquet, FlatGeobuf, PMTiles, COG, Zarr | GeoParquet, COG, Zarr | Hosted layers |
+| **Web maps and tiles** | XYZ/TMS/WMS raster tiles, WMTS, OGC API Tiles, Mapbox Vector Tiles, MapLibre styles | XYZ, WMS/WFS/WMTS, OGC API, vector tiles, MapLibre styles | Full OGC support, vector tiles | Full OGC support | Yes |
 | **Coordinate systems** | Rasters in any EPSG code, reprojected on the fly; the map in presets or projected EPSG codes | Reprojects on import, EPSG catalog | Full PROJ support | Full support | Web Mercator focus |
-| **STAC, databases, Esri services** | — | STAC browser, PostGIS, DuckDB, Iceberg, ArcGIS services, File Geodatabase (desktop) | STAC, PostGIS, SpatiaLite, Oracle, SQL Server, ArcGIS services | Enterprise geodatabases, Esri services | Hosted only |
-| **3D** | A 3D globe; 2.5D extrusion with lighting and shadows; glTF scene export | Cesium globe, 3D Tiles, I3S, LiDAR, Gaussian splats | Point clouds, 3D map view | **Deepest 3D**: scenes, I3S, mesh, LAS | Scene Viewer |
+| **Geocoding** | Find Place and address tables through Nominatim or Photon (OSM's public servers or your own) | Geocoding search and batch geocoding | Through plugins | ArcGIS World Geocoder (credits) | Yes |
+| **Open-data portals** | OpenStreetMap by area (Overpass), administrative boundaries (geoBoundaries), and datasets searched by text on data.gov and CKAN sites, Socrata and ArcGIS Hub | ArcGIS Hub, Socrata, CKAN, US portals, geoBoundaries, Overpass, Natural Earth | Through plugins (QuickOSM) | Living Atlas | Living Atlas |
+| **STAC, databases, Esri services** | STAC search (Earth Search, Planetary Computer or any STAC API, and `?stac=` links) with footprints and assets by address; Overture Maps (a theme's features in view, read in place, or the whole world as tiles) and Source Cooperative products; PostgreSQL/PostGIS and DuckDB databases (desktop, through DuckDB); WMS, WMTS, WFS, WCS, OGC API Features and Tiles, and ArcGIS REST services; CSW catalogue search; Planetary Computer assets signed; a Data Sources pane with favourites, recent sources, saved services, databases and STAC APIs, and a library of public services | STAC browser, PostGIS, DuckDB, Iceberg, ArcGIS services, File Geodatabase (desktop) | STAC, PostGIS, SpatiaLite, Oracle, SQL Server, ArcGIS services | Enterprise geodatabases, Esri services | Hosted only |
+| **3D** | A 3D globe; 2.5D extrusion with lighting and shadows; glTF scene export; LiDAR (LAS/LAZ/COPC) as point layers; geotagged photos as points with thumbnails | Cesium globe, 3D Tiles, I3S, LiDAR, Gaussian splats | Point clouds, 3D map view | **Deepest 3D**: scenes, I3S, mesh, LAS | Scene Viewer |
 
 ## Analysis and processing
 
@@ -72,7 +79,7 @@ engine, choose RustGIS. Both keep your data on your machine.
 | **Where analysis runs** | Your machine; in the browser on WebAssembly | Your browser (WASM); optional Python sidecar on desktop | Your machine | Your machine, or a server | Vendor cloud |
 | **Vector analysis** | Buffer, clip, erase, dissolve, summarize within, statistics, selection by location; GeoLibre vector tools | Buffer, overlay, dissolve, joins, topology checks | Comprehensive | Comprehensive | Common tools |
 | **Raster analysis** | Raster functions, band math, indices, change detection, classification, viewshed; GeoLibre terrain and hydrology tools | Hillshade, slope, zonal stats, raster calculator, reclassify | Comprehensive (GDAL/GRASS/SAGA) | Comprehensive; Spatial Analyst | Limited |
-| **Query language** | SQL `WHERE` clauses for selection and definition queries | DuckDB Spatial, PGlite/PostGIS, Sedona, all in the browser | Virtual layers, PostGIS | SQL against geodatabases | — |
+| **Query language** | SQL `WHERE` clauses for selection and definition queries; DuckDB Spatial queries over files, web addresses and databases in an SQL pane (desktop) | DuckDB Spatial, PGlite/PostGIS, Sedona, all in the browser | Virtual layers, PostGIS | SQL against geodatabases | — |
 | **Model / batch chaining** | ModelBuilder (models from history), tasks, scripts | Visual Model Builder, batch runner | Graphical Model Designer | ModelBuilder | — |
 | **Guided workflows** | Suitability, visibility, line of sight, IDW, shortest path, neighborhood, simulation | Isochrones, routing, Emerging Hot Spot Analysis | Plugins and processing providers | Extensions (Network, Spatial, Geostatistical Analyst) | Routing services (credits) |
 | **AI / ML** | Pixel classification (k-means, minimum distance, a trainable neural network) | AI Segmentation (SAM), ONNX object detection | Via plugins | Deep-learning toolset | Pretrained models (credits) |
@@ -92,7 +99,7 @@ engine, choose RustGIS. Both keep your data on your machine.
 
 | | **RustGIS** | **GeoLibre** | **QGIS** | **ArcGIS Pro** | **ArcGIS Online** |
 |---|---|---|---|---|---|
-| **Scripting** | Every action is a command: `rustgis-cli` runs any of them headlessly; a Script pane | Python console, `geolibre` Python package | PyQGIS, `qgis_process` | `arcpy` | ArcGIS API for Python / JavaScript |
+| **Scripting** | Every action is a command: `rustgis-cli` and the `rustgis` Python package run any of them headlessly; a Script pane | Python console, `geolibre` Python package | PyQGIS, `qgis_process` | `arcpy` | ArcGIS API for Python / JavaScript |
 | **Notebooks** | Built-in notebooks of text and command cells; Jupyter `.ipynb` in and out | The whole app as a Jupyter widget | Bindings, not the UI | Notebooks drive `arcpy` | Hosted notebooks |
 | **Plugins** | Sandboxed WebAssembly plugins with declared permissions; a registry; the same file runs on desktop, CLI and web | TypeScript plugin API, a registry | **Largest**: thousands of Python plugins | .NET add-ins, Python toolboxes | App templates |
 | **AI assistant** | Acts through undoable commands; Anthropic, OpenAI, Gemini, OpenRouter, Ollama or any OpenAI-compatible model; bring your own key; also on the command line | Natural-language assistant with undoable operations; bring your own key | Via plugins | Copilot features | AI assistants |
@@ -126,22 +133,25 @@ opens, and writes MapLibre styles and OGC API Features collections for the web.
 
 Stated plainly, so the tables above are worth trusting:
 
-- **Format breadth.** There is no database connection (beyond DuckDB files) yet, and the web
-  app doesn't write GeoPackages. Other vector formats (GML,
-  File Geodatabase, DXF…) need GDAL installed, and SQL queries need DuckDB, which RustGIS calls
-  rather than links; GDAL rasters aren't read.
+- **Format breadth.** Databases are DuckDB files and PostgreSQL/PostGIS (through DuckDB, on the
+  desktop), and the web app doesn't write GeoPackages. Other vector formats (File Geodatabase,
+  DWG…) and rasters (JPEG 2000, NetCDF, HDF…) need GDAL installed, and SQL queries need
+  DuckDB, which RustGIS calls rather than links.
 - **Coordinate systems.** Vector data is stored in longitude/latitude; there is no full PROJ.
 - **Editing depth.** No vertex editing of existing features yet, and no versioned or
   multi-user editing.
 - **Specialized analysis.** Spatial joins, overlay union and intersect, network datasets and
   spatial statistics are thin or missing, beyond what the GeoLibre and Whitebox tools cover.
-- **Python.** There is no Python API; automation goes through commands, the CLI and plugins.
+- **Python.** The [`rustgis` package](../python.md) runs commands headlessly, but there is no
+  Python console inside the app and no Python plugins.
 - **Maturity.** RustGIS is young. Many features are first versions; see the
   [roadmap](https://github.com/opengeos/RustGIS/blob/main/ROADMAP.md).
 
 ## See also
 
-- [User Guide](user-guide/index.md): what RustGIS does, page by page
-- [Command Line](cli.md): scripting RustGIS
+- [User Guide](../user-guide/index.md): what RustGIS does, page by page
+- [RustGIS and GeoLibre](geolibre.md): a closer look at the sibling project
+- [RustGIS and QGIS](qgis.md): a closer look, for QGIS users
+- [Command Line](../cli.md): scripting RustGIS
 - [GeoLibre's comparison](https://geolibre.app/comparison/): GeoLibre against QGIS, ArcGIS,
   CARTO, Felt, kepler.gl and Google Earth

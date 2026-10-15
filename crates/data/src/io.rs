@@ -7,11 +7,42 @@ use serde_json::{Map, Value as Json, json};
 use crate::{Coord, DataError, Dataset, Field, FieldType, Geometry, GeometryType, ReadReport, Result, Value};
 
 /// Largest file read into memory (256 MiB). Parsing JSON can take several times the file size.
-pub(crate) const MAX_BYTES: u64 = 256 << 20;
+pub const MAX_BYTES: u64 = 256 << 20;
 
 /// File types the readers understand, for open dialogs.
-pub const READ_EXTENSIONS: &[&str] =
-    &["geojson", "json", "csv", "tsv", "txt", "shp", "zip", "kml", "kmz", "gpx", "gpkg", "parquet", "geoparquet", "fgb"];
+pub const READ_EXTENSIONS: &[&str] = &[
+    "geojson",
+    "json",
+    "csv",
+    "tsv",
+    "txt",
+    "shp",
+    "zip",
+    "kml",
+    "kmz",
+    "gpx",
+    "gpkg",
+    "parquet",
+    "geoparquet",
+    "fgb",
+    "xlsx",
+    "xlsm",
+    "xlsb",
+    "xls",
+    "ods",
+    "rss",
+    "atom",
+    "georss",
+    "landxml",
+    "xml",
+    "gml",
+    "dxf",
+    "mif",
+    "pbf",
+    "topojson",
+    "las",
+    "laz",
+];
 
 /// Most XML nodes parsed from one document (KML, GPX): each costs tens of bytes, and the
 /// browser's memory is smaller (a 1M-point GPX track is about 8M nodes).
@@ -28,7 +59,10 @@ pub struct LayerRead {
 /// Whether a file holds several layers ([`read_layers`] reads them all): a zip, KML, KMZ or GPX.
 pub fn is_multi_layer_name(name: &str) -> bool {
     let ext = Path::new(name).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    matches!(ext.as_str(), "zip" | "kml" | "kmz" | "gpx")
+    matches!(
+        ext.as_str(),
+        "zip" | "kml" | "kmz" | "gpx" | "rss" | "atom" | "georss" | "landxml" | "xml" | "gml" | "dxf" | "pbf" | "topojson"
+    )
 }
 
 /// Reads every layer of a file held in memory: the Shapefiles and other files of a zip, a KML or
@@ -48,6 +82,42 @@ pub fn read_layers(file_name: &str, bytes: &[u8]) -> Result<Vec<LayerRead>> {
             .map(|l| LayerRead { dataset: l.dataset, report: l.report, styles: l.styles })
             .collect(),
         "gpx" => plain(crate::gpx::read(file_name, bytes)?),
+        "rss" | "atom" | "georss" => plain(crate::georss::read(file_name, bytes)?),
+        "landxml" => plain(crate::landxml::read(file_name, bytes, None)?),
+        // Plain XML: whichever of the XML formats its contents say.
+        "xml" => {
+            let text = String::from_utf8_lossy(bytes.get(..bytes.len().min(8192)).unwrap_or(bytes));
+            if crate::landxml::looks_like_landxml(&text) {
+                plain(crate::landxml::read(file_name, bytes, None)?)
+            } else if crate::georss::looks_like_georss(&text) {
+                plain(crate::georss::read(file_name, bytes)?)
+            } else if text.contains("<gpx") {
+                plain(crate::gpx::read(file_name, bytes)?)
+            } else if text.contains("<kml") {
+                crate::kml::read(file_name, bytes)?
+                    .into_iter()
+                    .map(|l| LayerRead { dataset: l.dataset, report: l.report, styles: l.styles })
+                    .collect()
+            } else {
+                return Err(DataError::Format(format!(
+                    "{file_name}: an XML file RustGIS doesn't read (it reads GeoRSS, LandXML, KML and GPX)"
+                )));
+            }
+        }
+        "gml" => plain(crate::gml::read(file_name, bytes)?),
+        "dxf" => plain(crate::dxf::read(file_name, bytes, &crate::dxf::Options::default())?),
+        // OpenStreetMap PBF, not a vector tile (`.pbf` too).
+        "pbf" if crate::osm::looks_like_osm_pbf(bytes) => plain(crate::osm::read(file_name, bytes)?),
+        "pbf" => {
+            return Err(DataError::Unsupported(format!(
+                "{file_name}: a .pbf that isn't OpenStreetMap data (vector tiles are added with Add Tile Layer)"
+            )));
+        }
+        // A TopoJSON topology, named .topojson or .json.
+        "topojson" | "json" if ext == "topojson" || std::str::from_utf8(bytes).is_ok_and(crate::topojson::looks_like_topojson) => {
+            let text = std::str::from_utf8(bytes).map_err(|_| DataError::Format(format!("{file_name} is not UTF-8 text")))?;
+            plain(crate::topojson::read(file_name, text)?)
+        }
         _ => plain(vec![read_bytes(file_name, bytes)?]),
     };
     if out.is_empty() {
@@ -57,6 +127,59 @@ pub fn read_layers(file_name: &str, bytes: &[u8]) -> Result<Vec<LayerRead>> {
         l.dataset.source.get_or_insert_with(|| file_name.to_string());
     }
     Ok(out)
+}
+
+/// The extension of a file from its first bytes, for a download whose address doesn't say:
+/// GeoParquet, FlatGeobuf, GeoTIFF, a zip, a GeoPackage, KML, GPX, GeoJSON or delimited text
+/// (`None` for anything else, such as a web page).
+pub fn sniff_extension(bytes: &[u8]) -> Option<&'static str> {
+    let head = bytes.get(..bytes.len().min(4096)).unwrap_or(bytes);
+    let text = String::from_utf8_lossy(head);
+    let start = text.trim_start_matches(['\u{feff}', ' ', '\t', '\r', '\n']);
+    let mut lines = start.lines().filter(|l| !l.trim().is_empty());
+    let (first_line, second_line) = (lines.next().unwrap_or(""), lines.next());
+    // A separator splitting the first two lines alike (a header and a row): not a sentence with a
+    // comma, such as a plain-text error.
+    let split_alike = second_line.is_some_and(|second| {
+        [',', ';', '\t', '|'].iter().any(|&c| {
+            let n = first_line.matches(c).count();
+            n > 0 && second.matches(c).count() == n
+        })
+    });
+    Some(match bytes {
+        [b'P', b'A', b'R', b'1', ..] => "parquet",
+        [b'f', b'g', b'b', ..] => "fgb",
+        [b'I', b'I', 42 | 43, 0, ..] | [b'M', b'M', 0, 42 | 43, ..] => "tif",
+        [b'P', b'K', 3, 4, ..] => "zip",
+        _ if bytes.starts_with(b"SQLite format 3\0") => "gpkg",
+        // LiDAR: LAZ marks its point format's top bits.
+        _ if crate::lidar::looks_like_las(bytes) => {
+            if bytes.get(104).is_some_and(|f| f & 0xC0 != 0) {
+                "laz"
+            } else {
+                "las"
+            }
+        }
+        _ if start.starts_with('{') || start.starts_with('[') => "geojson",
+        _ if start.starts_with('<') && text.contains("<kml") => "kml",
+        _ if start.starts_with('<') && text.contains("<gpx") => "gpx",
+        // Text whose first two lines a separator splits alike, and no control characters.
+        _ if !start.starts_with('<') && split_alike && !head.iter().any(|&b| b < 9 || (b > 13 && b < 32)) => "csv",
+        _ => return None,
+    })
+}
+
+/// The first layer of a file holding several ([`read_layers`]), saying what else it holds.
+fn first_layer(file_name: &str, bytes: &[u8]) -> Result<(Dataset, ReadReport)> {
+    let layers = read_layers(file_name, bytes)?;
+    let rest: Vec<String> = layers.iter().skip(1).map(|l| l.dataset.name.clone()).collect();
+    let first = layers.into_iter().next().ok_or_else(|| DataError::Format(format!("{file_name}: empty")))?;
+    let mut first = (first.dataset, first.report);
+    if !rest.is_empty() {
+        let leaf = Path::new(file_name).file_name().and_then(|n| n.to_str()).unwrap_or(file_name);
+        first.1.messages.push(format!("{leaf}: read its first layer; it also holds {}", rest.join(", ")));
+    }
+    Ok(first)
 }
 
 /// Reads vector data held in memory (a browser upload or a drop), choosing the reader by the
@@ -71,21 +194,15 @@ pub fn read_bytes(file_name: &str, bytes: &[u8]) -> Result<(Dataset, ReadReport)
     }
     let text = || std::str::from_utf8(bytes).map_err(|_| DataError::Format(format!("{file_name} is not UTF-8 text")));
     let mut out = match ext.as_str() {
+        // A TopoJSON topology named .json: its first object, saying what else it holds.
+        "json" if crate::topojson::looks_like_topojson(text()?) => return first_layer(file_name, bytes),
         "geojson" | "json" => read_geojson(text()?, &name)?,
         "csv" | "tsv" | "txt" => read_csv(text()?, &name)?,
+        // A MIF without its .mid (an upload of the one file): no attributes.
+        "mif" => crate::mapinfo::read_bytes(bytes, None, &name)?,
         "shp" => return Err(DataError::Unsupported("shp on its own: zip it with its .dbf, .shx and .prj and add the zip".into())),
         // The first layer (`read_layers` reads them all), saying what else the file holds.
-        "zip" | "kml" | "kmz" | "gpx" => {
-            let layers = read_layers(file_name, bytes)?;
-            let rest: Vec<String> = layers.iter().skip(1).map(|l| l.dataset.name.clone()).collect();
-            let first = layers.into_iter().next().ok_or_else(|| DataError::Format(format!("{file_name}: empty")))?;
-            let mut first = (first.dataset, first.report);
-            if !rest.is_empty() {
-                let leaf = Path::new(file_name).file_name().and_then(|n| n.to_str()).unwrap_or(file_name);
-                first.1.messages.push(format!("{leaf}: read its first layer; it also holds {}", rest.join(", ")));
-            }
-            return Ok(first);
-        }
+        "zip" | "kml" | "kmz" | "gpx" | "gml" | "dxf" | "pbf" | "topojson" => return first_layer(file_name, bytes),
         // A copy, since only borrowed bytes are given; `read_owned` takes them without one.
         e if crate::source::EXTENSIONS.contains(&e) => return read_owned(file_name, bytes.to_vec()),
         other => return Err(DataError::Unsupported(other.to_string())),
@@ -115,7 +232,14 @@ pub fn read_path(path: &Path) -> Result<(Dataset, ReadReport)> {
     let mut out = match ext.as_str() {
         "geojson" | "json" => {
             check_size(path)?;
-            read_geojson(&std::fs::read_to_string(path)?, &name)?
+            let text = std::fs::read_to_string(path)?;
+            // A TopoJSON topology named .json, as read_bytes reads it.
+            if ext == "json" && crate::topojson::looks_like_topojson(&text) {
+                let leaf = path.file_name().and_then(|n| n.to_str()).unwrap_or("layer.json");
+                first_layer(leaf, text.as_bytes())?
+            } else {
+                read_geojson(&text, &name)?
+            }
         }
         "csv" | "tsv" | "txt" => {
             check_size(path)?;
@@ -129,9 +253,22 @@ pub fn read_path(path: &Path) -> Result<(Dataset, ReadReport)> {
             }
             read_shapefile(path, &name)?
         }
-        "zip" | "kml" | "kmz" | "gpx" => {
+        "zip" | "kml" | "kmz" | "gpx" | "gml" | "dxf" | "pbf" | "topojson" => {
             check_size(path)?;
             read_bytes(&path.display().to_string(), &std::fs::read(path)?)?
+        }
+        // With its .mid beside it (spelt mid, MID or Mid).
+        "mif" => {
+            check_size(path)?;
+            let mid = ["mid", "MID", "Mid"].iter().map(|e| path.with_extension(e)).find(|p| p.is_file());
+            let mid = match mid {
+                Some(m) => {
+                    check_size(&m)?;
+                    Some(std::fs::read(m)?)
+                }
+                None => None,
+            };
+            crate::mapinfo::read_bytes(&std::fs::read(path)?, mid.as_deref(), &name)?
         }
         // Read in place by a provider, so there's no size cap on the file, only on the features.
         e if crate::source::EXTENSIONS.contains(&e) => crate::source::materialize(crate::source::open_path(path, None)?.as_ref())?,
@@ -466,7 +603,7 @@ fn coerce(v: Value, ty: FieldType) -> Value {
     }
 }
 
-fn dominant_type(ds: &Dataset) -> GeometryType {
+pub(crate) fn dominant_type(ds: &Dataset) -> GeometryType {
     let mut counts = [0usize; 3];
     for g in ds.features.iter().filter_map(|f| f.geometry.as_ref()) {
         match g.kind() {
@@ -566,6 +703,63 @@ pub fn sniff_delimiter(text: &str) -> u8 {
     seps.get(pick).copied().unwrap_or(b',')
 }
 
+/// The x/y columns found by name, as a pair from one family: longitude/latitude, else
+/// easting/northing.
+fn found_xy(headers: &[String]) -> Option<(usize, usize)> {
+    let find = |names: &[&str]| headers.iter().position(|h| names.contains(&h.trim().to_ascii_lowercase().as_str()));
+    find(LON_NAMES).zip(find(LAT_NAMES)).or_else(|| find(X_NAMES).zip(find(Y_NAMES)))
+}
+
+/// A WKT column found: one named like geometry whose first value reads as WKT.
+fn found_wkt(headers: &[String], rows: &[Vec<String>]) -> Option<usize> {
+    // The name first: looking for a column's first value costs a pass over the rows.
+    headers.iter().enumerate().filter(|(_, h)| WKT_NAMES.contains(&h.trim().to_ascii_lowercase().as_str())).find_map(|(i, _)| {
+        let first = rows.iter().filter_map(|r| r.get(i)).map(|s| s.trim()).find(|s| !s.is_empty())?;
+        crate::interop::parse_wkt(first).is_ok().then_some(i)
+    })
+}
+
+/// The columns of delimited text or a sheet, and those its geometry is read from when none are
+/// given (see [`read_csv_with`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Columns {
+    pub names: Vec<String>,
+    pub x: Option<String>,
+    pub y: Option<String>,
+    pub wkt: Option<String>,
+    /// The field separator (delimited text only).
+    pub delimiter: Option<u8>,
+}
+
+/// The rows [`csv_columns`] reads: a WKT column is found by its first value.
+const COLUMN_SAMPLE_ROWS: usize = 1000;
+
+/// The columns of rows under a header row, as [`read_rows`] would find them.
+pub(crate) fn columns_of(headers: &[String], rows: &[Vec<String>]) -> Columns {
+    let xy = found_xy(headers);
+    let wkt = if xy.is_some() { None } else { found_wkt(headers, rows) };
+    let name = |i: usize| headers.get(i).map(|h| h.trim().to_string());
+    Columns {
+        names: headers.iter().map(|h| h.trim().to_string()).collect(),
+        x: xy.and_then(|(x, _)| name(x)),
+        y: xy.and_then(|(_, y)| name(y)),
+        wkt: wkt.and_then(name),
+        delimiter: None,
+    }
+}
+
+/// The columns of delimited text (split at `delimiter`, or the one found), without reading all
+/// of it: a WKT column whose first value is past the first [`COLUMN_SAMPLE_ROWS`] rows isn't found.
+pub fn csv_columns(text: &str, delimiter: Option<u8>) -> Result<Columns> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let delimiter = delimiter.unwrap_or_else(|| sniff_delimiter(text));
+    let mut rdr = csv::ReaderBuilder::new().flexible(true).delimiter(delimiter).from_reader(text.as_bytes());
+    let headers: Vec<String> = rdr.headers().map_err(|e| DataError::Format(format!("CSV: {e}")))?.iter().map(|s| s.to_string()).collect();
+    let rows: Vec<Vec<String>> =
+        rdr.records().flatten().take(COLUMN_SAMPLE_ROWS).map(|r| r.iter().map(|s| s.to_string()).collect()).collect();
+    Ok(Columns { delimiter: Some(delimiter), ..columns_of(&headers, &rows) })
+}
+
 /// Reads CSV; columns named like longitude/latitude become point geometry.
 pub fn read_csv(text: &str, name: &str) -> Result<(Dataset, ReadReport)> {
     read_csv_with(text, name, &CsvOptions::default())
@@ -579,17 +773,6 @@ pub fn read_csv_with(text: &str, name: &str, opts: &CsvOptions) -> Result<(Datas
     let delimiter = opts.delimiter.unwrap_or_else(|| sniff_delimiter(text));
     let mut rdr = csv::ReaderBuilder::new().flexible(true).delimiter(delimiter).from_reader(text.as_bytes());
     let headers: Vec<String> = rdr.headers().map_err(|e| DataError::Format(format!("CSV: {e}")))?.iter().map(|s| s.to_string()).collect();
-    let find = |names: &[&str]| headers.iter().position(|h| names.contains(&h.trim().to_ascii_lowercase().as_str()));
-    let named = |n: &Option<String>, what: &str| -> Result<Option<usize>> {
-        match n.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
-            Some(n) => headers
-                .iter()
-                .position(|h| h.trim().eq_ignore_ascii_case(n))
-                .map(Some)
-                .ok_or_else(|| DataError::Format(format!("no {what} column '{n}' (columns: {})", headers.join(", ")))),
-            None => Ok(None),
-        }
-    };
     let mut malformed = 0usize;
     let rows: Vec<Vec<String>> = rdr
         .records()
@@ -601,6 +784,28 @@ pub fn read_csv_with(text: &str, name: &str, opts: &CsvOptions) -> Result<(Datas
             }
         })
         .collect();
+    read_rows(&headers, &rows, malformed, name, opts)
+}
+
+/// Rows of text cells under a header row (delimited text, a spreadsheet's sheet) as a dataset, as
+/// [`read_csv_with`] describes; `malformed` rows were already passed over.
+pub(crate) fn read_rows(
+    headers: &[String],
+    rows: &[Vec<String>],
+    malformed: usize,
+    name: &str,
+    opts: &CsvOptions,
+) -> Result<(Dataset, ReadReport)> {
+    let named = |n: &Option<String>, what: &str| -> Result<Option<usize>> {
+        match n.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+            Some(n) => headers
+                .iter()
+                .position(|h| h.trim().eq_ignore_ascii_case(n))
+                .map(Some)
+                .ok_or_else(|| DataError::Format(format!("no {what} column '{n}' (columns: {})", headers.join(", ")))),
+            None => Ok(None),
+        }
+    };
     let (x, y) = (named(&opts.x, "x")?, named(&opts.y, "y")?);
     let wkt_given = named(&opts.wkt, "WKT")?;
     if wkt_given.is_some() && (x.is_some() || y.is_some()) {
@@ -608,27 +813,13 @@ pub fn read_csv_with(text: &str, name: &str, opts: &CsvOptions) -> Result<(Datas
     }
     let (x, y) = match (x, y) {
         (Some(x), Some(y)) => (Some(x), Some(y)),
-        // Found by name, as a pair from one family: longitude/latitude, else easting/northing.
-        (None, None) if wkt_given.is_none() => match (find(LON_NAMES), find(LAT_NAMES)) {
-            (Some(x), Some(y)) => (Some(x), Some(y)),
-            _ => (find(X_NAMES), find(Y_NAMES)),
-        },
+        (None, None) if wkt_given.is_none() => found_xy(headers).unzip(),
         (None, None) => (None, None),
         _ => return Err(DataError::Format("give both the x and the y column".into())),
     };
     let xy = x.zip(y);
-    // A WKT column: the one named, or (without x/y columns) one named like geometry whose first
-    // value reads as WKT.
-    let wkt = wkt_given.or_else(|| {
-        if xy.is_some() {
-            return None;
-        }
-        // The name first: looking for a column's first value costs a pass over the rows.
-        headers.iter().enumerate().filter(|(_, h)| WKT_NAMES.contains(&h.trim().to_ascii_lowercase().as_str())).find_map(|(i, _)| {
-            let first = rows.iter().filter_map(|r| r.get(i)).map(|s| s.trim()).find(|s| !s.is_empty())?;
-            crate::interop::parse_wkt(first).is_ok().then_some(i)
-        })
-    });
+    // A WKT column: the one named, or (without x/y columns) one found.
+    let wkt = wkt_given.or_else(|| if xy.is_some() { None } else { found_wkt(headers, rows) });
     // Infer each column's type from its values; a WKT column is the geometry, not an attribute.
     let columns: Vec<usize> = (0..headers.len()).filter(|&i| Some(i) != wkt).collect();
     let fields: Vec<Field> = columns
@@ -643,7 +834,7 @@ pub fn read_csv_with(text: &str, name: &str, opts: &CsvOptions) -> Result<(Datas
     let mut ds = Dataset::new(name, gt, fields);
     let mut srid: Option<u32> = None;
     let mut bad_wkt = 0usize;
-    for r in &rows {
+    for r in rows {
         let cell = |i: usize| r.get(i).map(|s| s.trim()).unwrap_or("");
         let geom = if let Some((x, y)) = xy {
             match cell(x).parse::<f64>().ok().zip(cell(y).parse::<f64>().ok()) {
@@ -723,6 +914,7 @@ pub fn read_csv_with(text: &str, name: &str, opts: &CsvOptions) -> Result<(Datas
                 }
             }
             if lost > 0 {
+                report.skipped += lost;
                 report.messages.push(format!("{lost} rows couldn't be converted from {} to longitude/latitude", c.label()));
             }
         }
@@ -880,11 +1072,14 @@ pub fn read_zip(file_name: &str, bytes: &[u8]) -> Result<Vec<(Dataset, ReadRepor
     let lower = |n: &str| n.to_ascii_lowercase();
     let is_fork = |n: &str| n.split('/').any(|part| part == "__MACOSX" || part.starts_with("._"));
     let ext_of = |n: &str| Path::new(n).extension().and_then(|e| e.to_str()).map(lower).unwrap_or_default();
+    // A `.pbf` is read only as an OpenStreetMap extract (`.osm.pbf`): a vector tile set's
+    // `z/x/y.pbf` files aren't extracted at all.
     let wanted = |n: &str| {
         let e = ext_of(n);
         !is_fork(n)
-            && (matches!(e.as_str(), "shp" | "shx" | "dbf" | "prj")
-                || (!matches!(e.as_str(), "zip" | "txt") && READ_EXTENSIONS.contains(&e.as_str())))
+            && (matches!(e.as_str(), "shp" | "shx" | "dbf" | "prj" | "mid")
+                || (e == "pbf" && lower(n).ends_with(".osm.pbf"))
+                || (!matches!(e.as_str(), "zip" | "txt" | "pbf") && READ_EXTENSIONS.contains(&e.as_str())))
     };
     let entries = crate::zip::read_matching(bytes, wanted).map_err(|e| DataError::Format(format!("{file_name}: {e}")))?;
     // Sidecar files by their path without the extension, compared without regard to case.
@@ -920,8 +1115,27 @@ pub fn read_zip(file_name: &str, bytes: &[u8]) -> Result<Vec<(Dataset, ReadRepor
             Err(e) => skipped.push(format!("{n} ({e})")),
         }
     }
+    // MapInfo files with their .mid.
+    let mut mifs: Vec<String> = entries.iter().flatten().filter(|(n, _)| ext_of(n) == "mif").map(|(n, _)| n.clone()).collect();
+    mifs.sort();
+    for n in mifs {
+        if out.len() >= MAX_ZIP_LAYERS {
+            break;
+        }
+        let base = stem(&n);
+        let name = Path::new(&n).file_stem().and_then(|s| s.to_str()).unwrap_or("layer").to_string();
+        let mif = take(&mut entries, &base, "mif").map(|(_, b)| b).unwrap_or_default();
+        let mid = take(&mut entries, &base, "mid").map(|(_, b)| b);
+        match crate::mapinfo::read_bytes(&mif, mid.as_deref(), &name) {
+            Ok(mut read) => {
+                read.0.source = Some(format!("{file_name}/{n}"));
+                out.push(read);
+            }
+            Err(e) => skipped.push(format!("{n} ({e})")),
+        }
+    }
     let mut others: Vec<(String, Vec<u8>)> =
-        entries.into_iter().flatten().filter(|(n, _)| !matches!(ext_of(n).as_str(), "shp" | "shx" | "dbf" | "prj")).collect();
+        entries.into_iter().flatten().filter(|(n, _)| !matches!(ext_of(n).as_str(), "shp" | "shx" | "dbf" | "prj" | "mid")).collect();
     others.sort_by(|a, b| a.0.cmp(&b.0));
     for (n, b) in others {
         if out.len() >= MAX_ZIP_LAYERS {
@@ -1128,7 +1342,7 @@ fn integral_numeric_to_integer(ds: &mut Dataset) {
 const WGS84_PRJ: &str = "GEOGCS[\"GCS_WGS_1984\",DATUM[\"D_WGS_1984\",SPHEROID[\"WGS_1984\",6378137.0,298.257223563]],PRIMEM[\"Greenwich\",0.0],UNIT[\"Degree\",0.0174532925199433]]";
 
 /// The longest prefix of `s` that fits in `max` bytes, cut at a character boundary.
-fn cut(s: &str, max: usize) -> &str {
+pub(crate) fn cut(s: &str, max: usize) -> &str {
     let mut end = s.len().min(max);
     while !s.is_char_boundary(end) {
         end -= 1;
@@ -1328,6 +1542,40 @@ mod tests {
     use super::*;
 
     #[test]
+    fn topojson_named_json_from_disk() {
+        let topo = r#"{"type":"Topology","objects":{"pts":{"type":"GeometryCollection","geometries":[{"type":"Point","coordinates":[5,6]}]},"more":{"type":"GeometryCollection","geometries":[{"type":"Point","coordinates":[1,2]}]}},"arcs":[]}"#;
+        let path = std::env::temp_dir().join(format!("rustgis-topo-{}.json", std::process::id()));
+        std::fs::write(&path, topo).unwrap();
+        let (ds, report) = read_path(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(ds.features.len(), 1);
+        assert!(report.messages.iter().any(|m| m.contains("also holds")), "{:?}", report.messages);
+    }
+
+    #[test]
+    fn formats_by_contents() {
+        let cases: [(&[u8], Option<&str>); 11] = [
+            (b"PAR1\0\0", Some("parquet")),
+            (b"fgb\x03fgb\0", Some("fgb")),
+            (b"II*\0\x08\0", Some("tif")),
+            (b"PK\x03\x04", Some("zip")),
+            (b"SQLite format 3\0", Some("gpkg")),
+            (b"\xef\xbb\xbf  {\"type\":\"FeatureCollection\"}", Some("geojson")),
+            (b"<?xml version=\"1.0\"?><kml xmlns=\"\">", Some("kml")),
+            (b"name;lon;lat\r\nA;7;45\r\n", Some("csv")),
+            (b"name\tlon\tlat\n\nA\t7\t45", Some("csv")),
+            // A sentence with a comma isn't a table, nor a header alone.
+            (b"Not found, try again later.\n", None),
+            (b"name,lon,lat", None),
+        ];
+        for (bytes, want) in cases {
+            assert_eq!(sniff_extension(bytes), want, "{:?}", String::from_utf8_lossy(bytes));
+        }
+        assert_eq!(sniff_extension(b"a,b\n1,2,3\n"), None);
+        assert_eq!(sniff_extension(b"a,b\n1,\x01\n"), None);
+    }
+
+    #[test]
     fn geojson_roundtrip() {
         let text = r#"{"type":"FeatureCollection","features":[
             {"type":"Feature","properties":{"name":"A","pop":5},"geometry":{"type":"Point","coordinates":[1,2]}},
@@ -1462,11 +1710,35 @@ mod tests {
         }
         let deep = format!("{}POINT (1 2){}", "GEOMETRYCOLLECTION (".repeat(50), ")".repeat(50));
         assert!(parse_wkt(&deep).is_err(), "nesting is bounded");
+        assert_eq!(parse_wkt("SRID=4326 POINT (1 2)").unwrap_err(), "an SRID= without the ';' before its geometry");
         assert_eq!(crate::raster::Crs::parse("epsg:2263").unwrap().epsg(), 2263);
         assert_eq!(crate::raster::Crs::parse("http://www.opengis.net/def/crs/EPSG/0/3857").unwrap(), crate::raster::Crs::WebMercator);
         assert_eq!(crate::raster::Crs::parse("OGC:CRS84").unwrap(), crate::raster::Crs::LonLat);
         assert!(crate::raster::Crs::parse("EPSG:999999").is_err());
         assert!(crate::raster::Crs::parse("Mercator").is_err());
+    }
+
+    /// The columns Add Delimited Text offers, and the ones found as the reader finds them.
+    #[test]
+    fn delimited_text_columns() {
+        let c = csv_columns("\u{feff}name;Lat;Lon\nA;1;2\n", None).unwrap();
+        assert_eq!(c.names, ["name", "Lat", "Lon"]);
+        assert_eq!((c.x.as_deref(), c.y.as_deref(), c.wkt.as_deref(), c.delimiter), (Some("Lon"), Some("Lat"), None, Some(b';')));
+        // Longitude/latitude over easting/northing; easting/northing as a pair only.
+        let c = csv_columns("easting,northing,lon,lat\n", None).unwrap();
+        assert_eq!((c.x.as_deref(), c.y.as_deref()), (Some("lon"), Some("lat")));
+        let c = csv_columns("easting,lat\n1,2\n", None).unwrap();
+        assert_eq!((c.x, c.y), (None, None));
+        // A WKT column by its name and first value, not by its name alone.
+        let c = csv_columns("id,geometry\n1,\n2,POINT (1 2)\n", None).unwrap();
+        assert_eq!(c.wkt.as_deref(), Some("geometry"));
+        assert_eq!(csv_columns("id,geometry\n1,not wkt\n", None).unwrap().wkt, None);
+        // The separator given splits the header.
+        let c = csv_columns("a;b,c\n", Some(b',')).unwrap();
+        assert_eq!((c.names, c.delimiter), (vec!["a;b".to_string(), "c".to_string()], Some(b',')));
+        // Nothing to read is no columns, not a crash.
+        assert!(csv_columns("", None).unwrap().names.is_empty());
+        let _ = csv_columns("\"unclosed\n", None);
     }
 
     #[test]
@@ -1607,6 +1879,12 @@ mod tests {
         let layers = read_zip("x.zip", &crate::zip::write(&with_meta).unwrap()).unwrap();
         assert_eq!(layers.len(), 2);
         assert!(layers[0].1.messages.iter().any(|m| m.contains("metadata.json")), "{:?}", layers[0].1.messages);
+        // A vector tile set's .pbf files aren't read as OpenStreetMap extracts (nor said).
+        let mut with_tiles = entries.clone();
+        with_tiles.extend((0..3).map(|i| (format!("tiles/3/{i}/1.pbf"), vec![0x1a, 2, 0, 0])));
+        let layers = read_zip("x.zip", &crate::zip::write(&with_tiles).unwrap()).unwrap();
+        assert_eq!(layers.len(), 2);
+        assert!(layers[0].1.messages.is_empty(), "{:?}", layers[0].1.messages);
         // Nothing readable at all is an error.
         let only_shp: Vec<_> = entries.iter().filter(|(n, _)| n.ends_with(".SHP")).cloned().collect();
         assert!(read_zip("x.zip", &crate::zip::write(&only_shp).unwrap()).is_err());

@@ -5,8 +5,9 @@ use egui::{Align2, CornerRadius, Key, KeyboardShortcut, Modifiers, Rect, Sense, 
 use rustgis_engine::Tool;
 use serde_json::{Value, json};
 
+use crate::mapview::Toast;
 use crate::theme::{Tokens, regular, semibold};
-use crate::widgets::{small, text_w};
+use crate::widgets::{enabled, row_button, small, text_w, why_disabled};
 use crate::{RustGisApp, icons};
 
 pub fn header(app: &mut RustGisApp, ui: &mut Ui) {
@@ -382,10 +383,16 @@ pub fn command_search(app: &mut RustGisApp, ctx: &egui::Context) {
         for (id, label, loc) in [
             ("ui.addData", "Add Data…", "Home › Add"),
             ("ui.addDelimited", "Add Delimited Text…", "Home › Add"),
+            ("ui.addUrl", "Add Data From URL…", "Home › Add"),
+            ("ui.addZarr", "Add Zarr Variable…", "Home › Add"),
+            ("ui.addService", "Add From Service…", "Home › Add"),
+            ("ui.searchOpenData", "Search Open Data…", "Home › Add"),
+            ("ui.pane.sources", "Data Sources Pane", "View › Windows"),
             ("ui.plugins", "Plugin Manager…", "Plugins"),
             ("ui.pane.geoprocessing", "Tools Pane", "View › Windows"),
             ("ui.pane.symbology", "Symbology Pane", "Style › Drawing"),
             ("ui.pane.assistant", "AI Assistant", "Analyze › AI"),
+            ("ui.pane.sql", "SQL Pane", "Analyze › Workflows"),
             ("ui.theme", "Toggle Dark Mode", "View"),
             ("ui.exportMap", "Export Map…", "Publish › Output"),
             ("ui.checkUpdate", "Check for Updates…", "Help › Help"),
@@ -404,13 +411,23 @@ pub fn command_search(app: &mut RustGisApp, ctx: &egui::Context) {
         ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
         egui::ScrollArea::vertical().max_height(list_h).show(ui, |ui| {
             let row_w = ui.available_width();
-            for (i, (id, label, loc)) in hits.iter().take(40).enumerate() {
+            // Enter runs the first command that is available now.
+            let mut first = true;
+            for (id, label, loc) in hits.iter().take(40) {
+                // Unavailable commands stay listed, greyed out, with the reason on hover.
+                let on = id.starts_with("gp:") || enabled(app, id);
                 let mut b = egui::Button::new(egui::RichText::new(label).size(13.0)).frame(false).min_size(vec2(row_w, 26.0));
                 if show_loc {
                     b = b.right_text(egui::RichText::new(loc).size(11.0).weak());
                 }
-                let resp = ui.add(b);
-                if resp.clicked() || (i == 0 && ui.input(|i| i.key_pressed(Key::Enter))) {
+                // The scroll area would clip a fill wider than the row.
+                let mut resp = row_button(ui, on, b, 0.0);
+                if let Some(why) = why_disabled(app, id) {
+                    resp = resp.on_disabled_hover_text(crate::i18n::fmt("Unavailable: {reason}", &[("reason", tl!(why))]));
+                }
+                let enter = on && first && ui.input(|i| i.key_pressed(Key::Enter));
+                first &= !on;
+                if resp.clicked() || enter {
                     chosen = Some(id.clone());
                 }
             }
@@ -507,31 +524,35 @@ pub fn about(app: &mut RustGisApp, ctx: &egui::Context) {
     }
 }
 
-/// Toasts for recent notices (errors stay longer).
+/// Toasts for recent notices (errors stay longer, and any stays while the pointer is on it, so
+/// its text can be selected and copied).
 pub fn notices(app: &mut RustGisApp, ctx: &egui::Context) {
     let t = Tokens::get(ctx);
     let now = ctx.input(|i| i.time);
     let total = app.session.notices.len();
     if total > app.map.notices_seen {
         for n in app.session.notices.iter().skip(app.map.notices_seen) {
-            app.map.toasts.push((n.text.clone(), n.error, now));
+            app.map.toasts_made += 1;
+            app.map.toasts.push(Toast { text: n.text.clone(), error: n.error, at: now, id: app.map.toasts_made });
         }
         app.map.notices_seen = total;
     }
-    app.map.toasts.retain(|(_, err, at)| now - at < if *err { 6.0 } else { 3.0 });
+    app.map.toasts.retain(|toast| now - toast.at < if toast.error { 6.0 } else { 3.0 });
     if app.map.toasts.is_empty() {
         return;
     }
     ctx.request_repaint_after(std::time::Duration::from_millis(250));
     let screen = ctx.content_rect();
     let mut y = screen.max.y - 40.0;
-    for (i, (text, err, _)) in app.map.toasts.iter().rev().take(3).enumerate() {
-        egui::Area::new(egui::Id::new(("toast", i))).fixed_pos(pos2(screen.max.x - 380.0, y - 44.0)).order(egui::Order::Tooltip).show(
-            ctx,
-            |ui| {
+    for toast in app.map.toasts.iter_mut().rev().take(3) {
+        // Keyed by the notice, not the slot, so a selection stays with its text as toasts come and go.
+        let shown = egui::Area::new(egui::Id::new(("toast", toast.id)))
+            .fixed_pos(pos2(screen.max.x - 380.0, y - 44.0))
+            .order(egui::Order::Tooltip)
+            .show(ctx, |ui| {
                 egui::Frame::NONE
                     .fill(t.menu)
-                    .stroke(Stroke::new(1.0, if *err { t.red } else { t.border_strong }))
+                    .stroke(Stroke::new(1.0, if toast.error { t.red } else { t.border_strong }))
                     .corner_radius(CornerRadius::same(8))
                     .shadow(egui::Shadow { offset: [0, 4], blur: 14, spread: 0, color: t.shadow })
                     .inner_margin(egui::Margin::symmetric(12, 8))
@@ -539,12 +560,14 @@ pub fn notices(app: &mut RustGisApp, ctx: &egui::Context) {
                         ui.set_width(340.0);
                         ui.horizontal(|ui| {
                             let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
-                            ui.painter().circle_filled(r.center(), 6.0, if *err { t.red } else { t.green });
-                            ui.label(egui::RichText::new(text).size(12.0));
+                            ui.painter().circle_filled(r.center(), 6.0, if toast.error { t.red } else { t.green });
+                            ui.add(egui::Label::new(egui::RichText::new(toast.text.as_str()).size(12.0)).wrap().selectable(true));
                         });
                     });
-            },
-        );
+            });
+        if shown.response.contains_pointer() {
+            toast.at = now;
+        }
         y -= 52.0;
     }
 }

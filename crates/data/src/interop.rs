@@ -137,6 +137,57 @@ pub fn wkt(g: &Geometry) -> String {
     }
 }
 
+/// Decodes an encoded polyline (Google's algorithm; `precision` 5, or 6 as OSRM and Valhalla
+/// can use) into longitude/latitude points.
+pub fn decode_polyline(s: &str, precision: u32) -> Result<Vec<Coord>, String> {
+    if !(1..=10).contains(&precision) {
+        return Err("precision is 1 to 10 (usually 5 or 6)".into());
+    }
+    let factor = 10f64.powi(precision as i32);
+    let mut bytes = s.trim().bytes().peekable();
+    let mut next = || -> Result<Option<i64>, String> {
+        if bytes.peek().is_none() {
+            return Ok(None);
+        }
+        let (mut result, mut shift) = (0i64, 0u32);
+        loop {
+            let b = bytes.next().ok_or("the polyline ends in the middle of a number")?;
+            if !(63..=126).contains(&b) {
+                return Err(format!("'{}' isn't part of an encoded polyline", char::from(b)));
+            }
+            let chunk = i64::from(b - 63);
+            if shift > 60 {
+                return Err("a number in the polyline is too long".into());
+            }
+            result |= (chunk & 0x1f) << shift;
+            shift += 5;
+            if chunk < 0x20 {
+                break;
+            }
+        }
+        Ok(Some(if result & 1 == 1 { !(result >> 1) } else { result >> 1 }))
+    };
+    let (mut lat, mut lon) = (0i64, 0i64);
+    let mut out = Vec::new();
+    while let Some(dlat) = next()? {
+        let dlon = next()?.ok_or("the polyline ends after a latitude")?;
+        lat = lat.saturating_add(dlat);
+        lon = lon.saturating_add(dlon);
+        let (y, x) = (lat as f64 / factor, lon as f64 / factor);
+        if !((-90.0..=90.0).contains(&y) && (-180.0..=180.0).contains(&x)) {
+            return Err(format!(
+                "the polyline leaves longitude/latitude ({x}, {y}): is its precision {}?",
+                if precision == 5 { 6 } else { 5 }
+            ));
+        }
+        out.push(Coord::new(x, y));
+        if out.len() > MAX_WKT_COORDS {
+            return Err("the polyline is too long".into());
+        }
+    }
+    Ok(out)
+}
+
 /// The most coordinates one WKT geometry may hold.
 const MAX_WKT_COORDS: usize = 5_000_000;
 
@@ -145,9 +196,11 @@ const MAX_WKT_COORDS: usize = 5_000_000;
 /// non-empty member.
 pub fn parse_wkt(text: &str) -> Result<(Option<Geometry>, Option<u32>), String> {
     let text = text.trim();
-    let (srid, body) = match text.get(..5).filter(|p| p.eq_ignore_ascii_case("SRID=")).and_then(|_| text.split_once(';')) {
-        Some((s, rest)) => (Some(s.get(5..).unwrap_or("").trim().parse::<u32>().map_err(|_| "a bad SRID".to_string())?), rest),
-        None => (None, text),
+    let (srid, body) = if text.get(..5).is_some_and(|p| p.eq_ignore_ascii_case("SRID=")) {
+        let (s, rest) = text.split_once(';').ok_or("an SRID= without the ';' before its geometry")?;
+        (Some(s.get(5..).unwrap_or("").trim().parse::<u32>().map_err(|_| "a bad SRID".to_string())?), rest)
+    } else {
+        (None, text)
     };
     let mut p = WktParser { toks: wkt_tokens(body)?, at: 0, coords: 0 };
     let g = p.geometry(0)?;
@@ -362,6 +415,27 @@ pub fn to_wkt_csv(ds: &Dataset) -> String {
 mod tests {
     use super::*;
     use crate::{Field, FieldType, GeometryType, Value};
+
+    #[test]
+    fn encoded_polylines() {
+        // Google's example.
+        let pts = decode_polyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@", 5).unwrap();
+        let want = [(-120.2, 38.5), (-120.95, 40.7), (-126.453, 43.252)];
+        assert_eq!(pts.len(), 3);
+        for (p, (x, y)) in pts.iter().zip(want) {
+            assert!((p.x - x).abs() < 1e-9 && (p.y - y).abs() < 1e-9, "{p:?}");
+        }
+        // Precision 6 of the same text is a tenth of the size.
+        let six = decode_polyline("_p~iF~ps|U", 6).unwrap();
+        assert!((six[0].y - 3.85).abs() < 1e-9);
+        assert!(decode_polyline("_p~iF", 5).is_err(), "a latitude without a longitude");
+        assert!(decode_polyline("_p~iF~ps|U ", 5).is_ok(), "trailing space");
+        assert!(decode_polyline("_p~i", 5).is_err(), "cut in a number");
+        assert!(decode_polyline("abc def", 5).is_err());
+        assert!(decode_polyline("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~", 5).is_err());
+        assert!(decode_polyline("_p~iF~ps|U", 0).is_err());
+        assert_eq!(decode_polyline("", 5).unwrap(), Vec::<Coord>::new());
+    }
 
     #[test]
     fn writes_kml_gpx_wkt() {

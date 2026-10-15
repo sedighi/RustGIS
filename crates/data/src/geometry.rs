@@ -97,25 +97,29 @@ impl Geometry {
         if any {
             return true;
         }
-        // A polygon that contains the whole box.
+        // A polygon that contains the whole box, or a box edge intersecting a polygon ring.
         if let Geometry::Polygon(polys) = self {
-            return polys.iter().any(|rings| polygon_contains(rings, e.center()));
+            if polys.iter().any(|rings| polygon_contains(rings, e.center())) {
+                return true;
+            }
+            return polys.iter().any(|rings| {
+                rings.iter().any(|ring| {
+                    let n = ring.len();
+                    (0..n).any(|i| {
+                        let (Some(a), Some(b)) = (ring.get(i), ring.get((i + 1) % n)) else { return false };
+                        segment_intersects_extent(*a, *b, e)
+                    })
+                })
+            });
         }
         // A line crossing the box without a vertex inside it.
         if let Geometry::Line(parts) = self {
-            let corners =
-                [Coord::new(e.min_x, e.min_y), Coord::new(e.max_x, e.min_y), Coord::new(e.max_x, e.max_y), Coord::new(e.min_x, e.max_y)];
-            for part in parts {
-                for w in part.windows(2) {
-                    if let [a, b] = w {
-                        for i in 0..4 {
-                            if segments_cross(*a, *b, corners[i], corners[(i + 1) % 4]) {
-                                return true;
-                            }
-                        }
-                    }
-                }
-            }
+            return parts.iter().any(|part| {
+                part.windows(2).any(|w| match w {
+                    [a, b] => segment_intersects_extent(*a, *b, e),
+                    _ => false,
+                })
+            });
         }
         false
     }
@@ -196,12 +200,48 @@ pub fn seg_dist2(line: &[Coord], p: Coord) -> f64 {
     best
 }
 
-fn segments_cross(a: Coord, b: Coord, c: Coord, d: Coord) -> bool {
-    fn orient(a: Coord, b: Coord, c: Coord) -> f64 {
-        (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+/// Whether a line segment intersects an extent (including crossing through it or touching boundaries).
+pub fn segment_intersects_extent(p1: Coord, p2: Coord, e: &Extent) -> bool {
+    if e.contains(p1) || e.contains(p2) {
+        return true;
     }
-    let (o1, o2, o3, o4) = (orient(a, b, c), orient(a, b, d), orient(c, d, a), orient(c, d, b));
-    o1 * o2 < 0.0 && o3 * o4 < 0.0
+    let min_x = p1.x.min(p2.x);
+    let max_x = p1.x.max(p2.x);
+    let min_y = p1.y.min(p2.y);
+    let max_y = p1.y.max(p2.y);
+    if min_x > e.max_x || max_x < e.min_x || min_y > e.max_y || max_y < e.min_y {
+        return false;
+    }
+
+    let dx = p2.x - p1.x;
+    let dy = p2.y - p1.y;
+    let mut t0 = 0.0f64;
+    let mut t1 = 1.0f64;
+
+    let mut clip = |p: f64, q: f64| -> bool {
+        if p == 0.0 {
+            return q >= 0.0;
+        }
+        let r = q / p;
+        if p < 0.0 {
+            if r > t1 {
+                return false;
+            }
+            if r > t0 {
+                t0 = r;
+            }
+        } else {
+            if r < t0 {
+                return false;
+            }
+            if r < t1 {
+                t1 = r;
+            }
+        }
+        true
+    };
+
+    clip(-dx, p1.x - e.min_x) && clip(dx, e.max_x - p1.x) && clip(-dy, p1.y - e.min_y) && clip(dy, e.max_y - p1.y) && t0 <= t1
 }
 
 /// Even-odd point-in-ring test.
@@ -292,6 +332,23 @@ mod tests {
         assert!(!g.hit(Coord::new(5.0, 2.0), 1.0));
         assert!(g.intersects_extent(&Extent::new(4.0, -1.0, 6.0, 1.0)));
         assert!(!g.intersects_extent(&Extent::new(4.0, 1.0, 6.0, 2.0)));
+
+        // Polygon crossing the box whose center is outside and vertices outside
+        let poly = Geometry::Polygon(vec![vec![vec![
+            Coord::new(-10.0, 7.0),
+            Coord::new(20.0, 7.0),
+            Coord::new(20.0, 20.0),
+            Coord::new(-10.0, 20.0),
+        ]]]);
+        // Box is [0, 10] x [0, 10], center is (5, 5) which is outside y in [7, 20]
+        assert!(poly.intersects_extent(&Extent::new(0.0, 0.0, 10.0, 10.0)));
+
+        // Diagonal segment crossing through box corners
+        assert!(segment_intersects_extent(Coord::new(-5.0, -5.0), Coord::new(15.0, 15.0), &Extent::new(0.0, 0.0, 10.0, 10.0)));
+        // Segment collinear with box top edge
+        assert!(segment_intersects_extent(Coord::new(-5.0, 10.0), Coord::new(15.0, 10.0), &Extent::new(0.0, 0.0, 10.0, 10.0)));
+        // Segment outside box
+        assert!(!segment_intersects_extent(Coord::new(-5.0, 12.0), Coord::new(15.0, 12.0), &Extent::new(0.0, 0.0, 10.0, 10.0)));
     }
 
     #[test]

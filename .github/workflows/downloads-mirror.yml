@@ -8,8 +8,10 @@
 name: Sync downloads.rustgis.app
 
 on:
+  # The app's packages (Release) and the Python wheels (Python package) are attached by separate
+  # workflows; whichever finishes last brings the mirror up to date.
   workflow_run:
-    workflows: [Release]
+    workflows: [Release, Python package]
     types: [completed]
   workflow_dispatch:
     inputs:

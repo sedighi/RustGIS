@@ -1,29 +1,35 @@
-# Builds the docs on every pull request and publishes a preview to Cloudflare Pages
-# (project `rustgis-preview`, one branch per PR: https://pr-<N>.rustgis-preview.pages.dev).
+# Builds the docs and the web app on every pull request, forks included. This workflow runs the
+# pull request's code with no secrets and a read-only token, and hands its output over as artifacts:
 #
-# Required repository secrets:
-#   CLOUDFLARE_API_TOKEN  - needs the "Cloudflare Pages: Edit" permission
-#   CLOUDFLARE_ACCOUNT_ID
+#   preview-pr   - the pull request's number (every run, closed ones too)
+#   preview-site - the built site (open pull requests)
 #
-# The build job runs the pull request's code with no secrets and hands the site over as an
-# artifact; the deploy job holds the Cloudflare secrets and runs no PR code. Fork and Dependabot
-# pull requests get no secrets, so they build but don't deploy.
+# docs-preview-publish.yml, started when this workflow finishes, holds the deploy key and publishes
+# the site to https://preview.rustgis.app/pr-<N>/, or removes a closed pull request's preview. It
+# runs no pull request code. Splitting the two is what lets fork pull requests get a preview:
+# GitHub gives a fork's `pull_request` run no secrets. A fork's preview publishes on every push once
+# its author has a commit on main; a first-time contributor's is published only once a maintainer
+# approves the commit, by adding the `preview` label or re-running this workflow.
 name: docs-preview
 
 on:
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, closed, labeled]
 
 permissions:
   contents: read
-  pull-requests: write
 
+# Another label's run does nothing, and gets its own group so it doesn't cancel a build.
 concurrency:
-  group: docs-preview-${{ github.event.pull_request.number }}
+  group: docs-preview-${{ github.event.pull_request.number }}${{ github.event.action == 'labeled' && github.event.label.name != 'preview' && format('-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
   build:
+    if: >-
+      github.event.action != 'closed' &&
+      (github.event.action != 'labeled' || github.event.label.name == 'preview')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -56,6 +62,8 @@ jobs:
           export PATH="$RUNNER_TEMP/bin:$PATH"
           cd apps/rustgis-web
           trunk build --release --public-url ./
+          # The service worker, as web-deploy.yml adds it, so the preview installs as an app too.
+          cargo xtask web-pwa ../../dist/web
           mkdir -p ../../site/app
           cp -r ../../dist/web/. ../../site/app/
 
@@ -65,94 +73,20 @@ jobs:
           path: site
           retention-days: 3
 
-  preview:
-    needs: build
+  # The publishing workflow reads the pull request's number from here and checks it against the
+  # GitHub API (a fork's run can't be trusted to name its own pull request).
+  pr-number:
+    if: github.event.action != 'labeled' || github.event.label.name == 'preview'
     runs-on: ubuntu-latest
-    if: >-
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.user.login != 'dependabot[bot]'
-    env:
-      HAS_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
     steps:
-      - uses: actions/download-artifact@v8
-        with:
-          name: preview-site
-          path: site
-
-      - name: Create a scratch directory for wrangler
-        run: mkdir -p .wrangler-deploy
-
-      # Tolerate a token pasted with surrounding whitespace or a "Bearer " prefix, and explain
-      # a malformed one (without printing it) instead of failing with Cloudflare's code 6111.
-      - name: Check the Cloudflare token
-        id: token
-        if: env.HAS_TOKEN == 'true'
+      - name: Record the pull request number
         env:
-          RAW_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PR: ${{ github.event.pull_request.number }}
         run: |
-          set -euo pipefail
-          # Drop a leading "Bearer " first, then quotes and whitespace.
-          token=$(printf '%s' "$RAW_TOKEN" | sed -E '1s/^[[:space:]]*Bearer[[:space:]]+//' | tr -d '[:space:]"')
-          echo "::add-mask::$token"
-          if ! printf '%s' "$token" | grep -Eq '^[A-Za-z0-9_-]{30,}$'; then
-            echo "::error::CLOUDFLARE_API_TOKEN is ${#token} characters and not an API Token. Create one under My Profile > API Tokens with Account > Cloudflare Pages > Edit (the Global API Key will not work)."
-            exit 1
-          fi
-          # User tokens verify at /user/tokens/verify, account-owned tokens at
-          # /accounts/<id>/tokens/verify.
-          api=https://api.cloudflare.com/client/v4
-          user=$(curl -s --max-time 20 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" "$api/user/tokens/verify")
-          acct=$(curl -s --max-time 20 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" "$api/accounts/$ACCOUNT_ID/tokens/verify")
-          if [ "$user" = 000 ] && [ "$acct" = 000 ]; then
-            echo "::error::Could not reach the Cloudflare API to verify the token (network error or timeout)."
-            exit 1
-          fi
-          if [ "$user" != 200 ] && [ "$acct" != 200 ]; then
-            echo "::error::Cloudflare rejected CLOUDFLARE_API_TOKEN (user verify HTTP $user, account verify HTTP $acct). Check it is active, not expired, and for account ${ACCOUNT_ID:0:6}…"
-            exit 1
-          fi
-          echo "Token verified (user: $user, account: $acct)"
-          echo "CF_TOKEN=$token" >> "$GITHUB_ENV"
-
-      - name: Deploy to Cloudflare Pages
-        id: deploy
-        if: steps.token.outcome == 'success'
-        uses: cloudflare/wrangler-action@v4
+          mkdir -p preview-pr
+          printf '%s\n' "$PR" > preview-pr/pr.txt
+      - uses: actions/upload-artifact@v7
         with:
-          apiToken: ${{ env.CF_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: .wrangler-deploy
-          command: >-
-            pages deploy ${{ github.workspace }}/site
-            --project-name=rustgis-preview
-            --branch="pr-${{ github.event.pull_request.number }}"
-            --commit-hash="${{ github.event.pull_request.head.sha }}"
-            --commit-dirty=true
-
-      # Later steps (including the third-party github-script) don't need the token.
-      - name: Drop the token from the environment
-        if: always() && steps.token.outcome == 'success'
-        run: echo "CF_TOKEN=" >> "$GITHUB_ENV"
-
-      - name: Comment preview URL on PR
-        if: steps.deploy.outputs.deployment-url != ''
-        uses: actions/github-script@v9
-        env:
-          DEPLOY_URL: ${{ steps.deploy.outputs.deployment-url }}
-          ALIAS_URL: ${{ steps.deploy.outputs.pages-deployment-alias-url }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        with:
-          script: |
-            const marker = '<!-- docs-preview -->';
-            const alias = process.env.ALIAS_URL || process.env.DEPLOY_URL;
-            const body = `${marker}\n### 📖 Docs preview\n\n| Item | Value |\n| --- | --- |\n| Preview | ${alias} |\n| Web app | ${alias}/app/ |\n| This commit | ${process.env.DEPLOY_URL} |\n| Commit | \`${process.env.HEAD_SHA.slice(0, 7)}\` |`;
-            const { owner, repo } = context.repo;
-            const issue_number = context.payload.pull_request.number;
-            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number, per_page: 100 });
-            const existing = comments.find((c) => c.body && c.body.includes(marker));
-            if (existing) {
-              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
-            } else {
-              await github.rest.issues.createComment({ owner, repo, issue_number, body });
-            }
+          name: preview-pr
+          path: preview-pr
+          retention-days: 3

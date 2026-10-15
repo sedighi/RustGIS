@@ -29,9 +29,9 @@ pub(crate) fn need_raster(s: &Session) -> Option<&'static str> {
 pub fn commands() -> Vec<C> {
     vec![
         C::new("layer.addDataBytes", "Add Data (from file contents)", "Home › Add", add_bytes)
-            .params(r#"{"fileName": "name.tif|.tiff|.asc|.geojson|.csv|.zip|.kml|.kmz|.gpx|.parquet|.fgb|.gpkg|.mbtiles", "data": base64, "layer"?: "one layer of a zip, KML or GPX by name", "name"?: text, "x"?, "y"?, "wkt"?, "crs"?, "delimiter"? (as layer.addData, for delimited text)}"#),
+            .params(r#"{"fileName": "name.tif|.tiff|.asc|.geojson|.csv|.zip|.kml|.kmz|.gpx|.parquet|.fgb|.gpkg|.mbtiles", "data": base64, "layer"?: "one layer of a zip, KML or GPX by name", "name"?: text, "x"?, "y"?, "wkt"?, "crs"?, "delimiter"?, "paperSpace"?, "stream"? (as layer.addData)}"#),
         C::new("raster.symbology", "Symbology", "Style › Rendering", symbology).when(need_raster).params(
-            r#"{"layer"?, "type": "stretch"|"rgb"|"classify"|"unique"|"colormap"|"shadedRelief", "band"?: 1.., "ramp"?, "invert"?: bool, "classes"?: 1..32, "method"?, "azimuth"?, "altitude"?, "zFactor"?}"#,
+            r#"{"layer"?, "type": "stretch"|"rgb"|"classify"|"unique"|"colormap"|"shadedRelief", "band"?: 1.., "ramp"?, "invert"?: bool, "classes"?: 1..32, "method"?, "azimuth"?, "altitude"?, "zFactor"?, "grey"?: bool (shadedRelief without its colour ramp)}"#,
         ),
         C::new("raster.stretch", "Stretch Type", "Style › Rendering", |s, p| {
             let code = ps(p, "type").ok_or("type is required")?;
@@ -115,6 +115,12 @@ fn band(p: &Value, k: &str, r: &Raster) -> Result<Option<usize>, String> {
     }
 }
 
+/// Adds a picture laid over the map (a KML ground overlay), kept in the project as a GeoTIFF.
+pub(crate) fn add_overlay(s: &mut Session, name: &str, r: raster::Raster) -> CmdResult {
+    let tif = raster::geotiff::write(&r, 0).map_err(|e| e.to_string())?;
+    add_raster(s, name, RasterLayer::from_bytes(r, format!("{name}.tif"), tif))
+}
+
 /// Adds a raster as a new layer, selects it and returns its id.
 pub fn add_raster(s: &mut Session, name: &str, layer: RasterLayer) -> CmdResult {
     let mut unique = name.to_string();
@@ -146,6 +152,31 @@ pub fn add_path(s: &mut Session, path: &str, name: Option<&str>) -> CmdResult {
     add_raster(s, &name, RasterLayer::from_path(r, full))
 }
 
+/// Adds a raster GDAL reads (converted once to a GeoTIFF in the cache): `"layer"` picks a
+/// subdataset (a NetCDF variable) and `"crs"` gives a coordinate system the file doesn't say.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn add_gdal_path(s: &mut Session, p: &Value, path: &str) -> CmdResult {
+    use rustgis_data::raster::gdal;
+    let text = |k: &str| ps(p, k).map(str::trim).filter(|v| !v.is_empty());
+    let c = gdal::convert(Path::new(path), text("layer"), text("crs")).map_err(|e| format!("{path}: {e}"))?;
+    let r = raster::read_converted(Path::new(path), &c).map_err(|e| format!("{path}: {e}"))?;
+    if c.assumed_lonlat {
+        s.notify(format!("{path} doesn't say its coordinate system; its coordinates look like longitude/latitude, so it's read as WGS 84 (give \"crs\" if not)"), false);
+    }
+    if !c.others.is_empty() {
+        let shown: Vec<&str> = c.others.iter().take(20).map(String::as_str).collect();
+        s.notify(format!("{path} has more variables ({}): add one with \"layer\"", shown.join(", ")), false);
+    }
+    let name = text("name").map(str::to_string).unwrap_or_else(|| r.name.clone());
+    // A project names the file itself, with the subdataset and coordinate system chosen, and
+    // converts it again (from the cache, while it is there) when it opens.
+    let full = std::path::absolute(path).map(|p| p.display().to_string()).unwrap_or_else(|_| path.to_string());
+    let mut rl = RasterLayer::from_path(r, full);
+    rl.subdataset = c.subdataset.clone();
+    rl.crs = text("crs").map(str::to_string);
+    add_raster(s, &name, rl)
+}
+
 fn add_bytes(s: &mut Session, p: &Value) -> CmdResult {
     use base64::Engine;
     let name = ps(p, "fileName").ok_or("fileName is required")?.to_string();
@@ -155,9 +186,20 @@ fn add_bytes(s: &mut Session, p: &Value) -> CmdResult {
         return Err(format!("{name} is too large to open"));
     }
     let bytes = base64::engine::general_purpose::STANDARD.decode(data.as_bytes()).map_err(|e| format!("data: {e}"))?;
+    add_named_bytes(s, p, name, bytes)
+}
+
+/// Adds a file's contents (an upload, a download) as its name's extension says.
+pub(crate) fn add_named_bytes(s: &mut Session, p: &Value, name: String, bytes: Vec<u8>) -> CmdResult {
+    // A geotagged photo (an upload, a drop): a point in the photo layer, so several uploads
+    // gather in one.
+    if rustgis_data::photo::is_photo_name(&name) {
+        let layer = ps(p, "name").map(str::trim).filter(|n| !n.is_empty()).unwrap_or(super::layer::PHOTOS).to_string();
+        return super::layer::add_photos_to(s, &layer, |reader| reader.add(&name, &bytes));
+    }
     if raster::is_raster_name(&name) {
         let r = raster::read_bytes(&name, &bytes).map_err(|e| format!("{name}: {e}"))?;
-        let title = r.name.clone();
+        let title = ps(p, "name").map(str::trim).filter(|n| !n.is_empty()).map(str::to_string).unwrap_or_else(|| r.name.clone());
         return add_raster(s, &title, RasterLayer::from_bytes(r, name, bytes));
     }
     // An MBTiles archive: held in memory and drawn as a tile layer.
@@ -169,7 +211,11 @@ fn add_bytes(s: &mut Session, p: &Value) -> CmdResult {
         }
         return super::tiles::add(s, &q);
     }
-    // Files of several layers: zipped Shapefiles, KML/KMZ, GPX.
+    // A spreadsheet's sheet.
+    if rustgis_data::sheets::is_sheet_name(&name) {
+        return super::layer::add_sheet(s, p, &name, &bytes);
+    }
+    // Files of several layers: zipped Shapefiles, KML/KMZ, GPX, GeoRSS, LandXML.
     if rustgis_data::io::is_multi_layer_name(&name) {
         return super::layer::add_layers(s, p, &name, &bytes);
     }
@@ -189,9 +235,21 @@ fn add_bytes(s: &mut Session, p: &Value) -> CmdResult {
 }
 
 fn symbology(s: &mut Session, p: &Value) -> CmdResult {
-    let (_, r) = get(s, p)?;
+    let (id, r) = get(s, p)?;
     let kind = ps(p, "type").unwrap_or("stretch").to_string();
-    let ramp = ps(p, "ramp").map(|n| Ramp::from_name(n).ok_or_else(|| format!("unknown colour scheme '{n}'"))).transpose()?;
+    // A custom ramp deleted from the project is still found on the raster that uses it.
+    let ramp = ps(p, "ramp")
+        .map(|n| {
+            s.ramp(n).or_else(|e| {
+                s.map()
+                    .layer(id)
+                    .and_then(|l| l.raster.as_ref())
+                    .and_then(|rl| rl.style.renderer.ramp())
+                    .filter(|r| r.name().eq_ignore_ascii_case(n.trim()))
+                    .ok_or(e)
+            })
+        })
+        .transpose()?;
     let bnd = band(p, "band", &r)?;
     with(s, p, |rl, r| {
         let cur_band = rl.style.renderer.bands().first().copied().unwrap_or(0);

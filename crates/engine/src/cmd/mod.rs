@@ -1,10 +1,12 @@
 //! Every command, grouped by ribbon tab.
 
+pub mod catalogs;
 pub mod clipboard;
 pub mod deeplearning;
 pub mod design;
 pub mod edit;
 pub mod effects;
+pub mod geocode;
 pub mod gp;
 pub mod graphics;
 pub mod imagery;
@@ -15,17 +17,24 @@ pub mod layout;
 pub mod navigate;
 pub mod notebook;
 pub mod plugins;
+pub mod portals;
 pub mod presentation;
 pub mod project;
 pub mod raster;
 pub mod report;
+pub mod s3;
 pub mod select;
+pub mod service;
 pub mod share;
 pub mod sharing;
+pub mod sources;
+pub mod sql;
+pub mod stac;
 pub mod tiles;
 pub mod view;
 pub mod workflows;
 pub mod workspace;
+pub mod zarr;
 
 use serde_json::Value;
 
@@ -35,9 +44,14 @@ pub fn all() -> Vec<CommandSpec> {
     let mut v = Vec::new();
     v.extend(project::commands());
     v.extend(navigate::commands());
+    v.extend(geocode::commands());
     v.extend(tiles::commands());
+    v.extend(service::commands());
+    v.extend(s3::commands());
+    v.extend(sources::commands());
     v.extend(layer::commands());
     v.extend(raster::commands());
+    v.extend(zarr::commands());
     v.extend(select::commands());
     v.extend(edit::commands());
     v.extend(clipboard::commands());
@@ -57,8 +71,12 @@ pub fn all() -> Vec<CommandSpec> {
     v.extend(workspace::commands());
     v.extend(gp::commands());
     v.extend(share::commands());
+    v.extend(sql::commands());
     v.extend(plugins::commands());
     v.extend(sharing::commands());
+    v.extend(stac::commands());
+    v.extend(portals::commands());
+    v.extend(catalogs::commands());
     v
 }
 

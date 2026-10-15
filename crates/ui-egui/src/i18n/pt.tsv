@@ -1,6 +1,7 @@
 # pt interface catalog: English<TAB>translation
  by 	 por
 (b4-b3)/(b4+b3)	(b4-b3)/(b4+b3)
+(filtered)	(filtrada)
 00:00 UTC	00:00 UTC
 06:00 UTC	06:00 UTC
 12:00 UTC	12:00 UTC
@@ -247,6 +248,7 @@ Checking for updates…	Procurando atualizações…
 China	China
 Choose a band combination to display the raster layer.	Escolha uma combinação de bandas para exibir a camada raster.
 Choose a contrast stretch for the raster layer.	Escolha um realce de contraste para a camada raster.
+Choose a delimited text file or a spreadsheet, then pick its columns.	Escolha um arquivo de texto delimitado ou uma planilha e depois as colunas.
 Choose a model.	Escolha um modelo.
 Choose a resampling type for the raster layer.	Escolha um tipo de reamostragem para a camada raster.
 Choose extra buttons for the Quick Access Toolbar.	Escolher botões extras para a barra de ferramentas de acesso rápido.
@@ -323,6 +325,7 @@ Color Vision	Visão de cores
 Color Vision Simulator	Simulador de visão de cores
 Colormap	Mapa de cores
 Colors from the raster's own color table.	Cores da própria tabela de cores do raster.
+Columns named like longitude/latitude, easting/northing or geometry are picked for you.	Colunas com nomes como longitude/latitude, easting/northing ou geometry são escolhidas para você.
 Combinations from the box above, one per line	Combinações da caixa acima, uma por linha
 Command\nSearch	Pesquisar\ncomandos
 command is required	command é obrigatório
@@ -383,6 +386,7 @@ Create Polygon	Criar polígono
 Create Profile	Criar perfil
 Create Thumbnail	Criar miniatura
 Creates a point inside each input feature.	Cria um ponto dentro de cada feição de entrada.
+Creates points from a table's x and y coordinate fields.	Cria pontos a partir dos campos de coordenadas x e y de uma tabela.
 Creates polygons around input features at a given distance.	Cria polígonos ao redor das feições de entrada a uma distância especificada.
 Cross Section	Seção transversal
 Cross Section (2 clicks)	Seção transversal (2 cliques)
@@ -1307,6 +1311,7 @@ Remove Folder	Remover pasta
 Remove From Current Selection	Remover da seleção atual
 Remove Keyframe	Remover quadro-chave
 Remove Section	Remover seção
+Remove Table	Remover tabela
 Remove the last keyframe.	Remover o último quadro-chave.
 Remove the layer from the map.	Remover a camada do mapa.
 Remove Tile Layer	Remover camada de blocos
@@ -1812,7 +1817,11 @@ World, equal-area: true sizes, shapes bend towards the edges.	Mundo, equivalente
 Worldview	Fronteiras
 Write a plugin	Escrever um plugin
 X (mm)	X (mm)
+X Field	Campo X
+XY Table To Point	Tabela XY para ponto
+XY Table To Point…	Tabela XY para ponto…
 Y (mm)	Y (mm)
+Y Field	Campo Y
 Yes	Sim
 You have version {version}.	Você tem a versão {version}.
 z (m)	z (m)

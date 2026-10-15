@@ -56,14 +56,14 @@ pub fn commands() -> Vec<C> {
             let classes = rasterops::kmeans(&r, &bands, k, 20)?;
             add(s, rasterops::derive(&r, &name(p, format!("{}_classes", r.name)), vec![classes])?, true)
         })
-        .params(r#"{"layer": raster, "classes"?: 2..50, "bands"?: [1-based]}"#),
+        .params(r#"{"layer": raster, "classes"?: 2..50, "bands"?: [1-based], "name"?: output}"#),
         C::new("raster.classifySupervised", "Classification Tools", "Analyze › Image Classification", supervised)
-            .params(r#"{"layer": raster, "training": polygon layer, "classField": field, "bands"?: [1-based]}"#),
+            .params(r#"{"layer": raster, "training": polygon layer, "classField": field, "bands"?: [1-based], "name"?: output}"#),
         C::new("raster.index", "Indices", "Analyze › Imagery Tools", index).params(
-            r#"{"layer": raster, "index": "ndvi"|"ndwi"|"savi"|"nbr"|"ndbi"|"evi", "red"?, "green"?, "blue"?, "nir"?, "swir"?: band numbers}"#,
+            r#"{"layer": raster, "index": "ndvi"|"ndwi"|"savi"|"nbr"|"ndbi"|"evi", "red"?, "green"?, "blue"?, "nir"?, "swir"?: band numbers, "name"?: output}"#,
         ),
         C::new("raster.process", "Process", "Analyze › Imagery Tools", process)
-            .params(r#"{"layer": raster, "operation": "clip"|"resample", "extent"?: [minLon, minLat, maxLon, maxLat] (clip; the view when omitted), "factor"?: n (resample: n×n pixels become one)}"#),
+            .params(r#"{"layer": raster, "operation": "clip"|"resample", "extent"?: [minLon, minLat, maxLon, maxLat] (clip; the view when omitted), "factor"?: n (resample: n×n pixels become one), "name"?: output}"#),
         C::new("raster.editPixels", "Pixel Editor", "Analyze › Imagery Tools", edit_pixels)
             .params(r#"{"layer": raster, "polygon": [[lon, lat], …], "value"?: number (no-data when omitted), "band"?: 1-based (all when omitted)}"#),
         // Measurements are session results, not project changes: no undo step.

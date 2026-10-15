@@ -587,3 +587,159 @@ fn gpkg_mem_matches_sqlite() {
     println!("{tables} tables, {differ} different");
     assert_eq!(differ, 0);
 }
+
+fn open_driven(url: &str) -> Fetching {
+    Fetching(std::sync::Arc::from(open_url_blocking(url).unwrap()))
+}
+
+/// `n` × `n` points over the world, a FlatGeobuf or a GeoParquet (row groups of 2 000), larger
+/// than one fetch.
+fn big(n: usize, parquet: bool) -> Vec<u8> {
+    let mut ds =
+        Dataset::new("big", GeometryType::Point, vec![Field::new("name", FieldType::Text), Field::new("value", FieldType::Integer)]);
+    // Built directly: `push` per feature is slow for this many.
+    for i in 0..n {
+        for j in 0..n {
+            let c = Coord::new(-179.0 + 358.0 * i as f64 / n as f64, -80.0 + 160.0 * j as f64 / n as f64);
+            let id = (i * n + j) as u64;
+            ds.features.push(crate::Feature {
+                id: id + 1,
+                geometry: Some(Geometry::Point(c)),
+                attrs: vec![Value::Text(format!("p{i}_{j}")), Value::Int(id as i64)],
+            });
+        }
+    }
+    if !parquet {
+        return fgb::write(&ds).unwrap();
+    }
+    // GeoParquet in row groups of 2 000 rows (with a bbox covering), as large files are written.
+    use arrow_array::{BinaryArray, Float64Array, Int64Array, RecordBatch, StringArray, StructArray};
+    use arrow_schema::{DataType, Field as AField, Schema};
+    let pts: Vec<Coord> = ds
+        .features
+        .iter()
+        .filter_map(|f| match f.geometry {
+            Some(Geometry::Point(c)) => Some(c),
+            _ => None,
+        })
+        .collect();
+    let bbox_fields = ["xmin", "ymin", "xmax", "ymax"].map(|n| Arc::new(AField::new(n, DataType::Float64, false)));
+    let coord = |f: fn(&Coord) -> f64| Arc::new(Float64Array::from(pts.iter().map(f).collect::<Vec<_>>()));
+    let bbox =
+        StructArray::new(bbox_fields.iter().cloned().collect(), vec![coord(|c| c.x), coord(|c| c.y), coord(|c| c.x), coord(|c| c.y)], None);
+    let schema = Arc::new(Schema::new(vec![
+        AField::new("name", DataType::Utf8, false),
+        AField::new("value", DataType::Int64, false),
+        AField::new("geometry", DataType::Binary, false),
+        AField::new("bbox", DataType::Struct(bbox_fields.iter().cloned().collect()), false),
+    ]));
+    let wkbs: Vec<Vec<u8>> = pts.iter().map(|c| wkb::encode(&Geometry::Point(*c))).collect();
+    let cols: Vec<arrow_array::ArrayRef> = vec![
+        Arc::new(StringArray::from(ds.features.iter().map(|f| f.attrs[0].to_string()).collect::<Vec<_>>())),
+        Arc::new(Int64Array::from(ds.features.iter().map(|f| f.attrs[1].as_f64().unwrap_or(0.0) as i64).collect::<Vec<_>>())),
+        Arc::new(BinaryArray::from(wkbs.iter().map(|w| w.as_slice()).collect::<Vec<_>>())),
+        Arc::new(bbox),
+    ];
+    let geo = r#"{"version":"1.1.0","primary_column":"geometry","columns":{"geometry":{"encoding":"WKB","geometry_types":["Point"],
+        "covering":{"bbox":{"xmin":["bbox","xmin"],"ymin":["bbox","ymin"],"xmax":["bbox","xmax"],"ymax":["bbox","ymax"]}}}}}"#;
+    let props = ::parquet::file::properties::WriterProperties::builder()
+        .set_max_row_group_row_count(Some(2_000))
+        .set_key_value_metadata(Some(vec![::parquet::file::metadata::KeyValue::new("geo".to_string(), geo.to_string())]))
+        .build();
+    let mut out = Vec::new();
+    let mut w = ::parquet::arrow::ArrowWriter::try_new(&mut out, schema.clone(), Some(props)).unwrap();
+    w.write(&RecordBatch::try_new(schema, cols).unwrap()).unwrap();
+    w.close().unwrap();
+    out
+}
+
+#[test]
+fn flatgeobuf_and_geoparquet_by_address() {
+    let d = dir();
+    // The same checks as for a file on disk, read by range.
+    let f = d.join("r.fgb");
+    write_fgb(&f);
+    remote::testing::serve("https://test.example/grid.fgb", std::fs::read(&f).unwrap());
+    let src = open_driven("https://test.example/grid.fgb");
+    check(&src, true);
+    assert_eq!(src.info().name, "grid");
+    let p = d.join("r.parquet");
+    write_parquet(&p, true);
+    remote::testing::serve("https://test.example/grid.parquet", std::fs::read(&p).unwrap());
+    check(&open_driven("https://test.example/grid.parquet"), true);
+
+    // A view of a large file fetches a small part of it, and the same features as the file on disk.
+    for (name, parquet) in [("big.fgb", false), ("big.parquet", true)] {
+        let bytes = big(400, parquet);
+        let total = bytes.len();
+        let url = format!("https://test.example/{name}");
+        let sent = remote::testing::serve(&url, bytes.clone());
+        let src = open_driven(&url);
+        assert_eq!(src.info().count, Some(160_000), "{name}");
+        let e = Extent::new(10.0, 10.0, 12.0, 12.0);
+        let req = Request { extent: Some(e), limit: 10_000 };
+        let got = src.read(&req).unwrap();
+        let local = open_bytes(name, bytes, None).unwrap().read(&req).unwrap();
+        let ids = |b: &Batch| b.features.iter().map(|f| f.id).collect::<std::collections::BTreeSet<_>>();
+        assert!(!got.features.is_empty() && ids(&got) == ids(&local), "{name}: {} vs {}", got.features.len(), local.features.len());
+        assert_eq!(
+            got.features.first().map(|f| &f.attrs),
+            local.features.iter().find(|f| Some(f.id) == got.features.first().map(|g| g.id)).map(|f| &f.attrs)
+        );
+        let fetched = sent.load(std::sync::atomic::Ordering::Relaxed);
+        assert!(fetched < total / 4, "{name}: fetched {fetched} of {total} bytes");
+        // A sample of the whole file, spread over it.
+        let s = src.read(&Request { extent: None, limit: 500 }).unwrap();
+        assert!(!s.complete && s.features.len() <= 500 && s.features.len() >= 250, "{name}: {}", s.features.len());
+    }
+
+    // Files without an index or a covering are read whole instead.
+    let p = d.join("plain.parquet");
+    write_parquet(&p, false);
+    remote::testing::serve("https://test.example/plain.parquet", std::fs::read(&p).unwrap());
+    let e = open_url_blocking("https://test.example/plain.parquet").err().map(|e| e.to_string()).unwrap_or_default();
+    assert!(e.contains(remote::READ_WHOLE), "{e}");
+    let mut ds = Dataset::new("x", GeometryType::Point, vec![]);
+    ds.push(Some(Geometry::Point(Coord::new(1.0, 2.0))), vec![]);
+    let unindexed = {
+        use flatgeobuf::{FgbWriter, FgbWriterOptions, GeometryType as G};
+        let mut w = FgbWriter::create_with_options("x", G::Point, FgbWriterOptions { write_index: false, ..Default::default() }).unwrap();
+        w.add_feature_geom(flatgeobuf::geozero::wkb::Wkb(wkb::encode(&Geometry::Point(Coord::new(1.0, 2.0)))), |_| {}).unwrap();
+        let mut out = Vec::new();
+        w.write(&mut out).unwrap();
+        out
+    };
+    remote::testing::serve("https://test.example/noindex.fgb", unindexed);
+    let e = open_url_blocking("https://test.example/noindex.fgb").err().map(|e| e.to_string()).unwrap_or_default();
+    assert!(e.contains(remote::READ_WHOLE), "{e}");
+
+    // Cut short and junk: errors, never a panic or an endless read.
+    let fgb = big(40, false);
+    let pq = big(40, true);
+    for (k, n) in (0..fgb.len()).step_by(997).enumerate() {
+        let url = format!("https://test.example/cut{k}.fgb");
+        remote::testing::serve(&url, fgb[..n].to_vec());
+        if let Ok(s) = open_url_blocking(&url) {
+            let s: std::sync::Arc<dyn FeatureSource> = std::sync::Arc::from(s);
+            let _ = read_blocking(&s, &Request::all());
+        }
+    }
+    for (k, n) in (0..pq.len()).step_by(991).enumerate() {
+        let url = format!("https://test.example/cut{k}.parquet");
+        remote::testing::serve(&url, pq[pq.len() - n..].to_vec());
+        if let Ok(s) = open_url_blocking(&url) {
+            let s: std::sync::Arc<dyn FeatureSource> = std::sync::Arc::from(s);
+            let _ = read_blocking(&s, &Request::all());
+        }
+    }
+    assert!(open_url_blocking("https://test.example/missing.fgb").is_err());
+    assert!(is_remote_name("https://x.org/a/b.fgb?sig=1") && is_remote_name("http://x.org/b.geoparquet") && !is_remote_name("/tmp/a.fgb"));
+    assert!(is_remote_name("s3://bucket/a/b.parquet") && !is_remote_name("s3://bucket/a/b.tif") && !is_remote_name("ftp://x.org/a.fgb"));
+}
+
+#[test]
+fn flatgeobuf_stand_in_is_a_feature() {
+    // The stand-in a sample passes over must pass the flatbuffers verifier, as real features do.
+    let body = &fgb::STAND_IN_FOR_TESTS[4..];
+    assert!(flatgeobuf::size_prefixed_root_as_feature(fgb::STAND_IN_FOR_TESTS.as_slice()).is_ok(), "{body:?}");
+}

@@ -102,12 +102,19 @@ jobs:
           PY
           echo "Analytics enabled for $id."
 
+      # After every change to index.html: the service worker lists the built files (Trunk names
+      # them by content hash) so the installed app starts offline, and its version changes with any
+      # of them so a new deploy is picked up.
+      - name: Add the service worker
+        run: cargo xtask web-pwa dist/web
+
       - name: Prepare the site for GitHub Pages
         working-directory: dist/web
         run: |
           set -euo pipefail
           test -f index.html
           ls *_bg.wasm >/dev/null
+          test -f sw.js && test -f manifest.webmanifest
           touch .nojekyll
           echo "web.rustgis.app" > CNAME
           oversized=$(find . -type f -size +104857600c -print)

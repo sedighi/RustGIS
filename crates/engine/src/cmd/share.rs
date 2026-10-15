@@ -19,12 +19,14 @@ pub fn commands() -> Vec<C> {
             .when(need_layer)
             .params(r#"{"layer"?, "path": "*.geojson|*.csv|*.fgb|*.gpkg|*.parquet|*.shp|*.zip|*.kml|*.kmz|*.gpx"}"#),
         C::new("share.exportTable", "Export Table", "Publish › Output", |s, p| {
-            let name = ps(p, "table").ok_or("table is required")?;
             let path = ps(p, "path").ok_or("path is required")?;
-            let t = s.project.tables.iter().find(|t| t.name.eq_ignore_ascii_case(name)).ok_or_else(|| format!("no table '{name}'"))?;
-            rustgis_data::io::write_path(t, Path::new(path)).map_err(|e| e.to_string())?;
+            let t = s.project.tables.get(s.table_index(p)?).ok_or("no such table")?;
+            rustgis_data::io::write_path(&t.dataset, Path::new(path)).map_err(|e| e.to_string())?;
             Ok(json!({"path": path}))
         })
+        .params(
+            r#"{"table": name|id (a standalone table), "path": "*.geojson|*.csv|*.fgb|*.gpkg|*.parquet|*.shp|*.zip|*.kml|*.kmz|*.gpx"}"#,
+        )
         .view(),
     ]
 }

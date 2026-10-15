@@ -17,7 +17,7 @@ log = { workspace = true }
 # A pure-Rust WebAssembly interpreter: the same sandbox on the desktop, the command line and in
 # the browser, with fuel and memory limits so a plugin can't hang or exhaust the app.
 wasmi = { version = "2", default-features = false, features = ["std", "stable", "validate", "portable-dispatch"] }
-sha2 = "0.10"
+sha2 = { workspace = true }
 # Plugin packages (.rgplugin) are zip archives.
 zip = { version = "2", default-features = false, features = ["deflate"] }
 # The test plugin (feature `testing`, used by the engine's tests too) is written in the

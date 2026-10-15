@@ -1,6 +1,7 @@
 # nl interface catalog: English<TAB>translation
  by 	 door
 (b4-b3)/(b4+b3)	(b4-b3)/(b4+b3)
+(filtered)	(gefilterd)
 00:00 UTC	00:00 UTC
 06:00 UTC	06:00 UTC
 12:00 UTC	12:00 UTC
@@ -247,6 +248,7 @@ Checking for updates…	Zoeken naar updates…
 China	China
 Choose a band combination to display the raster layer.	Kies een bandcombinatie om de rasterlaag weer te geven.
 Choose a contrast stretch for the raster layer.	Kies een contraststretch voor de rasterlaag.
+Choose a delimited text file or a spreadsheet, then pick its columns.	Kies een tekstbestand met scheidingstekens of een spreadsheet en kies daarna de kolommen.
 Choose a model.	Kies een model.
 Choose a resampling type for the raster layer.	Kies een resamplingtype voor de rasterlaag.
 Choose extra buttons for the Quick Access Toolbar.	Extra knoppen kiezen voor de werkbalk Snelle toegang.
@@ -323,6 +325,7 @@ Color Vision	Kleurenzicht
 Color Vision Simulator	Kleurenzichtsimulator
 Colormap	Kleurenkaart
 Colors from the raster's own color table.	Kleuren uit de eigen kleurentabel van het raster.
+Columns named like longitude/latitude, easting/northing or geometry are picked for you.	Kolommen met namen als longitude/latitude, easting/northing of geometry worden voor u gekozen.
 Combinations from the box above, one per line	Combinaties uit het vak hierboven, één per regel
 Command\nSearch	Opdracht\nzoeken
 command is required	opdracht is vereist
@@ -383,6 +386,7 @@ Create Polygon	Polygoon maken
 Create Profile	Profiel maken
 Create Thumbnail	Miniatuur maken
 Creates a point inside each input feature.	Maakt een punt binnen elk invoerobject.
+Creates points from a table's x and y coordinate fields.	Maakt punten van de x- en y-coördinaatvelden van een tabel.
 Creates polygons around input features at a given distance.	Maakt polygonen rond invoerobjecten op een opgegeven afstand.
 Cross Section	Dwarsdoorsnede
 Cross Section (2 clicks)	Dwarsdoorsnede (2 klikken)
@@ -1307,6 +1311,7 @@ Remove Folder	Map verwijderen
 Remove From Current Selection	Verwijderen uit huidige selectie
 Remove Keyframe	Sleutelframe verwijderen
 Remove Section	Sectie verwijderen
+Remove Table	Tabel verwijderen
 Remove the last keyframe.	Het laatste sleutelframe verwijderen.
 Remove the layer from the map.	De laag van de kaart verwijderen.
 Remove Tile Layer	Tegellaag verwijderen
@@ -1812,7 +1817,11 @@ World, equal-area: true sizes, shapes bend towards the edges.	Wereld, oppervlakt
 Worldview	Grenzen
 Write a plugin	Een plugin schrijven
 X (mm)	X (mm)
+X Field	X-veld
+XY Table To Point	XY-tabel naar punt
+XY Table To Point…	XY-tabel naar punt…
 Y (mm)	Y (mm)
+Y Field	Y-veld
 Yes	Ja
 You have version {version}.	U hebt versie {version}.
 z (m)	z (m)

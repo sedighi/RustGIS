@@ -145,6 +145,8 @@ pub fn install_fonts(
     fonts.font_data.insert("ui-semibold".into(), Arc::new(FontData::from_owned(f.semibold.clone())));
     if let Some(prop) = fonts.families.get_mut(&FontFamily::Proportional) {
         prop.insert(0, "ui".into());
+        // egui's Hack face has the Georgian letters that Ubuntu Light and Noto Sans lack.
+        prop.push("Hack".into());
     }
     let mut semi = vec!["ui-semibold".to_string(), "ui".to_string()];
     if let Some(prop) = fonts.families.get(&FontFamily::Proportional) {

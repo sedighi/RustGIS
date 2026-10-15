@@ -17,7 +17,7 @@ pub const DOWNLOAD_URL: &str = "https://github.com/opengeos/geolibre-rust/releas
 /// The environment variable that names the runner, ahead of every other place.
 pub const ENV: &str = "RUSTGIS_GEOLIBRE";
 
-fn exe_name() -> &'static str {
+pub(crate) fn exe_name() -> &'static str {
     if cfg!(windows) { "geolibre.exe" } else { "geolibre" }
 }
 

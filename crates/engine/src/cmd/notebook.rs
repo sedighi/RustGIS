@@ -92,7 +92,7 @@ pub fn commands() -> Vec<C> {
             s.trusted_notebooks.remove(&nb.name.to_ascii_lowercase());
             push(s, nb)
         })
-        .params(r#"{"path"?: "*.rgisnb|*.ipynb", "text"?: notebook JSON}"#),
+        .params(r#"{"path"?: "*.rgisnb|*.ipynb", "text"?: notebook JSON, "data"?: base64 file}"#),
         C::new("notebook.activate", "Open Notebook", "Browser", |s, p| {
             let i = index(s, p)?;
             s.active_notebook = Some(i);

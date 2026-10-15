@@ -68,21 +68,32 @@ pub fn triangulate(outer: &[(f64, f64)], holes: &[Vec<(f64, f64)>]) -> Option<Ve
     for (hi, h) in hole_rings.iter().enumerate() {
         let (mpos, &m) = h.iter().enumerate().max_by(|a, b| pts[*a.1].0.partial_cmp(&pts[*b.1].0).unwrap_or(std::cmp::Ordering::Equal))?;
         let pm = pts[m];
-        let edges_clear = |v: (f64, f64)| {
-            let ring_ok = (0..ring.len()).all(|k| !crosses(pm, v, pts[ring[k]], pts[ring[(k + 1) % ring.len()]]));
-            let holes_ok = hole_rings.iter().skip(hi).all(|r| (0..r.len()).all(|k| !crosses(pm, v, pts[r[k]], pts[r[(k + 1) % r.len()]])));
+        let edges_clear = |v: (f64, f64), work: &mut usize| {
+            let ring_ok = (0..ring.len()).all(|k| {
+                *work += 1;
+                !crosses(pm, v, pts[ring[k]], pts[ring[(k + 1) % ring.len()]])
+            });
+            let holes_ok = ring_ok
+                && hole_rings.iter().skip(hi).all(|r| {
+                    (0..r.len()).all(|k| {
+                        *work += 1;
+                        !crosses(pm, v, pts[r[k]], pts[r[(k + 1) % r.len()]])
+                    })
+                });
             ring_ok && holes_ok
         };
         let mut best: Option<(usize, f64)> = None;
         for (k, &vi) in ring.iter().enumerate() {
-            work += ring.len() + h.len();
-            if work > MAX_WORK {
-                return None;
-            }
             let v = pts[vi];
             let d = (v.0 - pm.0).powi(2) + (v.1 - pm.1).powi(2);
-            if best.is_none_or(|b| d < b.1) && edges_clear(v) {
-                best = Some((k, d));
+            if best.is_none_or(|b| d < b.1) {
+                let clear = edges_clear(v, &mut work);
+                if work > MAX_WORK {
+                    return None;
+                }
+                if clear {
+                    best = Some((k, d));
+                }
             }
         }
         let (k, _) = best?;
@@ -186,5 +197,22 @@ mod tests {
         assert!(triangulate(&[(0.0, 0.0), (f64::NAN, 1.0), (1.0, 0.0)], &[]).is_none());
         let flat = triangulate(&[(0.0, 0.0), (1.0, 0.0), (2.0, 0.0)], &[]).unwrap_or_default();
         assert!(area(&[(0.0, 0.0), (1.0, 0.0), (2.0, 0.0)], &flat) < 1e-12);
+
+        // A smooth circle of 3000 vertices with 8 small holes inside.
+        // Should successfully triangulate within MAX_VERTICES (5000) and not falsely abort on work budget.
+        let circle: Vec<(f64, f64)> = (0..3000)
+            .map(|i| {
+                let a = i as f64 * std::f64::consts::TAU / 3000.0;
+                (100.0 * a.cos(), 100.0 * a.sin())
+            })
+            .collect();
+        let circle_holes: Vec<Vec<(f64, f64)>> = (0..8)
+            .map(|i| {
+                let ox = (i as f64 - 3.5) * 15.0;
+                vec![(ox, -2.0), (ox + 4.0, -2.0), (ox + 4.0, 2.0), (ox, 2.0)]
+            })
+            .collect();
+        let tr = triangulate(&circle, &circle_holes);
+        assert!(tr.is_some(), "3000-vertex polygon with 8 holes should succeed");
     }
 }

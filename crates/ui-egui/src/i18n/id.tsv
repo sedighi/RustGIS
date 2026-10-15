@@ -1,6 +1,7 @@
 # id interface catalog: English<TAB>translation
  by 	 oleh
 (b4-b3)/(b4+b3)	(b4-b3)/(b4+b3)
+(filtered)	(disaring)
 00:00 UTC	00:00 UTC
 06:00 UTC	06:00 UTC
 12:00 UTC	12:00 UTC
@@ -247,6 +248,7 @@ Checking for updates…	Memeriksa pembaruan…
 China	Tiongkok
 Choose a band combination to display the raster layer.	Pilih kombinasi band untuk menampilkan layer raster.
 Choose a contrast stretch for the raster layer.	Pilih peregangan kontras untuk layer raster.
+Choose a delimited text file or a spreadsheet, then pick its columns.	Pilih file teks berpembatas atau lembar kerja, lalu pilih kolomnya.
 Choose a model.	Pilih model.
 Choose a resampling type for the raster layer.	Pilih tipe resampling untuk layer raster.
 Choose extra buttons for the Quick Access Toolbar.	Pilih tombol tambahan untuk Bilah Akses Cepat.
@@ -323,6 +325,7 @@ Color Vision	Penglihatan Warna
 Color Vision Simulator	Simulator Penglihatan Warna
 Colormap	Peta Warna
 Colors from the raster's own color table.	Warna dari tabel warna raster itu sendiri.
+Columns named like longitude/latitude, easting/northing or geometry are picked for you.	Kolom bernama seperti longitude/latitude, easting/northing atau geometry dipilih secara otomatis.
 Combinations from the box above, one per line	Kombinasi dari kotak di atas, satu per baris
 Command\nSearch	Cari\nPerintah
 command is required	command wajib diisi
@@ -383,6 +386,7 @@ Create Polygon	Buat Poligon
 Create Profile	Buat Profil
 Create Thumbnail	Buat Thumbnail
 Creates a point inside each input feature.	Membuat titik di dalam setiap fitur masukan.
+Creates points from a table's x and y coordinate fields.	Membuat titik dari kolom koordinat x dan y sebuah tabel.
 Creates polygons around input features at a given distance.	Membuat poligon di sekitar fitur masukan pada jarak tertentu.
 Cross Section	Penampang Melintang
 Cross Section (2 clicks)	Penampang Melintang (2 klik)
@@ -1307,6 +1311,7 @@ Remove Folder	Hapus Folder
 Remove From Current Selection	Hapus dari Seleksi Saat Ini
 Remove Keyframe	Hapus Keyframe
 Remove Section	Hapus Bagian
+Remove Table	Hapus Tabel
 Remove the last keyframe.	Hapus keyframe terakhir.
 Remove the layer from the map.	Hapus layer dari peta.
 Remove Tile Layer	Hapus Layer Ubin
@@ -1812,7 +1817,11 @@ World, equal-area: true sizes, shapes bend towards the edges.	Dunia, luas sama: 
 Worldview	Batas Negara
 Write a plugin	Tulis plugin
 X (mm)	X (mm)
+X Field	Kolom X
+XY Table To Point	Tabel XY ke Titik
+XY Table To Point…	Tabel XY ke Titik…
 Y (mm)	Y (mm)
+Y Field	Kolom Y
 Yes	Ya
 You have version {version}.	Anda memiliki versi {version}.
 z (m)	z (m)

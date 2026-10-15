@@ -106,7 +106,7 @@ pub fn is_tile(url: &str) -> bool {
 /// (As `rustgis_map::tiles::is_local_archive` decides it, which a layer's address went through.)
 pub fn is_local(archive: &str) -> bool {
     let lower = archive.get(..8).unwrap_or(archive).to_ascii_lowercase();
-    !(lower.starts_with("http://") || lower.starts_with("https://"))
+    !(lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("s3://"))
 }
 
 /// Whether a local archive may be read: an absolute path to a `.pmtiles` file (checked again
@@ -746,6 +746,7 @@ mod tests {
             tile_size: 256,
             tms: false,
             attribution: String::new(),
+            layers: Vec::new(),
         };
         let mut resolved = crate::source::resolve(&spec);
         for _ in 0..200 {

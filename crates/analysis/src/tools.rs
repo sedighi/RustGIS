@@ -1,6 +1,7 @@
 //! The tools.
 
 use geo::{BooleanOps, Buffer, ConvexHull, InteriorPoint, Intersects, MultiPolygon, Orient, Simplify, orient::Direction};
+use rustgis_data::raster::Crs;
 use rustgis_data::{Coord, Dataset, Field, FieldType, Geometry, GeometryType, Value};
 use rustgis_geom::{geodesic_length_m, geodesic_ring_area_m2};
 use serde_json::Value as Json;
@@ -83,6 +84,41 @@ pub static TOOLS: &[ToolSpec] = &[
             P { name: "output", label: "Output Name", kind: K::Text, required: false, default: "", help: "" },
         ],
         run: feature_to_point,
+    },
+    ToolSpec {
+        id: "xyTableToPoint",
+        name: "XY Table To Point",
+        toolbox: "Data Management › Features",
+        summary: "Creates points from a table's x and y coordinate fields.",
+        params: &[
+            P { name: "input", label: "Input Table", kind: K::Layer, required: true, default: "", help: "" },
+            P {
+                name: "x",
+                label: "X Field",
+                kind: K::CoordinateField,
+                required: true,
+                default: "",
+                help: "Longitude or easting: numbers, or text holding them. A single comma is the decimal separator (1,234 is 1.234).",
+            },
+            P {
+                name: "y",
+                label: "Y Field",
+                kind: K::CoordinateField,
+                required: true,
+                default: "",
+                help: "Latitude or northing, read as the X field is.",
+            },
+            P {
+                name: "crs",
+                label: "Coordinate System",
+                kind: K::Text,
+                required: false,
+                default: "\"EPSG:4326\"",
+                help: "The coordinates' system, as EPSG:<code> or WKT; longitude/latitude (EPSG:4326) when empty.",
+            },
+            P { name: "output", label: "Output Name", kind: K::Text, required: false, default: "", help: "" },
+        ],
+        run: xy_table_to_point,
     },
     ToolSpec {
         id: "simplify",
@@ -178,6 +214,11 @@ fn num(p: &Json, k: &str) -> Option<f64> {
 }
 
 fn input<'a>(inp: &'a dyn Inputs, p: &Json, k: &str) -> Result<&'a Dataset, String> {
+    // A number is a standalone table's id, and only that; text is a name.
+    if let Some(n) = p.get(k).filter(|v| v.is_number()) {
+        let table = n.as_u64().and_then(|id| u32::try_from(id).ok()).and_then(|id| inp.table(id));
+        return table.ok_or_else(|| format!("no standalone table with id {n}"));
+    }
     let name = s(p, k);
     inp.dataset(name).ok_or_else(|| format!("no layer named '{name}'"))
 }
@@ -409,6 +450,84 @@ fn feature_to_point(inp: &dyn Inputs, p: &Json) -> Result<ToolResult, String> {
     result(out, format!("Feature To Point: {n} points"))
 }
 
+/// A coordinate from a table cell: a number, or text holding one, written with a decimal point
+/// or (when it has no point) a single decimal comma, as spreadsheets in many languages do. A comma
+/// never separates thousands: `1,234` is 1.234 (refusing it would refuse `1234,567` too), and
+/// `1,234.5` is not a number.
+fn coordinate(v: &Value) -> Option<f64> {
+    let n = match v {
+        Value::Int(i) => *i as f64,
+        Value::Float(f) => *f,
+        Value::Text(t) => {
+            let t = t.trim();
+            match t.parse::<f64>() {
+                Ok(n) => n,
+                Err(_) if !t.contains('.') && t.matches(',').count() == 1 => t.replace(',', ".").parse().ok()?,
+                Err(_) => return None,
+            }
+        }
+        Value::Null | Value::Bool(_) => return None,
+    };
+    n.is_finite().then_some(n)
+}
+
+/// The rows looked at to tell whether a text field holds numbers.
+const COORDINATE_SAMPLE: usize = 1000;
+
+/// Whether a field can hold coordinates: a numeric field, or a text field where one of the
+/// first rows reads as a number, as [`coordinate`] reads it. The Tools pane lists these fields
+/// for a coordinate parameter, so a table without any offers none.
+pub fn holds_coordinates(ds: &Dataset, field: usize) -> bool {
+    match ds.fields.get(field).map(|f| f.ty) {
+        Some(FieldType::Text) => (0..ds.features.len().min(COORDINATE_SAMPLE)).any(|r| coordinate(ds.value(r, field)).is_some()),
+        Some(ty) => ty.is_numeric(),
+        None => false,
+    }
+}
+
+fn xy_table_to_point(inp: &dyn Inputs, p: &Json) -> Result<ToolResult, String> {
+    let ds = input(inp, p, "input")?;
+    let field = |k: &str| {
+        let name = s(p, k).trim();
+        ds.field_index(name).ok_or_else(|| format!("no field named '{name}'"))
+    };
+    let (xi, yi) = (field("x")?, field("y")?);
+    let crs = match s(p, "crs").trim() {
+        "" => Crs::LonLat,
+        t => Crs::parse(t)?,
+    };
+    let to = crs.transformer()?;
+    let mut out = copy_schema(ds, out_name(p, format!("{}_Points", ds.name)), GeometryType::Point);
+    // Rows with numbers in both fields, and those of them that land on the globe.
+    let (mut read, mut placed, mut total) = (0usize, 0usize, 0usize);
+    for r in rows(inp, p, "input", ds) {
+        let Some(f) = ds.features.get(r) else { continue };
+        total += 1;
+        let xy = coordinate(ds.value(r, xi)).zip(coordinate(ds.value(r, yi)));
+        read += usize::from(xy.is_some());
+        let pt = xy.and_then(|(x, y)| to.to_lonlat(Coord::new(x, y))).filter(|c| c.is_finite() && c.x.abs() <= 180.0 && c.y.abs() <= 90.0);
+        placed += usize::from(pt.is_some());
+        // A row without a usable position stays in the layer's table, without a point.
+        out.push_next(pt.map(Geometry::Point), f.attrs.clone());
+    }
+    if placed == 0 {
+        return Err(if read == 0 {
+            format!("{}: no row has numbers in both '{}' and '{}'", ds.name, s(p, "x").trim(), s(p, "y").trim())
+        } else {
+            format!(
+                "{}: the coordinates aren't in {}: give their coordinate system (\"crs\", such as EPSG:2263) to place them",
+                ds.name,
+                crs.label()
+            )
+        });
+    }
+    let mut messages = vec![format!("XY Table To Point: {placed} points")];
+    if placed < total {
+        messages.push(format!("{} of {total} rows have no usable coordinates; they are in the table without a point", total - placed));
+    }
+    Ok(ToolResult { output: Output::Layer(out), messages })
+}
+
 /// A geometry simplified (Douglas–Peucker) to a tolerance in metres.
 pub fn simplify_geometry(g: &Geometry, tol_m: f64) -> Geometry {
     let eps = tol_m * merc_scale(feature_lat(g));
@@ -467,10 +586,11 @@ fn select_by_location(inp: &dyn Inputs, p: &Json) -> Result<ToolResult, String> 
     let invert = s(p, "invert") == "Yes";
     let hits: Vec<usize> = (0..ds.features.len())
         .filter(|r| {
-            let hit = ds.features.get(*r).and_then(|f| f.geometry.as_ref()).is_some_and(|g| {
-                let gg = to_geo(g);
-                selectors.iter().any(|s| s.intersects(&gg))
-            });
+            let Some(g) = ds.features.get(*r).and_then(|f| f.geometry.as_ref()) else {
+                return false;
+            };
+            let gg = to_geo(g);
+            let hit = selectors.iter().any(|s| s.intersects(&gg));
             hit != invert
         })
         .collect();
@@ -724,9 +844,78 @@ mod tests {
     }
 
     #[test]
+    fn xy_table_to_point_places_rows_by_their_coordinates() {
+        let fields = vec![Field::new("name", FieldType::Text), Field::new("lon", FieldType::Text), Field::new("lat", FieldType::Double)];
+        let mut stops = Dataset::new("stops", GeometryType::None, fields);
+        for (name, lon, lat) in [
+            // A decimal comma, a decimal point with spaces around, and an integer in text.
+            ("comma", Value::Text("-74,08".into()), Value::Float(4.6)),
+            ("point", Value::Text(" -75.5 ".into()), Value::Float(6.25)),
+            ("whole", Value::Text("-76".into()), Value::Int(3)),
+            // No number, two commas, nothing at all, and off the globe: rows without a point.
+            ("words", Value::Text("n/a".into()), Value::Float(1.0)),
+            ("commas", Value::Text("1,234,5".into()), Value::Float(1.0)),
+            ("empty", Value::Null, Value::Null),
+            ("far", Value::Text("200".into()), Value::Float(0.0)),
+        ] {
+            stops.push(None, vec![Value::Text(name.into()), lon, lat]);
+        }
+        // The fields offered for coordinates: those holding numbers, as text or not.
+        assert_eq!([0, 1, 2, 3].map(|i| holds_coordinates(&stops, i)), [false, true, true, false]);
+        // A single comma is the decimal separator, never one for thousands.
+        assert_eq!(["1,234", "1234,567", "1,234.5"].map(|t| coordinate(&Value::Text(t.into()))), [Some(1.234), Some(1234.567), None]);
+        // Web Mercator metres: 10° east on the equator.
+        let fields = vec![Field::new("e", FieldType::Double), Field::new("n", FieldType::Double)];
+        let mut metres = Dataset::new("metres", GeometryType::None, fields);
+        metres.push(None, vec![Value::Float(1_113_194.9), Value::Float(0.0)]);
+        let m = Map(HashMap::from([("stops".to_string(), stops), ("metres".to_string(), metres)]));
+        let run = |p: serde_json::Value| crate::run("xyTableToPoint", &m, &p);
+
+        let r = run(serde_json::json!({"input": "stops", "x": "lon", "y": "lat"})).unwrap();
+        assert_eq!(r.messages.len(), 2, "{:?}", r.messages);
+        let out = layer(r);
+        assert_eq!((out.name.as_str(), out.geometry_type), ("stops_Points", GeometryType::Point));
+        assert_eq!((out.fields.len(), out.features.len()), (3, 7));
+        let points: Vec<Option<(f64, f64)>> = out
+            .features
+            .iter()
+            .map(|f| match &f.geometry {
+                Some(Geometry::Point(c)) => Some((c.x, c.y)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(points, [Some((-74.08, 4.6)), Some((-75.5, 6.25)), Some((-76.0, 3.0)), None, None, None, None]);
+        assert_eq!(out.value(3, 0), &Value::Text("words".into()), "rows without a point keep their attributes");
+
+        // Another coordinate system, and the output's name.
+        let out = layer(run(serde_json::json!({"input": "metres", "x": "e", "y": "n", "crs": "EPSG:3857", "output": "East"})).unwrap());
+        assert_eq!(out.name, "East");
+        match out.features.first().and_then(|f| f.geometry.as_ref()) {
+            Some(Geometry::Point(c)) => assert!((c.x - 10.0).abs() < 1e-6 && c.y.abs() < 1e-6, "{c:?}"),
+            g => panic!("{g:?}"),
+        }
+
+        // Metres read as longitude/latitude, fields without numbers, and junk parameters.
+        let e = run(serde_json::json!({"input": "metres", "x": "e", "y": "n"})).unwrap_err();
+        assert!(e.contains("coordinate system"), "{e}");
+        let e = run(serde_json::json!({"input": "stops", "x": "name", "y": "lat"})).unwrap_err();
+        assert!(e.contains("no row has numbers"), "{e}");
+        for p in [
+            serde_json::json!({"input": "stops", "x": "nope", "y": "lat"}),
+            serde_json::json!({"input": "stops", "x": "lon"}),
+            serde_json::json!({"input": "stops", "x": "lon", "y": "lat", "crs": "EPSG:99999999"}),
+            serde_json::json!({"input": "stops", "x": "lon", "y": "lat", "crs": "somewhere"}),
+            serde_json::json!({"input": "nope", "x": "lon", "y": "lat"}),
+        ] {
+            assert!(run(p.clone()).is_err(), "{p}");
+        }
+    }
+
+    #[test]
     fn hostile_params_never_panic() {
         let m = inputs();
         let junk = [
+            serde_json::json!({"input": "pts", "x": "v", "y": "v", "crs": "((", "output": 7}),
             serde_json::json!(null),
             serde_json::json!({}),
             serde_json::json!({"input": 5, "distance": "x"}),
@@ -737,6 +926,32 @@ mod tests {
             for p in &junk {
                 let _ = crate::run(t.id, &m, p);
             }
+        }
+    }
+
+    #[test]
+    fn select_by_location_invert_excludes_features_without_geometry() {
+        let mut polys = Dataset::new("polys", GeometryType::Polygon, vec![]);
+        polys.push(Some(sq(0.0, 0.0, 2.0)), vec![]);
+        let mut pts = Dataset::new("pts", GeometryType::Point, vec![]);
+        pts.push(Some(Geometry::Point(Coord::new(1.0, 1.0))), vec![]); // inside
+        pts.push(Some(Geometry::Point(Coord::new(10.0, 10.0))), vec![]); // outside
+        pts.push(None, vec![]); // no geometry (unplaced record)
+        let m = Map(HashMap::from([("polys".to_string(), polys), ("pts".to_string(), pts)]));
+
+        let res_normal = crate::run("selectByLocation", &m, &serde_json::json!({"input": "pts", "select": "polys"})).unwrap();
+        match res_normal.output {
+            Output::Selection { rows, .. } => assert_eq!(rows, vec![0], "normal select should only select intersecting feature"),
+            _ => panic!("expected selection"),
+        }
+
+        let res_inverted =
+            crate::run("selectByLocation", &m, &serde_json::json!({"input": "pts", "select": "polys", "invert": "Yes"})).unwrap();
+        match res_inverted.output {
+            Output::Selection { rows, .. } => {
+                assert_eq!(rows, vec![1], "inverted select should exclude unplaced records with null geometry")
+            }
+            _ => panic!("expected selection"),
         }
     }
 }

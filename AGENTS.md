@@ -16,7 +16,7 @@ is a command, a thin egui front end, headless screenshots for UI work.
 | Layer | Crate | Job |
 |---|---|---|
 | L0 | `geom` | coordinates, extents, Web Mercator, geodesic measurement, scale |
-| L1 | `data` | features, typed attributes, GeoJSON/CSV/Shapefile/KML/GPX I/O, GeoPackage/GeoParquet/FlatGeobuf providers (`source`; GeoPackages in the browser through the pure-Rust `sqlite` reader; GDAL formats and DuckDB queries through their programs), SQL where clauses, rasters (GeoTIFF/ASCII grid, EPSG reprojection) |
+| L1 | `data` | features, typed attributes, GeoJSON/CSV/Shapefile/KML/GPX I/O, GeoPackage/GeoParquet/FlatGeobuf/LiDAR (LAS/LAZ) providers (`source`; GeoPackages in the browser through the pure-Rust `sqlite` reader; GDAL formats and DuckDB queries through their programs), SQL where clauses, rasters (GeoTIFF/ASCII grid, Zarr stores, EPSG reprojection) |
 | L2 | `map`, `analysis` | layers, symbology, labels, camera, basemaps, web tile layers; geoprocessing tools |
 | L2 | `tiles` | web map tiles: XYZ/TMS/WMS rasters, Mapbox Vector Tiles, PMTiles and MBTiles archives, a MapLibre style subset; the tile cache and background fetching (see `docs/user-guide/maps.md` › Basemaps) |
 | L3 | `render` | tiny-skia map renderer, label placement, PNG export, font discovery |
@@ -25,13 +25,14 @@ is a command, a thin egui front end, headless screenshots for UI work.
 | L4 | `engine` | `Session`, undo, command registry, sample project |
 | L5 | `assistant` | the AI Assistant: a chat agent (sans I/O: `provider` builds and reads OpenAI/Anthropic/Gemini requests, `agent` loops, `tools` run commands; file, network and plugin commands wait for the user's approval) |
 | L6 | `ui-egui` | ribbon, panes, map view, attribute table, dialogs (swappable) |
-| apps | `rustgis`, `rustgis-cli`, `rustgis-web` | desktop app, command line, browser (WebAssembly) |
+| apps | `rustgis`, `rustgis-cli`, `rustgis-web`, `rustgis-python` | desktop app, command line, browser (WebAssembly), the `rustgis` Python package (PyO3, built with maturin) |
 
 - **Everything is a command**: a `CommandSpec` in `crates/engine/src/cmd/*.rs`. UI-only
   commands (`ui.*`) live in `crates/ui-egui/src/lib.rs`. The ribbon, shortcuts, command search
   and CLI dispatch by id. Commands never open dialogs.
 - **Never break wasm**: everything below `apps/` must build for `wasm32-unknown-unknown`
-  (CI runs `cargo build --target wasm32-unknown-unknown -p rustgis-web`). Use `web_time`, not
+  (CI runs `cargo build --target wasm32-unknown-unknown -p rustgis-web`; the Zstandard decoder in
+  `rustgis-data` is C, so this needs clang). Use `web_time`, not
   `std::time`; file access goes through `Services` on the web. `rustgis-geolibre` builds for
   both: natively it runs the `geolibre` program; in the browser the web app runs geolibre-rust's
   WASI runner asynchronously (`external_start` → `Services::geolibre_run` → `gp.finish`).

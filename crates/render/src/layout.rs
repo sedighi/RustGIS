@@ -646,3 +646,23 @@ fn chart(pm: &mut Pixmap, r: Rect, ds: &rustgis_data::Dataset, field: &str, labe
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hairline_rectangles_draw_thin() {
+        // A filled 0.15 mm rule at 300 dpi is under two pixels tall, not a 1 mm bar (#211).
+        let mut l = Layout::new("Layout", 50.0, 20.0);
+        l.add(
+            "Rule",
+            (5.0, 10.0, 40.0, 0.15),
+            ElementKind::Rectangle { fill: Rgba::rgb(0, 0, 0), outline: Rgba::rgb(0, 0, 0), width: 0.0 },
+        );
+        let pm = render(&l, &mut [], 300.0, &PageInfo::default()).unwrap();
+        let x = pm.width() / 2;
+        let inked = (0..pm.height()).filter(|&y| pm.pixel(x, y).is_some_and(|p| p.red() < 250)).count();
+        assert!((1..=3).contains(&inked), "{inked} rows inked");
+    }
+}

@@ -15,6 +15,8 @@
   <img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-2563eb?style=flat-square">
   <img alt="16 languages" src="https://img.shields.io/badge/languages-16-0e9384?style=flat-square">
   <a href="https://plugins.rustgis.app"><img alt="Plugins" src="https://img.shields.io/badge/plugins-registry-7c3aed?style=flat-square"></a>
+  <a href="https://pypi.org/project/rustgis/"><img alt="PyPI" src="https://img.shields.io/pypi/v/rustgis?style=flat-square&logo=python&logoColor=white&label=pypi"></a>
+  <a href="https://colab.research.google.com/github/opengeos/RustGIS/blob/main/apps/rustgis-python/examples/getting-started.ipynb"><img alt="Open in Colab" src="https://colab.research.google.com/assets/colab-badge.svg"></a>
 </p>
 
 <p align="center">
@@ -75,9 +77,10 @@ Every screenshot is RustGIS itself, rendered offscreen by `cargo run -p rustgis-
 
 | Area | Highlights |
 |---|---|
-| **Data** | GeoJSON, CSV/TSV with x/y columns in any coordinate system or WKT geometry, Shapefile (zipped too, in the browser as well), GeoPackage, GeoParquet, FlatGeobuf, KML/KMZ (with styles) and GPX in (large files read in place), every vector format GDAL reads when it is installed, and SQL queries and DuckDB databases through DuckDB Spatial when DuckDB is; PMTiles archives (web or file) and MBTiles files; GeoJSON, CSV, GeoPackage, GeoParquet, Shapefile, FlatGeobuf, KML/KMZ, GPX and WKT out; standalone tables; layer and map files, styles, templates and packages |
-| **Rasters** | GeoTIFF and cloud-optimised GeoTIFF (any pixel type, tiled or striped, compressed), ASCII grids; reprojection from any EPSG code; Stretch, RGB, Classify, Unique Values, Colormap and Shaded Relief; DRA, band combinations, brightness/contrast/gamma; raster functions, indices, change detection, classification, georeferencing |
+| **Data** | GeoJSON, CSV/TSV with x/y columns in any coordinate system or WKT geometry, Excel and OpenDocument spreadsheets, GeoRSS, LandXML, encoded polylines, Shapefile (zipped too, in the browser as well), GeoPackage, GeoParquet, FlatGeobuf, KML/KMZ (with styles), GPX, GML, MapInfo MIF/MID, OpenStreetMap PBF, TopoJSON, AutoCAD DXF, LiDAR point clouds (LAS, LAZ, COPC) and geotagged photos in (large files read in place), files by their web address, every vector format GDAL reads when it is installed, and SQL queries and DuckDB databases through DuckDB Spatial when DuckDB is; PMTiles archives (web or file) and MBTiles files; GeoJSON, CSV, GeoPackage, GeoParquet, Shapefile, FlatGeobuf, KML/KMZ, GPX and WKT out; standalone tables; layer and map files, styles, templates and packages |
+| **Rasters** | GeoTIFF and cloud-optimised GeoTIFF (any pixel type, tiled or striped, compressed), ASCII grids, Zarr 2 and 3 stores (a variable at a time step, by folder or web address); reprojection from any EPSG code; Stretch, RGB, Classify, Unique Values, Colormap and Shaded Relief; DRA, band combinations, brightness/contrast/gamma; raster functions, indices, change detection, classification, georeferencing |
 | **Maps** | Multiple maps per project; a 3D globe; Web Mercator or any projection (Equal Earth, Robinson, Winkel Tripel, polar and regional presets, or an EPSG code); bookmarks, extent history, Go To XY; five offline basemaps |
+| **Web services** | WMS, WMTS, WFS, OGC API Features and ArcGIS REST (FeatureServer, MapServer, ImageServer, VectorTileServer) from their capabilities |
 | **Web tiles** | XYZ/TMS/WMS raster tiles, Mapbox Vector Tiles and MapLibre styles (sprites, patterns, expressions), cached and fetched in the background |
 | **Cartography** | Single symbol, unique values, graduated colours, proportional symbols; collision-free labels with placement, scale ranges and annotation; masking, display filters, aggregation bins, 2.5D extrusion; graphics and dynamic text |
 | **Editing** | Create, move, rotate, scale, merge, split and explode features; snapping, templates, elevation, traverse, topology rules; domains, subtypes, attribute rules, relationships, archiving; undo for everything |
@@ -127,6 +130,20 @@ claude mcp add rustgis -- rustgis-cli mcp --sample   # RustGIS as an MCP server 
 ```
 
 See [Command Line](docs/cli.md) for more.
+
+Python: the same engine and commands in-process (`pip install rustgis`), and the app itself in a
+Jupyter notebook.
+
+```python
+import rustgis
+s = rustgis.Session(sample=True)
+s.run("gp.run", tool="buffer", params={"input": "Cities", "distance": 100})
+s.to_png("map.png")
+gdf = s.layer("Cities_Buffer").to_geopandas()
+```
+
+See [Python](docs/python.md) and the [getting-started notebook](apps/rustgis-python/examples/getting-started.ipynb)
+([open in Colab](https://colab.research.google.com/github/opengeos/RustGIS/blob/main/apps/rustgis-python/examples/getting-started.ipynb)).
 
 ## Architecture
 

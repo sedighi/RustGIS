@@ -19,6 +19,63 @@ Query** draws only the features matching a SQL clause, and a layer with
 [subtypes](editing.md#data-design) can be symbolized by them. **Style › Styles** saves symbology
 as styles to reuse on other layers and in other projects.
 
+### Custom color ramps
+
+Besides the built-in color schemes, a project can hold your own color ramps: an organization's
+palette, a published scheme such as a ColorBrewer, cmocean or viridis ramp, or one designed in a
+tool like [Phosphor](https://www.joshuastevens.net/phosphor/). Add them from a color ramp file
+with **Style › Styles › Add Color Ramp File** (or **Add Color Ramp File** under the swatches in
+the Symbology pane). They appear under **Custom** in the Symbology pane, for feature layers and
+rasters (Stretch, Classify, Unique Values and Shaded Relief) alike, and under **Color Ramps** in
+the Browser, where right-click deletes one. **Publish › Save As › Color Ramps** saves the
+project's custom ramps to a file.
+
+A color ramp file (`.rgisramp`) is JSON: a list of ramps (or one ramp on its own), each with a
+`name`, a `kind` (`sequential`, the default, `diverging` or `qualitative`) and its `stops`:
+
+```json
+[{
+  "name": "Phosphor Frostfire",
+  "kind": "diverging",
+  "stops": ["#eff6ff", "#abc5e8", "#87a0d7", "#7b5ca6", "#ca7482", "#f5b88e", "#fff5da"]
+}]
+```
+
+Stops are `#RRGGBB` or `#RRGGBBAA` colors, evenly spaced from the first to the last. For uneven
+spacing, give a stop as `{"pos": 0.25, "color": "#87a0d7"}`, with `pos` from 0 to 1; plain
+stops between two positioned ones are spaced evenly between them. A ramp has 2 to 256 stops (a
+qualitative one can have 1), and can't take the name of a built-in scheme; adding a ramp with
+the name of one already in the project replaces it. Scripts, the CLI and the AI Assistant add
+ramps with the `ramp.add` command (`{"path": "ramps.rgisramp"}`, or the JSON itself as
+`{"text": …}`), and then name them like built-in schemes, for example
+`layer.ramp={"ramp":"Phosphor Frostfire"}`.
+
+### Color ramps from other tools
+
+**Add Color Ramp File** also reads the color ramp files other tools write, so a palette from
+QGIS, GDAL, GMT or a tool like Phosphor can be added without converting it first:
+
+| Format | Extension | What RustGIS reads |
+| --- | --- | --- |
+| QGIS style | `.xml` | Every gradient ramp (discrete ones as steps) and preset ramp (as a qualitative ramp) in a Style Manager export, with its name. ColorBrewer, cpt-city and random ramps hold no colors and are skipped. |
+| QGIS layer style | `.qml` | The layer's color ramp, or a raster's color map. |
+| GDAL color-relief text | `.txt` | `value R G B [A]` lines (as `gdaldem color-relief` takes them), separated by spaces, tabs, commas or colons; values may be percentages and colors may be names; `nv` lines are skipped. A QGIS color map export reads the same way. |
+| GMT palette | `.cpt` | `z0 color0 z1 color1` lines, with colors as `r/g/b`, `r g b`, `#RRGGBB`, grey levels, names or HSV; `B`, `F` and `N` lines are skipped. |
+
+These formats tie colors to data values; the ramp keeps their spacing, from the lowest value
+to the highest, and a sharp change between two colors stays sharp. A ramp from a GDAL or GMT
+file is named after the file and is sequential; the `ramp.add` command takes a `name` and a
+`kind` to change that (`{"path": "relief.cpt", "kind": "diverging"}`), and a `format`
+(`rgisramp`, `qgis`, `gdal` or `cpt`) for text without a file name. A file with more than 256
+colors is resampled to 256 evenly spaced stops.
+
+Sequential and diverging ramps blend between their stops; when there are as many classes as
+stops, each class takes a stop's color exactly, so a stepped palette keeps its colors. A
+qualitative ramp gives each class the next stop, starting again after the last. A layer keeps
+its own copy of the ramp it uses, so layer files, map files and packages keep their colors in
+projects that don't have the ramp, and deleting a ramp from the project leaves layers that use
+it unchanged.
+
 ## Labeling
 
 Turn labels on per layer (View › Labeling › Label, or the Style tab), then:

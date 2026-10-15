@@ -1,0 +1,1867 @@
+# ka interface catalog: English<TAB>translation
+ by 	 ×
+(b4-b3)/(b4+b3)	(b4-b3)/(b4+b3)
+(filtered)	(გაფილტრული)
+00:00 UTC	00:00 UTC
+06:00 UTC	06:00 UTC
+12:00 UTC	12:00 UTC
+18:00 UTC	18:00 UTC
+3D mesh	3D მესი
+<None>	<არაფერი>
+A 3D globe seen from space.	3D გლობუსი კოსმოსიდან დანახული.
+A blank map with a basemap	ცარიელი რუკა საბაზისო რუკით
+A fast, free and open-source GIS written in pure Rust, for mapping, analyzing and sharing geospatial data on the desktop and in the browser.	სწრაფი, უფასო და ღია კოდის GIS სუფთა Rust-ზე დაწერილი. გეოსივრცული მონაცემების დასახატად, გასაანალიზებლად და გასაზიარებლად დესკტოპზე და ბრაუზერში.
+A flat scene centred on the view (azimuthal equidistant).	ბრტყელი სცენა ხედზე ცენტრირებული (აზიმუტული ტოლმანძილიანი).
+A globe scene.	გლობუსის სცენა.
+A magnifying lens that follows the pointer.	გამადიდებელი შუშა, რომელიც კურსორს მიჰყვება.
+A notebook of text and command cells.	ტექსტისა და ბრძანების უჯრედების რვეული.
+A projected coordinate system.	დაპროექტებული კოორდინატთა სისტემა.
+A report listing the selected layer's records, page after page.	ანგარიში, რომელიც არჩეული ფენის ჩანაწერებს გვერდ-გვერდ ჩამოთვლის.
+A template with the first selected feature's values	შაბლონი პირველი მონიშნული ობიექტის მნიშვნელობებით
+A tile service's address: raster tiles with {z}/{x}/{y} (or {-y}, {q}, {bbox-epsg-3857} for WMS), vector tiles (.pbf) or TileJSON, a MapLibre style, or a PMTiles archive (a web address, or a file on this computer).	ფილების სერვისის მისამართი: რასტრული ფილები {z}/{x}/{y}-ით (WMS-ისთვის {-y}, {q}, {bbox-epsg-3857}), ვექტორული ფილები (.pbf) ან TileJSON, MapLibre სტილი ან PMTiles არქივი (ვებ მისამართი ან ფაილი ამ კომპიუტერში).
+A value, a field, or two of them joined by + − × ÷. Applies to the selected rows, or every row when none is selected.	მნიშვნელობა, ველი ან ორი მათგანი, შეერთებული + − × ÷ ნიშნებით. ვრცელდება მონიშნულ სტრიქონებზე, მონიშვნის გარეშე კი ყველა სტრიქონზე.
+About	შესახებ
+About plugins	დანამატების შესახებ
+About RustGIS	RustGIS-ის შესახებ
+About RustGIS.	RustGIS-ის შესახებ.
+Above	ზემოთ
+Above Left	ზემოთ მარცხნივ
+Above Right	ზემოთ მარჯვნივ
+Accessibility	ხელმისაწვდომობა
+Activate Map	რუკის გააქტიურება
+Add	დამატება
+Add\nData	მონაცემების\nდამატება
+Add ({n})	დამატება ({n})
+Add a bar chart of a layer's numeric field.	ფენის რიცხვითი ველის სვეტოვანი დიაგრამის დამატება.
+Add a field.	ველის დამატება.
+Add a legend of the map frame's layers.	რუკის ჩარჩოს ფენების ლეგენდის დამატება.
+Add a map frame showing a map of the project.	ჩარჩოს დამატება, რომელიც პროექტის რუკას აჩვენებს.
+Add a new map to the project.	ახალი რუკის დამატება პროექტში.
+Add a north arrow for the map frame.	რუკის ჩარჩოსთვის ჩრდილოეთის ისრის დამატება.
+Add a page	გვერდის დამატება
+Add a page layout for printing and exporting the map.	გვერდის განლაგების დამატება რუკის დასაბეჭდად და გასატანად.
+Add a page to the presentation.	გვერდის დამატება პრეზენტაციაში.
+Add a PNG or JPEG picture to the page.	PNG ან JPEG სურათის დამატება გვერდზე.
+Add a presentation file.	პრეზენტაციის ფაილის დამატება.
+Add a report file, or a report template for the selected layer.	ანგარიშის ფაილის ან არჩეული ფენის ანგარიშის შაბლონის დამატება.
+Add a scale bar for the map frame.	რუკის ჩარჩოსთვის მასშტაბის ხაზის დამატება.
+add a second map first (Data › New Map)	ჯერ დაამატეთ მეორე რუკა (მონაცემები › ახალი რუკა)
+Add a second map frame first	ჯერ დაამატეთ მეორე რუკის ჩარჩო
+Add a text element.	ტექსტური ელემენტის დამატება.
+Add an elevation raster first.	ჯერ დაამატეთ სიმაღლის რასტრი.
+Add an empty layer with a ready-made schema, to draw into.	ცარიელი ფენის დამატება მზა სქემით, რომ მასში დახატოთ.
+Add and Open	დამატება და გახსნა
+Add and Open Notebook	რვეულის დამატება და გახსნა
+Add Archive	არქივის დამატება
+add at least two keyframes	დაამატეთ მინიმუმ ორი საკვანძო კადრი
+Add Cell	უჯრედის დამატება
+Add Commands	ბრძანებების დამატება
+Add Data	მონაცემების დამატება
+Add Data (from file contents)	მონაცემების დამატება (ფაილის შიგთავსიდან)
+Add Data (from text)	მონაცემების დამატება (ტექსტიდან)
+Add Data From SQL	მონაცემების დამატება SQL-იდან
+Add Data Store…	მონაცემთა საცავის დამატება…
+Add Data…	მონაცემების დამატება…
+Add Element	ელემენტის დამატება
+Add Field	ველის დამატება
+Add field	ველის დამატება
+Add Folder	საქაღალდის დამატება
+Add GeoJSON, CSV or Shapefile data to the map.	GeoJSON, CSV ან Shapefile მონაცემების დამატება რუკაზე.
+Add Graphic	გრაფიკის დამატება
+Add Graphics Layer	გრაფიკული ფენის დამატება
+Add Job	დავალების დამატება
+Add Keyframe	საკვანძო კადრის დამატება
+Add Layer File	ფენის ფაილის დამატება
+Add Page After	გვერდის დამატება მის შემდეგ
+Add Page Before	გვერდის დამატება მის წინ
+Add pages, layouts, related reports and related records to the report.	გვერდების, განლაგების, დაკავშირებული ანგარიშებისა და ჩანაწერების დამატება ანგარიშში.
+Add Plugin Folder…	დანამატების საქაღალდის დამატება…
+Add raster tiles, vector tiles or a map style by address.	რასტრული ფილების, ვექტორული ფილების ან რუკის სტილის დამატება მისამართით.
+Add Rule	წესის დამატება
+Add sample countries	სანიმუშო ქვეყნების დამატება
+Add Sample Data	სანიმუშო მონაცემების დამატება
+Add Step	საფეხურის დამატება
+Add Style	სტილის დამატება
+Add Style File…	სტილის ფაილის დამატება…
+Add Task Step	დავალების საფეხურის დამატება
+Add Text	ტექსტის დამატება
+Add text that updates: page, date, scale, map and more.	ტექსტის დამატება, რომელიც თავად განახლდება: გვერდი, თარიღი, მასშტაბი, რუკა და სხვა.
+Add the attribute table of a layer in the map frame.	ფენის ატრიბუტების ცხრილის დამატება რუკის ჩარჩოში.
+Add the current view as a keyframe.	მიმდინარე ხედის დამატება საკვანძო კადრად.
+Add the maps of a map file, map package, project or project package.	რუკის ფაილის, რუკის პაკეტის, პროექტის ან პროექტის პაკეტის რუკების დამატება.
+Add Tile Layer	ფილების ფენის დამატება
+Add Tile Layer…	ფილების ფენის დამატება…
+Add To Current Selection	მიმდინარე მონიშვნაზე დამატება
+Add vector data.	ვექტორული მონაცემების დამატება.
+Additional surrounds.	დამატებითი გარშემომყოფი ელემენტები.
+Address	მისამართი
+Adds geodesic area (km²), length (km) or centroid coordinates as fields.	გეოდეზიური ფართობის (კმ²), სიგრძის (კმ) ან ცენტროიდის კოორდინატების დამატება ველებად.
+Aggregation	აგრეგაცია
+AI	AI
+AI\nAssistant	AI\nასისტენტი
+AI Assistant	AI ასისტენტი
+AI provider	AI პროვაიდერი
+Alignment	განლაგება
+All	ყველა
+All categories	ყველა კატეგორია
+All files	ყველა ფაილი
+All Selected	ყველა მონიშნული
+All steps done.	ყველა საფეხური შესრულდა.
+Allow	დაშვება
+Allow only certain combinations of values across fields.	მხოლოდ ველებს შორის მნიშვნელობების გარკვეული კომბინაციების დაშვება.
+Allow such actions for this conversation	ასეთი მოქმედებების დაშვება ამ საუბარში
+Allow this action?	დაგეშვათ ეს მოქმედება?
+Along Selected Line	მონიშნული ხაზის გასწვრივ
+Altitude	სიმაღლე
+Analysis	ანალიზი
+Analyze	გაანალიზება
+Analyze › AI	გაანალიზება › AI
+AND	AND
+Angle	კუთხე
+Animation	ანიმაცია
+API key	API გასაღები
+Apply	გამოყენება
+Apply a function to a raster	ფუნქციის გამოყენება რასტრზე
+Apply Control Points	საკონტროლო წერტილების გამოყენება
+Apply Style	სტილის გამოყენება
+Apply to the selected layer	არჩეულ ფენაზე გამოყენება
+Archive	არქივი
+Archive History	არქივის ისტორია
+Archiving	დაარქივება
+Area	ფართობი
+Area of use: longitude {w}° to {e}°, latitude {s}° to {n}°	გამოყენების არეალი: გრძედი {w}°-დან {e}°-მდე, განედი {s}°-დან {n}°-მდე
+Area of use: the whole world	გამოყენების არეალი: მთელი მსოფლიო
+Area of use: within {r}° of the {lon}° meridian	გამოყენების არეალი: {lon}° მერიდიანიდან {r}°-ის ფარგლებში
+Area of use: within {r}° of {lon}°, {lat}°	გამოყენების არეალი: {lon}°, {lat}°-დან {r}°-ის ფარგლებში
+Area {area}   ·   Perimeter {perimeter}	ფართობი {area}   ·   პერიმეტრი {perimeter}
+Areas (name, land use, area)	არეები (სახელი, მიწის გამოყენება, ფართობი)
+Ask a question about your data, or describe what to do with the map. The assistant runs RustGIS commands for you; every change can be undone.	დასვით შეკითხვა თქვენი მონაცემების შესახებ ან აღწერეთ, რა უნდა გაკეთდეს რუკაზე. ასისტენტი RustGIS-ის ბრძანებებს თავად გაუშვებს; ყველა ცვლილების გაუქმება შესაძლებელია.
+Ask about the map, or tell it what to do…	დასვით შეკითხვა რუკის შესახებ ან მიუთითეთ, რა გააკეთოს…
+Ask about your data, or tell the assistant what to do with the map.	დასვით შეკითხვა თქვენი მონაცემების შესახებ ან უთხარით ასისტენტს, რა გააკეთოს რუკაზე.
+Assistant settings	ასისტენტის პარამეტრები
+Atlas	ატლასი
+Attachments	დანართები
+Attribute\nTable	ატრიბუტების\nცხრილი
+Attribute Rules	ატრიბუტის წესები
+Attribute Table	ატრიბუტების ცხრილი
+Attribute table	ატრიბუტების ცხრილი
+Attributes	ატრიბუტები
+Attribution	ატრიბუცია
+Aurora	პოლარული ციალი
+Auto Cache	ავტომატური ქეში
+Auto-complete (2 clicks)	ავტოდასრულება (2 დაწკაპუნება)
+Auto-complete Profile	პროფილის ავტოდასრულება
+Autofill Fields	ველების ავტომატური შევსება
+Automatic	ავტომატური
+Automatic (system language)	ავტომატური (სისტემის ენა)
+Automatic (system time zone and region)	ავტომატური (სისტემის დროის სარტყელი და რეგიონი)
+Automatic ({kind})	ავტომატური ({kind})
+Azimuth	აზიმუტი
+Back to Explore; cancel a sketch	შესწავლაზე დაბრუნება; ესკიზის გაუქმება
+Back to the Map	უკან რუკაზე
+Back to the map	უკან რუკაზე
+Back to tools	უკან ხელსაწყოებზე
+Backdrop	ფონი
+Band	არხი
+Band Combination	არხების კომბინაცია
+Band values at a point	არხის მნიშვნელობები წერტილში
+Band {n}	არხი {n}
+Bands	არხები
+Bands: blue green red NIR SWIR	არხები: ლურჯი მწვანე წითელი NIR SWIR
+Basemap	საბაზისო რუკა
+Basemaps	საბაზისო რუკები
+Below	ქვემოთ
+Below 1:5,000,000 show everything; beyond it only what matches:	1:5 000 000-ზე უფრო წვრილ მასშტაბში ყველაფერი ჩანს; მასზე უფრო მსხვილში მხოლოდ ის, რაც შეესაბამება:
+Below Left	ქვემოთ მარცხნივ
+Below Right	ქვემოთ მარჯვნივ
+Bilinear	ბილინეარული
+Blank	ცარიელი
+Blank Letter page	ცარიელი Letter გვერდი
+Blank Map	ცარიელი რუკა
+Blank Page	ცარიელი გვერდი
+Blue	ლურჯი
+Bold	მუქი
+Bold label text.	წარწერის ტექსტის მუქი შრიფტი.
+Bookmarks	სანიშნეები
+Boolean	ლოგიკური
+Bounding\nGeometry	შემომსაზღვრელი\nგეომეტრია
+Brightness	სიკაშკაშე
+Brightness, contrast, saturation and sepia for the whole map.	სიკაშკაშე, კონტრასტი, ნაჯერობა და სეპია მთელი რუკისთვის.
+Browse	დათვალიერება
+Browse Plugins	დანამატების დათვალიერება
+Browse the geoprocessing toolbox.	გეოდამუშავების ხელსაწყოების დათვალიერება.
+Browse the project's maps, tables and folders.	პროექტის რუკების, ცხრილებისა და საქაღალდეების დათვალიერება.
+Browse this folder below	ამ საქაღალდის დათვალიერება ქვემოთ
+Browse, install, update and remove plugins.	დანამატების დათვალიერება, ინსტალაცია, განახლება და წაშლა.
+Browser	ბრაუზერი
+Browser\nPane	ბრაუზერის\nპანელი
+Browser View	ბრაუზერის ხედი
+Buffer	ბუფერი
+Buffer the cities by 200 km	ქალაქების 200 კმ-იანი ბუფერი
+Build	აგება
+Build a surface model and mesh from elevation rasters	ზედაპირის მოდელისა და მესის აგება სიმაღლის რასტრებიდან
+Build Mosaic	მოზაიკის აგება
+Bundle the active map and its data.	აქტიური რუკისა და მისი მონაცემების შეფუთვა.
+Bundle the geoprocessing history with the layers it made.	გეოდამუშავების ისტორიის შეფუთვა მის მიერ შექმნილ ფენებთან ერთად.
+Bundle the project and its data into one file to share.	პროექტისა და მისი მონაცემების შეფუთვა ერთ ფაილად გასაზიარებლად.
+Bundle the visible layers, with simplified geometry for phones and tablets.	ხილული ფენების შეფუთვა გამარტივებული გეომეტრიით ტელეფონებისა და ტაბლეტებისთვის.
+By\nAttributes	\nატრიბუტების მიხედვით
+By\nLocation	\nადგილმდებარეობით
+by {author}	{author}-ის ავტორობით
+By {field}	{field}-ის მიხედვით
+Calculate	გამოთვლა
+Calculate\nGeometry	გეომეტრიის\nგამოთვლა
+Calculate Field	ველის გამოთვლა
+Calculate field	ველის გამოთვლა
+Calculate field values.	ველის მნიშვნელობების გამოთვლა.
+Calculate fields and enforce conditions on every edit.	ველების გამოთვლა და პირობების დაცვა ყოველი რედაქტირებისას.
+Calculate Geometry Attributes	გეომეტრიის ატრიბუტების გამოთვლა
+Calculation	გამოთვლა
+Camera	კამერა
+Camera Effect	კამერის ეფექტი
+Can't read this folder	ამ საქაღალდის წაკითხვა ვერ ხერხდება
+Cancel	გაუქმება
+Cancel Caching	ქეშირების გაუქმება
+Capture To Clipboard	ბუფერში გადაღება
+CARGO_PKG_VERSION	CARGO_PKG_VERSION
+Cartography	კარტოგრაფია
+Case Field	ველი სიმბოლოს რეგისტრის მიხედვით
+Cast Shadow	ჩრდილის დაცემა
+Cell size	უჯრედის ზომა
+cell size °	უჯრედის ზომა °
+Centered	ცენტრში
+Chain functions	ფუნქციების ჯაჭვი
+Chain raster functions.	რასტრული ფუნქციების ჯაჭვი.
+Chain tools into a model; build one from your history.	ხელსაწყოების მოდელად დაკავშირება; მოდელის აგება ისტორიიდან.
+Change Detection	ცვლილებების აღმოჩენა
+Change the map's backdrop.	რუკის ფონის შეცვლა.
+Change the map's coordinate system	რუკის კოორდინატთა სისტემის შეცვლა
+Change the page size and orientation.	გვერდის ზომისა და ორიენტაციის შეცვლა.
+Change the project (add layers, edit features, change symbology)	პროექტის შეცვლა (ფენების დამატება, ობიექტების რედაქტირება, სიმბოლიზაციის შეცვლა)
+Chart categories	დიაგრამის კატეგორიები
+Chart Frame	დიაგრამის ჩარჩო
+Check Again	ხელახლა შემოწმება
+Check for\nUpdates	განახლებების\nშემოწმება
+Check for Updates	განახლებების შემოწმება
+Check for Updates…	განახლებების შემოწმება…
+Checking for updates…	მიმდინარეობს განახლებების შემოწმება…
+China	ჩინეთი
+Choose a band combination to display the raster layer.	აირჩიეთ არხების კომბინაცია რასტრული ფენის საჩვენებლად.
+Choose a contrast stretch for the raster layer.	აირჩიეთ კონტრასტის გაჭიმვა რასტრული ფენისთვის.
+Choose a delimited text file or a spreadsheet, then pick its columns.	აირჩიეთ გამყოფიანი ტექსტური ფაილი ან ცხრილი, შემდეგ კი მისი სვეტები.
+Choose a model.	აირჩიეთ მოდელი.
+Choose a resampling type for the raster layer.	აირჩიეთ რესემპლირების ტიპი რასტრული ფენისთვის.
+Choose extra buttons for the Quick Access Toolbar.	აირჩიეთ დამატებითი ღილაკები სწრაფი წვდომის პანელისთვის.
+Choose how the flat map lays out the Earth.	აირჩიეთ, როგორ გაშალოს ბრტყელმა რუკამ დედამიწა.
+Choose how the layer is drawn.	აირჩიეთ, როგორ დაიხატოს ფენა.
+Choose how the raster is drawn.	აირჩიეთ, როგორ დაიხატოს რასტრი.
+Choose the interface language.	ინტერფეისის ენის არჩევა.
+Choose which layers a click identifies.	აირჩიეთ, რომელ ფენებს გამოარჩევს დაწკაპუნება.
+Choose which tabs the ribbon shows.	აირჩიეთ, რომელი ჩანართები აჩვენოს ლენტმა.
+Circle	წრე
+Classes	კლასები
+Classes from training polygons.	კლასები სასწავლო პოლიგონებიდან.
+Classification\nTools	კლასიფიკაციის\nხელსაწყოები
+Classification\nWizard	კლასიფიკაციის\nოსტატი
+Classification Tools	კლასიფიკაციის ხელსაწყოები
+Classification Wizard	კლასიფიკაციის ოსტატი
+Classify	კლასიფიკაცია
+Classify from training polygons	კლასიფიკაცია სასწავლო პოლიგონებიდან
+Clear	გასუფთავება
+Clear\nLimits	ლიმიტების\nგასუფთავება
+Clear Filters	ფილტრების გასუფთავება
+Clear History	ისტორიის გასუფთავება
+Clear Limits	ლიმიტების გასუფთავება
+Clear Selection	მონიშვნის მოხსნა
+Clear selection	მონიშვნის მოხსნა
+Clear the selection in every layer.	მონიშვნის მოხსნა ყველა ფენაში.
+Clear the selection.	მონიშვნის მოხსნა.
+Click a pixel on the map	დააწკაპუნეთ პიქსელზე რუკაზე
+Click a point on the map	დააწკაპუნეთ წერტილზე რუკაზე
+Click or drag a box to select features. Shift adds, Ctrl removes.	დააწკაპუნეთ ან გაავლეთ ჩარჩო ობიექტების მოსანიშნად. Shift ამატებს, Ctrl აკლებს.
+Click or drag a box · Shift adds · Ctrl removes	დააწკაპუნეთ ან გაავლეთ ჩარჩო · Shift ამატებს · Ctrl აკლებს
+Click points a smooth curve passes through; double-click to finish.	დააწკაპუნეთ წერტილებზე, რომლებზეც გლუვი მრუდი გაივლის; დასასრულებლად ორჯერ დააწკაპუნეთ.
+Click the corners of a polygon; double-click to close it.	დააწკაპუნეთ პოლიგონის კუთხეებზე; დასახურად ორჯერ დააწკაპუნეთ.
+Click the corners of the area · double-click to finish	დააწკაპუნეთ არეალის კუთხეებზე · დასასრულებლად ორჯერ დააწკაპუნეთ
+Click the frame's corners · double-click to finish · Esc to stop	დააწკაპუნეთ ჩარჩოს კუთხეებზე · დასასრულებლად ორჯერ დააწკაპუნეთ · შესაჩერებლად Esc
+Click the map to add a point	დააწკაპუნეთ რუკაზე წერტილის დასამატებლად
+Click the map to place a point	დააწკაპუნეთ რუკაზე წერტილის დასასმელად
+Click the map to place text	დააწკაპუნეთ რუკაზე ტექსტის განსათავსებლად
+Click the map to place text with live values, such as the scale or date.	დააწკაპუნეთ რუკაზე ცოცხალი მნიშვნელობების ტექსტის განსათავსებლად, მაგალითად მასშტაბის ან თარიღის.
+Click the map to place text.	დააწკაპუნეთ რუკაზე ტექსტის განსათავსებლად.
+Click the map: {n} of {total}	დააწკაპუნეთ რუკაზე: {n} / {total}
+Click the observer on the map	დააწკაპუნეთ რუკაზე დამკვირვებლის ადგილას
+Click the observer, then the target	დააწკაპუნეთ დამკვირვებელზე, შემდეგ სამიზნეზე
+Click the polygon's corners	დააწკაპუნეთ პოლიგონის კუთხეებზე
+Click the start, then the end	დააწკაპუნეთ დასაწყისზე, შემდეგ დასასრულზე
+Click the vertices of a line; double-click to finish.	დააწკაპუნეთ ხაზის წვეროებზე; დასასრულებლად ორჯერ დააწკაპუნეთ.
+Click to add points · double-click to finish · Esc to stop	დააწკაპუნეთ წერტილების დასამატებლად · დასასრულებლად ორჯერ დააწკაპუნეთ · შესაჩერებლად Esc
+Click to add vertices · double-click to close	დააწკაპუნეთ წვეროების დასამატებლად · დასახურად ორჯერ დააწკაპუნეთ
+Click to add vertices · double-click to close the polygon	დააწკაპუნეთ წვეროების დასამატებლად · პოლიგონის დასახურად ორჯერ დააწკაპუნეთ
+Click to add vertices · double-click to finish	დააწკაპუნეთ წვეროების დასამატებლად · დასასრულებლად ორჯერ დააწკაპუნეთ
+Click to add vertices · double-click to finish the line	დააწკაპუნეთ წვეროების დასამატებლად · ხაზის დასასრულებლად ორჯერ დააწკაპუნეთ
+Click to place a point graphic.	დააწკაპუნეთ წერტილოვანი გრაფიკის განსათავსებლად.
+Click to switch between decimal degrees and DMS	დააწკაპუნეთ ათწილადი გრადუსებისა და DMS-ის გადასართავად
+Clip	მოჭრა
+Clip a raster to the view, or resample it.	რასტრის მოჭრა ხედზე ან მისი რესემპლირება.
+Clip Features	ობიექტების მოჭრა
+Clip or resample	მოჭრა ან რესემპლირება
+Clip To Map View	მოჭრა რუკის ხედზე
+Clipboard	გაცვლის ბუფერი
+Close	დახურვა
+Close (Esc)	დახურვა (Esc)
+Close Table	ცხრილის დახურვა
+Close table	ცხრილის დახურვა
+Close the layout and show the map.	განლაგების დახურვა და რუკის ჩვენება.
+Closest	უახლოესი
+Coded values, one per line: code=description	კოდირებული მნიშვნელობები, თითო ხაზზე ერთი: კოდი=აღწერა
+Collapse or expand the ribbon	ლენტის ჩაკეცვა ან გაშლა
+Collapse the ribbon (Ctrl+F1)	ლენტის ჩაკეცვა (Ctrl+F1)
+Color	ფერი
+Color Infrared (4, 1, 2)	ფერადი ინფრაწითელი (4, 1, 2)
+Color Scheme	ფერთა სქემა
+Color scheme	ფერთა სქემა
+Color Vision	ფერთა აღქმა
+Color Vision Simulator	ფერთა აღქმის სიმულატორი
+Colormap	ფერთა რუკა
+Colors from the raster's own color table.	ფერები რასტრის საკუთარი ფერთა ცხრილიდან.
+Columns named like longitude/latitude, easting/northing or geometry are picked for you.	სვეტები სახელებით, როგორიცაა longitude/latitude, easting/northing ან geometry, ავტომატურად აირჩევა.
+Combinations from the box above, one per line	ზემოთ მოცემული ველიდან კომბინაციები, თითო ხაზზე ერთი
+Command\nSearch	ბრძანებების\nძიება
+command is required	საჭიროა ბრძანება
+Command Search	ბრძანებების ძიება
+Commands	ბრძანებები
+Commands on the Plugins tab: {commands} · Tools in the Tools pane: {tools}	ბრძანებები დანამატების ჩანართზე: {commands} · ხელსაწყოები ხელსაწყოების პანელში: {tools}
+Commands…	ბრძანებები…
+Compare	შედარება
+Compare two rasters	ორი რასტრის შედარება
+Completed	დასრულდა
+Connect a folder to the Browser.	საქაღალდის დაკავშირება ბრაუზერთან.
+Connections	კავშირები
+Constant	მუდმივა
+Constant height	მუდმივი სიმაღლე
+Constant…	მუდმივა…
+Contingent Values	პირობითი მნიშვნელობები
+Contrast	კონტრასტი
+Conversion	გარდაქმნა
+Convert	გადაყვანა
+Convert a layer to another format	ფენის გადაყვანა სხვა ფორმატში
+Convert the selected layer's labels into an annotation layer.	არჩეული ფენის წარწერების გადაყვანა ანოტაციის ფენად.
+Convert To Annotation	ანოტაციად გადაყვანა
+Converted data	გადაყვანილი მონაცემები
+Convert…	გადაყვანა…
+Coordinate System	კოორდინატთა სისტემა
+Coordinate system	კოორდინატთა სისტემა
+Coordinate System…	კოორდინატთა სისტემა…
+Copied the map to the clipboard	რუკა დაკოპირდა გაცვლის ბუფერში
+Copied {path}	დაკოპირდა {path}
+Copies the (selected) features of a layer to a new layer.	ფენის (მონიშნული) ობიექტების ახალ ფენაში კოპირება.
+Copy	კოპირება
+Copy an image of the map to the clipboard.	რუკის გამოსახულების კოპირება გაცვლის ბუფერში.
+Copy Coordinates	კოორდინატების კოპირება
+Copy Path	მისამართის კოპირება
+Copy the selected features (also as GeoJSON text).	მონიშნული ობიექტების კოპირება (GeoJSON ტექსტადაც).
+Copy the selected features and delete them.	მონიშნული ობიექტების კოპირება და წაშლა.
+Copy the selected layer's data source path.	არჩეული ფენის მონაცემთა წყაროს მისამართის კოპირება.
+Corrections	შესწორებები
+Cost	ღირებულება
+could not draw the map	რუკის დახატვა ვერ მოხერხდა
+Couldn't check for updates: {error}	განახლებების შემოწმება ვერ მოხერხდა: {error}
+Couldn't download the font for {language}; pick the language again to retry.	{language}-ის შრიფტის ჩამოტვირთვა ვერ მოხერხდა; ხელახლა სცადეთ ენის არჩევით.
+Couldn't load the plugin registry: {error}	დანამატების რეესტრის ჩატვირთვა ვერ მოხერხდა: {error}
+Count, sum, mean, min, max and standard deviation of a field, optionally per case field.	ველის რაოდენობა, ჯამი, საშუალო, მინიმუმი, მაქსიმუმი და სტანდარტული გადახრა, საჭიროებისას სიმბოლოს რეგისტრის ველის მიხედვით.
+Countries, cities, rivers and lakes	ქვეყნები, ქალაქები, მდინარეები და ტბები
+Counts the points that fall inside each polygon.	თითოეულ პოლიგონში მოხვედრილი წერტილების დათვლა.
+Counts, totals and top categories of what's in view.	ხედში მოხვედრილის რაოდენობა, ჯამები და ყველაზე გავრცელებული კატეგორიები.
+Create	შექმნა
+Create (click points)	შექმნა (წერტილებზე დაწკაპუნებით)
+Create a new project or start from the World Atlas sample.	ახალი პროექტის შექმნა ან დაწყება World Atlas-ის ნიმუშიდან.
+Create Feature	ობიექტის შექმნა
+Create Hosted\nImagery	ჰოსტინგული\nგამოსახულების შექმნა
+Create Hosted Imagery	ჰოსტინგული გამოსახულების შექმნა
+Create Hosted Imagery…	ჰოსტინგული გამოსახულების შექმნა…
+Create Line	ხაზის შექმნა
+Create Point	წერტილის შექმნა
+Create Polygon	პოლიგონის შექმნა
+Create Profile	პროფილის შექმნა
+Create Thumbnail	მინიატურის შექმნა
+Creates a point inside each input feature.	თითოეულ შემავალ ობიექტში წერტილის შექმნა.
+Creates points from a table's x and y coordinate fields.	წერტილების შექმნა ცხრილის x და y კოორდინატების ველებიდან.
+Creates polygons around input features at a given distance.	შემავალი ობიექტების გარშემო პოლიგონების შექმნა მოცემულ მანძილზე.
+Cross Section	განივი ჭრილი
+Cross Section (2 clicks)	განივი ჭრილი (2 დაწკაპუნება)
+CSV	CSV
+Ctrl+	Ctrl+
+Ctrl+= / Ctrl+-	Ctrl+= / Ctrl+-
+Ctrl+F1	Ctrl+F1
+Ctrl+K	Ctrl+K
+Ctrl+N / O / S	Ctrl+N / O / S
+Ctrl+T	Ctrl+T
+Ctrl+Z / Ctrl+Y	Ctrl+Z / Ctrl+Y
+Current date	მიმდინარე თარიღი
+Current Project	მიმდინარე პროექტი
+Current time	მიმდინარე დრო
+Curve	მრუდი
+Customize	მორგება
+Cut	ამოჭრა
+Cut a raster into web map tiles	რასტრის დაჭრა ვებ რუკის ფილებად
+Cut a raster into web map tiles (XYZ PNG) with a viewer page.	რასტრის დაჭრა ვებ რუკის ფილებად (XYZ PNG) სანახავი გვერდით.
+Dark\nMode	მუქი\nრეჟიმი
+Data	მონაცემები
+Data Design	მონაცემთა დიზაინი
+Data Engineering	მონაცემთა ინჟინერია
+Data Interop	მონაცემთა ურთიერთთავსებადობა
+Data Management	მონაცემთა მართვა
+Data Stores	მონაცემთა საცავები
+Data type	მონაცემთა ტიპი
+Data…	მონაცემები…
+Day and night shading for a time.	დღისა და ღამის დაჩრდილვა მოცემული დროისთვის.
+Decline	უარყოფა
+Deep Learning	ღრმა სწავლება
+Deep Learning\nTools	ღრმა სწავლების\nხელსაწყოები
+Deep Learning Package	ღრმა სწავლების პაკეტი
+Deep Learning Tools	ღრმა სწავლების ხელსაწყოები
+Default	ნაგულისხმევი
+Definition\nQuery	განსაზღვრის\nმოთხოვნა
+Definition Query	განსაზღვრის მოთხოვნა
+Definition query	განსაზღვრის მოთხოვნა
+Definition Query…	განსაზღვრის მოთხოვნა…
+Delete	წაშლა
+Delete Cell	უჯრედის წაშლა
+Delete Element	ელემენტის წაშლა
+Delete Field	ველის წაშლა
+Delete Job	დავალების წაშლა
+Delete Layout	განლაგების წაშლა
+Delete Map	რუკის წაშლა
+Delete Model	მოდელის წაშლა
+Delete Notebook	რვეულის წაშლა
+Delete Page	გვერდის წაშლა
+Delete Presentation	პრეზენტაციის წაშლა
+Delete Report	ანგარიშის წაშლა
+Delete selected features	მონიშნული ობიექტების წაშლა
+Delete selected rows	მონიშნული სტრიქონების წაშლა
+Delete Style	სტილის წაშლა
+Delete Task	ამოცანის წაშლა
+Delete the selected features.	მონიშნული ობიექტების წაშლა.
+Depth Priority	სიღრმის პრიორიტეტი
+Descending	კლებადობით
+Details	დეტალები
+Details of the selected layer.	არჩეული ფენის დეტალები.
+Deviations	გადახრები
+Diagnostic\nMonitor	დიაგნოსტიკური\nმონიტორი
+Diagnostic Monitor	დიაგნოსტიკური მონიტორი
+Diamond	რომბი
+Difference, ratio or percent change between two rasters.	სხვაობა, ფარდობა ან პროცენტული ცვლილება ორ რასტრს შორის.
+Display	ჩვენება
+Display Filters	ჩვენების ფილტრები
+Display Filters ({n})	ჩვენების ფილტრები ({n})
+Display Type	ჩვენების ტიპი
+Dissolve	გაერთიანება
+Dissolve Field	გაერთიანების ველი
+Distance	მანძილი
+Distances along the surface, heights, areas and volumes.	მანძილები ზედაპირის გასწვრივ, სიმაღლეები, ფართობები და მოცულობები.
+Distinct	განსხვავებული
+Domains	დომენები
+Done	მზადაა
+Double	ორმაგი
+Double-click	ორმაგი დაწკაპუნება
+Double-click to add	დასამატებლად ორჯერ დააწკაპუნეთ
+Download	ჩამოტვირთვა
+Download\nMap	რუკის\nჩამოტვირთვა
+Download Map	რუკის ჩამოტვირთვა
+Download the GeoLibre runner	GeoLibre-ის გამშვების ჩამოტვირთვა
+Downloaded {name}	ჩამოიტვირთა {name}
+Downloading… {mb} MB	მიმდინარეობს ჩამოტვირთვა… {mb} მბ
+DRA	DRA
+Drag / middle-drag	გადათრევა / შუა ღილაკით გადათრევა
+Drag a box	გაავლეთ ჩარჩო
+Drag a box or click to zoom in	გაავლეთ ჩარჩო ან დააწკაპუნეთ გასადიდებლად
+Drag a box to draw an ellipse.	გაავლეთ ჩარჩო ელიფსის დასახატად.
+Drag a box to zoom into.	გაავლეთ ჩარჩო გასადიდებელ არეზე.
+Drag a rectangle, then pick a PNG or JPEG image to place in it.	გაავლეთ მართკუთხედი, შემდეგ აირჩიეთ მასში განსათავსებელი PNG ან JPEG სურათი.
+Drag from the centre out	გადაათრიეთ ცენტრიდან გარეთ
+Drag from the centre to draw a circle.	გადაათრიეთ ცენტრიდან წრის დასახატად.
+Drag the frame's outline · Esc to stop	გადაათრიეთ ჩარჩოს კონტური · შესაჩერებლად Esc
+drag the picture's rectangle on the map first	ჯერ გაავლეთ სურათის მართკუთხედი რუკაზე
+Drag to draw	გადაათრიეთ დასახატად
+Drag to draw a freehand line.	გადაათრიეთ თავისუფალი ხაზის დასახატად.
+Drag to draw a freehand polygon.	გადაათრიეთ თავისუფალი პოლიგონის დასახატად.
+Drag to draw a rectangle.	გადაათრიეთ მართკუთხედის დასახატად.
+Draw a halo around label text.	წარწერის ტექსტის გარშემო შუქის დახატვა.
+Draw a labelled latitude/longitude grid over the map frame.	რუკის ჩარჩოზე გრძედისა და განედის წარწერებიანი ბადის დახატვა.
+Draw labels at every scale and distance.	წარწერების დახატვა ყველა მასშტაბსა და მანძილზე.
+Draw new features in the selected layer. Double-click to finish lines and polygons.	ახალი ობიექტების დახატვა არჩეულ ფენაში. ხაზებისა და პოლიგონების დასასრულებლად ორჯერ დააწკაპუნეთ.
+Draw points as bins coloured by how many fall in each.	წერტილების დახატვა უჯრედებად, ფერით იმის მიხედვით, რამდენი მოხვდა თითოეულში.
+Draw polygons as outlines only.	პოლიგონების დახატვა მხოლოდ კონტურით.
+Draw the layer at every scale.	ფენის დახატვა ყველა მასშტაბში.
+Draw the selected layer above others.	არჩეული ფენის დახატვა სხვებზე ზემოთ.
+Draw the selected layer below others.	არჩეული ფენის დახატვა სხვებზე ქვემოთ.
+Drawing	ხატვა
+Drawing Effects	ხატვის ეფექტები
+Drawing Mode	ხატვის რეჟიმი
+Drawing Order	ხატვის რიგითობა
+Dusk	ბინდი
+Dynamic\nText	დინამიკური\nტექსტი
+Dynamic Picture	დინამიკური სურათი
+Dynamic picture	დინამიკური სურათი
+Dynamic range adjustment (stretch the pixels in view)	დინამიკური დიაპაზონის რეგულირება (ხედში მოხვედრილი პიქსელების გაჭიმვა)
+Dynamic range adjustment: stretch using the pixels in view.	დინამიკური დიაპაზონის რეგულირება: გაჭიმვა ხედში მოხვედრილი პიქსელებით.
+Dynamic text:	დინამიკური ტექსტი:
+e.g.  pop_est / 1000000   or   'Africa'   or   name	მაგ.  pop_est / 1000000   ან   'Africa'   ან   name
+e.g. continent = 'Europe'	მაგ. continent = 'Europe'
+e.g. pop_est > 100000000 AND continent = 'Asia'	მაგ. pop_est > 100000000 AND continent = 'Asia'
+Each geoprocessing run becomes a step, chained by its outputs	გეოდამუშავების ყოველი გაშვება ხდება საფეხური და ერთმანეთს გამოსავლებით უკავშირდება
+East	აღმოსავლეთი
+Eckert IV (equal-area world)	ეკერტ IV (ტოლფართობიანი მსოფლიო)
+Edge	წიბო
+Edges	წიბოები
+Edit	რედაქტირება
+Edit and run the notebook.	რვეულის რედაქტირება და გაშვება.
+Edit Attribute	ატრიბუტის რედაქტირება
+Edit Cell	უჯრედის რედაქტირება
+Edit Status	რედაქტირების სტატუსი
+Edit Vertices	წვეროების რედაქტირება
+Editing	რედაქტირება
+Editing on	რედაქტირება ჩართულია
+Editing Settings	რედაქტირების პარამეტრები
+Editing settings.	რედაქტირების პარამეტრები.
+Editor\nTools	რედაქტორის\nხელსაწყოები
+Editor Tools	რედაქტორის ხელსაწყოები
+Edits since the project was saved.	ცვლილებები პროექტის შენახვის შემდეგ.
+Edits the project	ცვლის პროექტს
+Effects	ეფექტები
+Element	ელემენტი
+Element Properties	ელემენტის თვისებები
+Elevation	სიმაღლე
+Elevation profiles along lines, cross sections and more.	სიმაღლის პროფილები ხაზების გასწვრივ, განივი ჭრილები და სხვა.
+Ellipse	ელიფსი
+Embeddings	ემბედინგები
+Ember	ნაკვერჩხალი
+Empty	ცარიელი
+Empty Cache	ქეშის გასუფთავება
+Enable Lighting	განათების ჩართვა
+Enable Plugin	დანამატის ჩართვა
+Enabled	ჩართულია
+Encloses each feature, or all features, in its convex hull.	თითოეული ობიექტის ან ყველა ობიექტის შემოხვევა მისი ამოზნექილი გარსით.
+End	დასასრული
+Enhancement	გაუმჯობესება
+Enter an API key.	შეიყვანეთ API გასაღები.
+Enter the provider's address.	შეიყვანეთ პროვაიდერის მისამართი.
+Enter to send, Shift+Enter for a new line	გასაგზავნად Enter, ახალი ხაზისთვის Shift+Enter
+Environments	გარემოები
+EPSG code	EPSG კოდი
+EPSG:	EPSG:
+Equal Earth	Equal Earth
+Equal Interval	ტოლი ინტერვალი
+Equirectangular (Plate Carrée)	ბრტყელი კვადრატული (Plate Carrée)
+Erase	წაშლა
+Erase Features	ობიექტების წაშლა
+Error Inspector	შეცდომების ინსპექტორი
+Error Inspector (validate)	შეცდომების ინსპექტორი (ვალიდაცია)
+Esc	Esc
+Europe Equal Area (ETRS89 LAEA)	ევროპის ტოლფართობიანი (ETRS89 LAEA)
+Every band's value at a pixel.	ყველა არხის მნიშვნელობა პიქსელში.
+Every editing tool.	ყველა რედაქტირების ხელსაწყო.
+Everyday tools.	ყოველდღიური ხელსაწყოები.
+Everywhere	ყველგან
+Existing Template	არსებული შაბლონი
+Expand Legend	ლეგენდის გაშლა
+Expand the ribbon (Ctrl+F1)	ლენტის გაშლა (Ctrl+F1)
+Explode	დაშლა
+Exploratory 3D Analysis	კვლევითი 3D ანალიზი
+Exploratory Analysis	კვლევითი ანალიზი
+Explore	შესწავლა
+Export	ექსპორტი
+Export\nFeatures	ობიექტების\nექსპორტი
+Export\nLayout	განლაგების\nექსპორტი
+Export\nMap	რუკის\nექსპორტი
+Export\nRaster	რასტრის\nექსპორტი
+Export Animation	ანიმაციის ექსპორტი
+Export Features	ობიექტების ექსპორტი
+Export Features (tool)	ობიექტების ექსპორტი (ხელსაწყო)
+Export Features needs a vector layer (Data › Export Raster writes a raster)	ობიექტების ექსპორტისთვის საჭიროა ვექტორული ფენა (რასტრს მონაცემები › რასტრის ექსპორტი წერს)
+Export Features…	ობიექტების ექსპორტი…
+Export Layout	განლაგების ექსპორტი
+Export Map	რუკის ექსპორტი
+Export Map failed unexpectedly	რუკის ექსპორტი მოულოდნელად ჩავარდა
+Export Map…	რუკის ექსპორტი…
+Export Mesh	მესის ექსპორტი
+Export Mesh (OBJ)…	მესის ექსპორტი (OBJ)…
+Export Presentation	პრეზენტაციის ექსპორტი
+Export Presentation…	პრეზენტაციის ექსპორტი…
+Export Raster	რასტრის ექსპორტი
+Export Raster…	რასტრის ექსპორტი…
+Export Report	ანგარიშის ექსპორტი
+Export Report…	ანგარიშის ექსპორტი…
+Export Table	ცხრილის ექსპორტი
+Export the animation as PNG frames (zip).	ანიმაციის ექსპორტი PNG კადრებად (zip).
+Export the layer.	ფენის ექსპორტი.
+Export the layout as PDF or PNG.	განლაგების ექსპორტი PDF ან PNG ფორმატში.
+Export the map view as a PNG image (with labels and a scale bar).	რუკის ხედის ექსპორტი PNG სურათად (წარწერებითა და მასშტაბის ხაზით).
+Export the open layout as PDF or PNG.	ღია განლაგების ექსპორტი PDF ან PNG ფორმატში.
+Export the presentation as a slideshow or PDF, or save it as a file.	პრეზენტაციის ექსპორტი სლაიდშოუდ ან PDF-ად, ან ფაილად შენახვა.
+Export the report, or save it as a report file or template.	ანგარიშის ექსპორტი ან მისი შენახვა ანგარიშის ფაილად ან შაბლონად.
+Export the selected layer as a 3D model (OBJ), polygons extruded.	არჩეული ფენის ექსპორტი 3D მოდელად (OBJ), პოლიგონები ამოწეულია.
+Export the selected layer to GeoJSON or CSV.	არჩეული ფენის ექსპორტი GeoJSON ან CSV ფორმატში.
+Export To 3D	3D-ში ექსპორტი
+Export To 3D File	3D ფაილში ექსპორტი
+exporting animations needs the desktop app	ანიმაციების ექსპორტისთვის საჭიროა დესკტოპ აპლიკაცია
+Export…	ექსპორტი…
+Expression	გამოსახულება
+Extent	ფარგლები
+Extent Indicator	ფარგლების ინდიკატორი
+extent is [minLon, minLat, maxLon, maxLat], "view" or null	ფარგლები არის [minLon, minLat, maxLon, maxLat], "view" ან null
+Extent: {extent}	ფარგლები: {extent}
+Extract	ამოღება
+Extracts the parts of input features that fall inside clip polygons.	შემავალი ობიექტების იმ ნაწილების ამოღება, რომლებიც მოჭრის პოლიგონებში ხვდება.
+Extruded shapes cast shadows on the map.	ამოზნექილი ფორმები რუკაზე აგდებს ჩრდილს.
+Extrusion	ამოწევა
+Face Culling	წახნაგების გამორიცხვა
+Faces	წახნაგები
+Factor	კოეფიციენტი
+Failed	ჩავარდა
+Farthest	ყველაზე შორეული
+Faster drawing: no antialiasing.	უფრო სწრაფი ხატვა: გლუვების გარეშე.
+Feature	ობიექტი
+Feature\nAnalysis	ობიექტების\nანალიზი
+Feature\nTo Point	ობიექტი\nწერტილად
+Feature Cache	ობიექტების ქეში
+Feature Layer	ობიექტების ფენა
+Feature Templates	ობიექტების შაბლონები
+Feature templates: default values for new features.	ობიექტების შაბლონები: ნაგულისხმევი მნიშვნელობები ახალი ობიექტებისთვის.
+Feature To Point	ობიექტი წერტილად
+Features	ობიექტები
+Features most like the selected one	არჩეულის მსგავსი ობიექტები
+Field	ველი
+field * 2, 'text', a + b	field * 2, 'text', a + b
+Field name	ველის სახელი
+Fields	ველები
+fields, comma separated	ველები, მძიმით გამოყოფილი
+Fields, statistics, groups, pictures, attachments and charts in the report.	ველები, სტატისტიკა, ჯგუფები, სურათები, დანართები და დიაგრამები ანგარიშში.
+Fields:	ველები:
+File	ფაილი
+file path	ფაილის მისამართი
+Fill	შევსება
+Fill Cache	ქეშის შევსება
+Fill the cache whenever the projection changes.	ქეშის შევსება ყოველ ჯერზე, როცა პროექცია იცვლება.
+Film grain	ფირის მარცვალი
+Filter rows…	სტრიქონების გაფილტვრა…
+Find a place by coordinates.	ადგილის პოვნა კოორდინატებით.
+Find and run geoprocessing tools.	გეოდამუშავების ხელსაწყოების პოვნა და გაშვება.
+Find any command by name (Ctrl+K).	ნებისმიერი ბრძანების პოვნა სახელით (Ctrl+K).
+Find Place	ადგილის პოვნა
+Find plugins in the RustGIS plugin registry.	დანამატების პოვნა RustGIS-ის დანამატების რეესტრში.
+Find Similar	მსგავსის პოვნა
+Find Tools	ხელსაწყოების პოვნა
+Finish Polygon	პოლიგონის დასრულება
+Finish Profile	პროფილის დასრულება
+Finish Tool Run	ხელსაწყოს გაშვების დასრულება
+Finished: {tool}	დასრულდა: {tool}
+First-Person	პირველი პირი
+First-Person Navigation	პირველი პირის ნავიგაცია
+Fit To Map View	მორგება რუკის ხედზე
+Fixed Zoom In	ფიქსირებული გადიდება
+Fixed Zoom Out	ფიქსირებული დაპატარავება
+FlatGeobuf	FlatGeobuf
+Flip Line	ხაზის შებრუნება
+Fog	ნისლი
+Folder	საქაღალდე
+Folder Connections	საქაღალდის კავშირები
+folder connections need the desktop app	საქაღალდის კავშირებისთვის საჭიროა დესკტოპ აპლიკაცია
+Folders	საქაღალდეები
+Forest	ტყე
+Format	ფორმატი
+Frame rate	კადრების სიხშირე
+Frame rate, draw time, data size and memory.	კადრების სიხშირე, ხატვის დრო, მონაცემთა ზომა და მეხსიერება.
+Free the prepared geometry.	მომზადებული გეომეტრიის გათავისუფლება.
+Freehand	თავისუფალი ხაზვა
+From Selection	მონიშვნიდან
+from the address	მისამართიდან
+from the service	სერვისიდან
+Full Extent	სრული ფარგლები
+Full extent	სრული ფარგლები
+Full size	სრული ზომა
+Function Editor	ფუნქციების რედაქტორი
+Gamma	გამა
+Generalization	გენერალიზაცია
+Geodata Service	გეომონაცემთა სერვისი
+GeoJSON	GeoJSON
+GeoLibre	GeoLibre
+GeoLibre Tools	GeoLibre-ის ხელსაწყოები
+GeoLibre tools	GeoLibre-ის ხელსაწყოები
+Geometry	გეომეტრია
+GeoPackage	GeoPackage
+GeoParquet	GeoParquet
+Geoprocessing	გეოდამუშავება
+Geoprocessing history.	გეოდამუშავების ისტორია.
+Georeference	გეორეფერენცირება
+Geostatistical Wizard	გეოსტატისტიკური ოსტატი
+GeoTIFF	GeoTIFF
+Get a key	გასაღების მიღება
+Get it	მიღება
+GitHub	GitHub
+GitHub's latest release has no version number	GitHub-ის უახლეს რელიზს ვერსიის ნომერი არ აქვს
+GitHub's reply isn't a release	GitHub-ის პასუხი რელიზი არ არის
+GitHub's reply names no release	GitHub-ის პასუხში რელიზი დასახელებული არ არის
+Global	გლობალური
+Globe	გლობუსი
+Go	გადასვლა
+Go back to the previous extent.	წინა ფარგლებზე დაბრუნება.
+Go forward to the next extent.	შემდეგ ფარგლებზე გადასვლა.
+Go to a saved extent or save the current one.	შენახულ ფარგლებზე გადასვლა ან მიმდინარეს შენახვა.
+Go To Bookmark	სანიშნეზე გადასვლა
+Go To XY	XY-ზე გადასვლა
+Google Gemini	Google Gemini
+GPX	GPX
+Graduated Colors	დაგრადუირებული ფერები
+Graphic Style	გრაფიკის სტილი
+Graphics	გრაფიკა
+Graphics and Text	გრაფიკა და ტექსტი
+Graphics Layer	გრაფიკული ფენა
+Graticule	გრატიკულა
+Green	მწვანე
+Greys	ნაცრისფერი
+Grid	ბადე
+Ground\nTo Grid	მიწიდან\nბადეზე
+Ground To Grid	მიწიდან ბადეზე
+Group	ჯგუფი
+Group features by an integer code, each with default values.	ობიექტების დაჯგუფება მთელი კოდის მიხედვით, თითოეულს ნაგულისხმევი მნიშვნელობებით.
+Group Option	დაჯგუფების პარამეტრი
+Groups	ჯგუფები
+Guided analysis: suitability, visibility, networks, interpolation and more.	ხელმძღვანელობითი ანალიზი: ვარგისიანობა, ხილვადობა, ქსელები, ინტერპოლაცია და სხვა.
+Halo	შუქის შარავანდედი
+Harbour (qualitative)	ნავსადგური (ხარისხობრივი)
+Haze	ნისლი
+Haze, fog, rain or snow over the map.	ნისლი, ბურუსი, წვიმა ან თოვლი რუკაზე.
+Height	სიმაღლე
+Height (mm)	სიმაღლე (მმ)
+Help	დახმარება
+Help › Help	დახმარება › დახმარება
+Hexagons	ექვსკუთხედები
+Hide	დამალვა
+Hide features far from the view's centre.	ხედის ცენტრიდან შორს მდებარე ობიექტების დამალვა.
+Hide labels when the viewer is closer than this.	წარწერების დამალვა, როცა მაყურებელი ამაზე ახლოსაა.
+Hide labels when the viewer is farther than this.	წარწერების დამალვა, როცა მაყურებელი ამაზე შორსაა.
+Hide walls facing away from you.	თქვენგან გამოსულ მიმართულებით მდებარე კედლების დამალვა.
+High values of the first raster and low values of the second score best.	პირველი რასტრის მაღალი და მეორეს დაბალი მნიშვნელობები ყველაზე მაღალ ქულას იღებს.
+Histogram Equalize	ჰისტოგრამის გათანაბრება
+Histograms and correlations	ჰისტოგრამები და კორელაციები
+History	ისტორია
+Hold	დაჭერა
+Home	საწყისი
+Home › Add	საწყისი › დამატება
+Homepage	საწყისი გვერდი
+Hosted Imagery	ჰოსტინგული გამოსახულება
+How the layer's colours combine with what's beneath.	როგორ ერწყმის ფენის ფერები მის ქვემოთ მყოფს.
+Identify	გამორჩევა
+Illumination	განათება
+Image Analysis	გამოსახულების ანალიზი
+Image Classification	გამოსახულების კლასიფიკაცია
+Image Page	გამოსახულების გვერდი
+Imagery	გამოსახულება
+Imagery Sharing	გამოსახულებების გაზიარება
+Imagery Tools	გამოსახულების ხელსაწყოები
+Image…	გამოსახულება…
+Import	იმპორტი
+Import\nProject	პროექტის\nიმპორტი
+Import Deep Learning Package	ღრმა სწავლების პაკეტის იმპორტი
+Import Layout	განლაგების იმპორტი
+Import Layout…	განლაგების იმპორტი…
+Import Package…	პაკეტის იმპორტი…
+Import Presentation	პრეზენტაციის იმპორტი
+Import Report	ანგარიშის იმპორტი
+Import Styles	სტილების იმპორტი
+Import Styles From…	სტილების იმპორტი…
+Import Task	დავალების იმპორტი
+Import Task…	დავალების იმპორტი…
+Import Thumbnail	მინიატურის იმპორტი
+Import Web Tool	ვებ ხელსაწყოს იმპორტი
+In Beyond	შორს, მის მიღმა
+In Progress	მიმდინარეობს
+in progress	მიმდინარეობს
+In project	პროექტში
+In use	გამოიყენება
+Indices	ინდექსები
+Infographics	ინფოგრაფიკები
+Information	ინფორმაცია
+Input Features	შემავალი ობიექტები
+Input Polygons	შემავალი პოლიგონები
+Input Rows	შემავალი სტრიქონები
+Input Summary Features	შემავალი შემაჯამებელი ობიექტები
+Input Table	შემავალი ცხრილი
+Insert	ჩასმა
+Inspect	შემოწმება
+Install	ინსტალაცია
+Install a plugin	დანამატის ინსტალაცია
+Install a plugin from a .rgplugin file.	დანამატის ინსტალაცია .rgplugin ფაილიდან.
+Install from a file	ინსტალაცია ფაილიდან
+Install From File	ინსტალაცია ფაილიდან
+Install From File…	ინსტალაცია ფაილიდან…
+Install GeoLibre Tools	GeoLibre-ის ხელსაწყოების ინსტალაცია
+Install GeoLibre tools	GeoLibre-ის ხელსაწყოების ინსტალაცია
+Install Plugin	დანამატის ინსტალაცია
+Install Plugin From Registry	დანამატის ინსტალაცია რეესტრიდან
+Install {name} {version}?	დაყენდეს {name} {version}?
+Installed	დაინსტალირებულია
+Installed plugins are kept in {folder}	დაინსტალირებული დანამატები ინახება აქ: {folder}
+Installed with Homebrew, winget, the AUR or COPR? Update it there.	დაყენებულია Homebrew-ით, winget-ით, AUR-ით ან COPR-ით? განაახლეთ იქვე.
+Installed {name} {version}. Find it on the Plugins tab; its tools are also in the Tools pane.	დაყენდა {name} {version}. მოძებნეთ დანამატების ჩანართზე; მისი ხელსაწყოები ხელსაწყოების პანელშიც არის.
+Interface font: {font}	ინტერფეისის შრიფტი: {font}
+Interpolate a surface from points (IDW)	ზედაპირის ინტერპოლაცია წერტილებიდან (IDW)
+Invalid: {error}	არასწორია: {error}
+Invert	ინვერსია
+Invert color scheme	ფერთა სქემის ინვერსია
+Invert the selection.	მონიშვნის ინვერსია.
+IS NULL	IS NULL
+it connects to an address on the internet	ის უკავშირდება ინტერნეტის მისამართს
+it is reserved to you (plugins, scripts, tasks, models and the GeoLibre runner)	ის დაცულია თქვენთვის (დანამატები, სკრიპტები, დავალებები, მოდელები და GeoLibre-ის გამშვები)
+it reads or writes files on this computer	ის კითხულობს ან წერს ფაილებს ამ კომპიუტერში
+it replaces the open project	ის ცვლის ღია პროექტს
+it runs a plugin's command	ის უშვებს დანამატის ბრძანებას
+It runs in a sandbox with no other access to your computer or the network.	ის მუშაობს იზოლირებულ გარემოში და თქვენს კომპიუტერსა თუ ქსელზე სხვა წვდომა არ აქვს.
+It's too large to keep in the browser: install it again on your next visit.	ბრაუზერში შესანახად ძალიან დიდია; შემდეგ ვიზიტზე ხელახლა დააყენეთ.
+Item Pop-ups	ელემენტის ამომხტარი ფანჯრები
+Jobs	სამუშაოები
+Keep a history of every edit to the layer, to look back or restore.	ფენის ყოველი რედაქტირების ისტორიის შენახვა, რომ უკან დაბრუნდეთ ან აღადგინოთ.
+Keep an archive of edits	რედაქტირებების არქივის შენახვა
+keep current	მიმდინარეს დატოვება
+Keep the labelled features fixed as the map moves.	წარწერიანი ობიექტების ფიქსირება რუკის გადაადგილებისას.
+Keep the last drawing tool active after each graphic.	ბოლო ხატვის ხელსაწყოს აქტიურად დატოვება ყოველი გრაფიკის შემდეგ.
+Keep the last tool active	ბოლო ხელსაწყოს აქტიურად დატოვება
+Keep Tool	ხელსაწყოს დაკავება
+Keyboard Shortcuts	კლავიატურის მალსახმობები
+Keyboard shortcuts.	კლავიატურის მალსახმობები.
+Kilometers	კილომეტრი
+kind is required	საჭიროა ტიპი
+KML	KML
+KMZ	KMZ
+Label	წარწერა
+Label Class	წარწერის კლასი
+Label Distance Range	წარწერის მანძილის დიაპაზონი
+Label Field	წარწერის ველი
+Label Placement	წარწერის განთავსება
+Label Range	წარწერის დიაპაზონი
+Label the cities with their names	ქალაქების წარწერა სახელებით
+Label Visibility Range	წარწერის ხილვადობის დიაპაზონი
+Labeling	წარწერები
+Labels	წარწერები
+Lagoon	ლაგუნა
+Lambert Cylindrical Equal Area	ლამბერტის ცილინდრული ტოლფართობიანი
+Landscape	ჰორიზონტალური
+Language	ენა
+Lasso	ლასო
+Lasso (draw)	ლასო (ხატვა)
+Last map render time	რუკის ბოლო დახატვის დრო
+Latitude	განედი
+Latitude (Y)	განედი (Y)
+Layer	ფენა
+Layer\nTemplates	ფენის\nშაბლონები
+Layer Blend	ფენების შერევა
+Layer Extrusion	ფენის ამოწევა
+Layer File	ფენის ფაილი
+Layer From\nSelection	ფენა\nმონიშვნიდან
+Layer Template	ფენის შაბლონი
+Layer Templates	ფენის შაბლონები
+Layers	ფენები
+Layers and Table Views	ფენები და ცხრილების ხედები
+Layout	განლაგება
+Layout\nFile	განლაგების\nფაილი
+Layout after: {name}	განლაგება მის შემდეგ: {name}
+Layout before: {name}	განლაგება მის წინ: {name}
+Layout File…	განლაგების ფაილი…
+Layout name	განლაგების სახელი
+Layouts	განლაგებები
+Learn	სწავლა
+Learning\nResources	სასწავლო\nმასალები
+Left	მარცხენა
+Legend	ლეგენდა
+Length {length} · gain {gain} m · loss {loss} m	სიგრძე {length} · მატება {gain} მ · კლება {loss} მ
+Light and Shadow	სინათლე და ჩრდილი
+Light the extruded shapes from the north-west.	ამოზნექილი ფორმების განათება ჩრდილო-დასავლეთიდან.
+Lighting	განათება
+LIKE	LIKE
+Limit a field to coded values or a range.	ველის შეზღუდვა კოდირებული მნიშვნელობებით ან დიაპაზონით.
+Limit where tools work, and the cell size of new rasters.	იმის შეზღუდვა, სად მუშაობს ხელსაწყოები და როგორია ახალი რასტრების უჯრედის ზომა.
+Limit which features draw with a SQL expression.	იმის შეზღუდვა, რომელი ობიექტები დაიხატოს, SQL გამოსახულებით.
+Line	ხაზი
+Line color	ხაზის ფერი
+Line Of Sight	ხედვის ხაზი
+Line of sight between two points	ხედვის ხაზი ორ წერტილს შორის
+Line width	ხაზის სისქე
+Line {n} isn't four numbers (column row lon lat)	ხაზი {n} ოთხი რიცხვი არ არის (სვეტი სტრიქონი გრძედი განედი)
+Lines	ხაზები
+LineString	LineString
+Link	ბმული
+Link Cursors	კურსორების დაკავშირება
+Link Views	ხედების დაკავშირება
+List Commands	ბრძანებების სია
+List Layers in File	ფაილში ფენების სია
+List the provider's models	პროვაიდერის მოდელების სია
+Lit	განათებული
+Live summary of the features in view.	ხედში მოხვედრილი ობიექტების ცოცხალი შეჯამება.
+Load All Features	ყველა ობიექტის ჩატვირთვა
+Load an unpacked plugin from its folder while you develop it.	გაუხსნელი დანამატის ჩატვირთვა მისი საქაღალდიდან, სანამ მას ამუშავებთ.
+Load GeoLibre tools	GeoLibre-ის ხელსაწყოების ჩატვირთვა
+Loaded {name} from its folder.	{name} ჩაიტვირთა საქაღალდიდან.
+Loading the GeoLibre tools…	მიმდინარეობს GeoLibre-ის ხელსაწყოების ჩატვირთვა…
+Loads map tiles from the web	რუკის ფილების ჩატვირთვა ვებიდან
+Local	ლოკალური
+Locate	მოძებნა
+Locate GeoLibre Runner	GeoLibre-ის გამშვების მოძებნა
+Locate the GeoLibre runner	GeoLibre-ის გამშვების მოძებნა
+Locate…	მოძებნა…
+Location	მდებარეობა
+Locator	ლოკატორი
+Lock	ჩაკეტვა
+Long	გრძელი
+Longitude	გრძედი
+Longitude (X)	გრძედი (X)
+Lower Priority	პრიორიტეტის დაწევა
+Magnifier	გამადიდებელი
+Major Lakes	მსხვილი ტბები
+Major Rivers	მსხვილი მდინარეები
+Make a new layer of the selected features.	არჩეული ობიექტებისგან ახალი ფენის შექმნა.
+Make Layer From Selected Features	ფენის შექმნა მონიშნული ობიექტებიდან
+Manage	მართვა
+Manage Edits	რედაქტირებების მართვა
+Manage Templates	შაბლონების მართვა
+Map	რუკა
+Map\nFrame	რუკის\nჩარჩო
+Map (the current view)	რუკა (მიმდინარე ხედი)
+Map draw	რუკის დახატვა
+Map File	რუკის ფაილი
+Map Frame	რუკის ჩარჩო
+Map Frames	რუკის ჩარჩოები
+Map name	რუკის სახელი
+Map Page	რუკის გვერდი
+Map scale	რუკის მასშტაბი
+Map Series	რუკების სერია
+Map Series Page	რუკების სერიის გვერდი
+Map series page name	რუკების სერიის გვერდის სახელი
+Map style (JSON)	რუკის სტილი (JSON)
+Map Surrounds	რუკის გარშემო ელემენტები
+Map Thumbnail	რუკის მინიატურა
+Map View	რუკის ხედი
+map.goToXY {"lon": 2.35, "lat": 48.85, "scale": 5000000}\nselect.byAttributes {"layer": "Cities", "where": "pop_max > 1000000"}	map.goToXY {"lon": 2.35, "lat": 48.85, "scale": 5000000}\nselect.byAttributes {"layer": "Cities", "where": "pop_max > 1000000"}
+Mapping	რუკების შედგენა
+Maps	რუკები
+Maps move together.	რუკები ერთად გადაადგილდება.
+Marker	მარკერი
+Masking	მასკირება
+Max	მაქს.
+Max %	მაქს. %
+Maximum zoom	მაქსიმალური გადიდება
+Mean	საშუალო
+Measure	გაზომვა
+Measure Area	ფართობის გაზომვა
+Measure Distance	მანძილის გაზომვა
+Measure geodesic distances and areas on the map.	გეოდეზიური მანძილებისა და ფართობების გაზომვა რუკაზე.
+Measure with an elevation raster	გაზომვა სიმაღლის რასტრით
+Measurements so far.	აქამდე გაზომილი.
+Mensuration	მენსურაცია
+Mensuration Tools	მენსურაციის ხელსაწყოები
+Merge	გაერთიანება
+Merge elevation rasters into a surface model and export a 3D mesh.	სიმაღლის რასტრების გაერთიანება ზედაპირის მოდელად და 3D მესის ექსპორტი.
+Merges polygons that share a field value into one feature per value.	ერთი ველის მნიშვნელობის მქონე პოლიგონების გაერთიანება თითო ობიექტად თითო მნიშვნელობაზე.
+Meters	მეტრი
+Method	მეთოდი
+Midnight	შუაღამე
+Miles	მილი
+Miller Cylindrical	მილერის ცილინდრული
+Min	მინ.
+Min %	მინ. %
+Minimum Bounding Geometry	მინიმალური შემომსაზღვრელი გეომეტრია
+Minimum Maximum	მინიმუმი და მაქსიმუმი
+Minutes	წუთი
+minutes ago	წუთის წინ
+Mobile Map	მობილური რუკა
+Mod+	Mod+
+Model	მოდელი
+Model\nBuilder	მოდელების\nაგება
+model id	მოდელის ID
+ModelBuilder	ModelBuilder
+Models	მოდელები
+Modify	შეცვლა
+Modify Selected Features	მონიშნული ობიექტების შეცვლა
+Mollweide (equal-area world)	მოლვაიდე (ტოლფართობიანი მსოფლიო)
+More	მეტი
+Mosaic images into an orthomosaic	სურათების მოზაიკა ორთომოზაიკად
+Mosaic the visible rasters into an orthomosaic.	ხილული რასტრების მოზაიკა ორთომოზაიკად.
+Mouse wheel	თაგვის ბორბალი
+Move	გადაადგილება
+Move (m)	გადაადგილება (მ)
+Move Down	ქვემოთ ჩამოწევა
+Move down	ქვემოთ ჩამოწევა
+Move Up	ზემოთ აწევა
+Move up	ზემოთ აწევა
+Move, rotate, scale, merge, explode, split or flip the selected features.	მონიშნული ობიექტების გადაადგილება, მობრუნება, მასშტაბირება, გაერთიანება, დაშლა, გაყოფა ან შებრუნება.
+Move, Rotate, Scale…	გადაადგილება, მობრუნება, მასშტაბირება…
+Name	სახელი
+Natural Breaks (Jenks)	ბუნებრივი შესვენებები (ჯენკსი)
+Natural Color (1, 2, 3)	ბუნებრივი ფერები (1, 2, 3)
+Natural Earth	Natural Earth
+Navigate	ნავიგაცია
+Navigate with the mouse (planar) or walk with W A S D, Q and E (first-person).	ნავიგაცია თაგვით (სიბრტყეში) ან სიარული W A S D, Q და E ღილაკებით (პირველი პირი).
+Navigation	ნავიგაცია
+Navigation Mode	ნავიგაციის რეჟიმი
+Navigator	ნავიგატორი
+NDVI, NDWI, SAVI, NBR, NDBI, EVI.	NDVI, NDWI, SAVI, NBR, NDBI, EVI.
+Nearest Neighbor	უახლოესი მეზობელი
+Neatline	შემომსაზღვრელი ჩარჩო
+Needs three or more bands.	საჭიროა სამი ან მეტი არხი.
+Neighborhood Explorer	უბნის მკვლევარი
+Network Analysis	ქსელური ანალიზი
+New	ახალი
+New\nBookmark	ახალი\nსანიშნე
+New\nLayout	ახალი\nგანლაგება
+New\nMap	ახალი\nრუკა
+New\nNotebook	ახალი\nრვეული
+New\nPresentation	ახალი\nპრეზენტაცია
+New\nReport	ახალი\nანგარიში
+New\nWorkspace	ახალი\nსამუშაო სივრცე
+New / Open / Save project	პროექტის შექმნა / გახსნა / შენახვა
+New Bookmark	ახალი სანიშნე
+New Bookmark…	ახალი სანიშნე…
+New conversation	ახალი საუბარი
+New Custom Template	ახალი მორგებული შაბლონი
+New Custom Template…	ახალი მორგებული შაბლონი…
+New features use this template's values	ახალი ობიექტები ამ შაბლონის მნიშვნელობებს გამოიყენებს
+New job name	ახალი სამუშაოს სახელი
+New Layout	ახალი განლაგება
+New Map	ახალი რუკა
+New Model From History	ახალი მოდელი ისტორიიდან
+New Notebook	ახალი რვეული
+New Presentation	ახალი პრეზენტაცია
+New Project	ახალი პროექტი
+New project	ახალი პროექტი
+New Relationship…	ახალი კავშირი…
+New Report	ახალი ანგარიში
+New Selection	ახალი მონიშვნა
+New Style	ახალი სტილი
+New Style From Layer	ახალი სტილი ფენიდან
+New Task	ახალი ამოცანა
+New Task From History	ახალი ამოცანა ისტორიიდან
+New Template	ახალი შაბლონი
+New Template (a layout page)	ახალი შაბლონი (განლაგების გვერდი)
+New Workspace	ახალი სამუშაო სივრცე
+New Workspace From Visible Rasters	ახალი სამუშაო სივრცე ხილული რასტრებიდან
+Next	შემდეგი
+Next Extent	შემდეგი ფარგლები
+Next Page	შემდეგი გვერდი
+No	არა
+No bookmarks yet	სანიშნეები ჯერ არ არის
+No edits since the project was saved	პროექტის შენახვის შემდეგ რედაქტირება არ ყოფილა
+No mask	მასკის გარეშე
+No notebooks yet. Analyze › New Notebook starts one, or Add and Open Notebook opens one.	რვეულები ჯერ არ არის. ანალიზი › ახალი რვეული ქმნის ახალს, ხოლო რვეულის დამატება და გახსნა არსებულს ხსნის.
+No offline areas	ოფლაინ არეები არ არის
+No other reports	სხვა ანგარიშები არ არის
+No plugins are installed. Browse the plugin registry, or install a .rgplugin file.	დანამატები არ არის დაინსტალირებული. დაათვალიერეთ დანამატების რეესტრი ან დააყენეთ .rgplugin ფაილი.
+No plugins match.	დანამატები ვერ მოიძებნა.
+No Pop-ups	ამომხტარი ფანჯრების გარეშე
+No presentations yet. Publish › New Presentation starts one.	პრეზენტაციები ჯერ არ არის. გამოქვეყნება › ახალი პრეზენტაცია ქმნის ახალს.
+No relationships (Data Design › Relationships)	კავშირები არ არის (მონაცემთა დიზაინი › კავშირები)
+No relationships yet	კავშირები ჯერ არ არის
+No reports yet. Publish › New Report lists the selected layer's records.	ანგარიშები ჯერ არ არის. გამოქვეყნება › ახალი ანგარიში არჩეული ფენის ჩანაწერებს ჩამოთვლის.
+No standalone tables	დამოუკიდებელი ცხრილები არ არის
+No styles yet	სტილები ჯერ არ არის
+No tasks yet. Data › Task makes one, for example from your geoprocessing history.	ამოცანები ჯერ არ არის. მონაცემები › ამოცანა ქმნის ახალს, მაგალითად თქვენი გეოდამუშავების ისტორიიდან.
+NoData	NoData
+None	არცერთი
+None. Add one by address, or from a basemap plugin.	არცერთი. დაამატეთ მისამართით ან საბაზისო რუკის დანამატიდან.
+North	ჩრდილოეთი
+North\nArrow	ჩრდილოეთის\nისარი
+North Polar Stereographic	ჩრდილოეთის პოლარული სტერეოგრაფიული
+not a RustGIS layout	ეს RustGIS-ის განლაგება არ არის
+not needed	საჭირო არ არის
+Not saved yet	ჯერ არ არის შენახული
+Notebook	რვეული
+Notebook Pane	რვეულის პანელი
+Nothing shared yet. Publish › Share As makes web maps, layers, styles, scenes and more.	გაზიარებული ჯერ არაფერია. გამოქვეყნება › გაზიარება როგორც ქმნის ვებ რუკებს, ფენებს, სტილებს, სცენებს და სხვას.
+Now	ახლა
+Nulls	Null-ები
+Observations (observer, date, species, count)	დაკვირვებები (დამკვირვებელი, თარიღი, სახეობა, რაოდენობა)
+observer height m	დამკვირვებლის სიმაღლე მ
+Ocean	ოკეანე
+Off	გამორთული
+Offline	ოფლაინ
+Offline area	ოფლაინ არეალი
+OID	OID
+Ollama (local)	Ollama (ლოკალური)
+On	ჩართულია
+On Hold	შეჩერებულია
+on hold	შეჩერებულია
+On the desktop, the key can also come from {vars}.	დესკტოპზე გასაღები შეიძლება მოვიდეს {vars}-იდანაც.
+On-screen compass, zoom slider and pan pad.	ეკრანზე კომპასი, გადიდების სლაიდერი და გადაწევის პანელი.
+One command per line: id {json}. Lines starting with # are comments.	თითო ბრძანება თითო ხაზზე: id {json}. # ნიშნით დაწყებული ხაზები კომენტარებია.
+One page per feature of an index layer.	ერთი გვერდი ინდექსური ფენის თითო ობიექტზე.
+One per line: code=name	თითო ხაზზე ერთი: კოდი=სახელი
+Only features matching this expression draw in {layer}.	{layer}-ში მხოლოდ ამ გამოსახულების შესაბამისი ობიექტები იხატება.
+Opacity	გამჭვირვალობა
+Open	გახსნა
+Open a .rgis project	.rgis პროექტის გახსნა
+open a layout first	ჯერ გახსენით განლაგება
+Open a RustGIS or Jupyter notebook.	RustGIS-ის ან Jupyter-ის რვეულის გახსნა.
+Open a RustGIS project.	RustGIS-ის პროექტის გახსნა.
+Open an offline area to edit.	ოფლაინ არეალის გახსნა სარედაქტიროდ.
+Open Custom Template	მორგებული შაბლონის გახსნა
+Open Custom Template…	მორგებული შაბლონის გახსნა…
+Open folder	საქაღალდის გახსნა
+Open Layout	განლაგების გახსნა
+Open Notebook	რვეულის გახსნა
+Open Offline Map	ოფლაინ რუკის გახსნა
+Open Presentation	პრეზენტაციის გახსნა
+Open Project	პროექტის გახსნა
+Open project	პროექტის გახსნა
+Open Project (from text)	პროექტის გახსნა (ტექსტიდან)
+Open Report	ანგარიშის გახსნა
+Open the attribute table of the selected layer.	არჩეული ფენის ატრიბუტების ცხრილის გახსნა.
+Open the layer's attribute table.	ფენის ატრიბუტების ცხრილის გახსნა.
+Open the layer's table.	ფენის ცხრილის გახსნა.
+Open the Release Page	რელიზის გვერდის გახსნა
+Open the RustGIS user guide.	RustGIS-ის მომხმარებლის სახელმძღვანელოს გახსნა.
+Open the selected layer's table.	არჩეული ფენის ცხრილის გახსნა.
+Open the Symbology pane.	სიმბოლიზაციის პანელის გახსნა.
+Open {code} on epsg.io	{code}-ის გახსნა epsg.io-ზე
+Open, save and create projects	პროექტების გახსნა, შენახვა და შექმნა
+OpenAI-compatible	OpenAI-თან თავსებადი
+Opened {name} for printing	გაიხსნა {name} დასაბეჭდად
+Open…	გახსნა…
+Options	პარამეტრები
+OR	OR
+Or	ან
+Ortho Mapping	ორთოგრაფიული რუკების შედგენა
+Out Beyond	შორს, ამ ზღვარს მიღმა
+Outline	კონტური
+Outline another frame's extent in this map frame.	სხვა ჩარჩოს ფარგლების კონტურის დახატვა ამ რუკის ჩარჩოში.
+Outline color	კონტურის ფერი
+Outline width	კონტურის სისქე
+Output	გამოსავალი
+Output Name	გამოსავლის სახელი
+Over 1,000 raster, vector, LiDAR, hydrology and terrain tools that run in the browser, from a one-time download of about 25 MB.	1000-ზე მეტი რასტრის, ვექტორის, LiDAR-ის, ჰიდროლოგიისა და რელიეფის ხელსაწყო, რომელიც ბრაუზერში მუშაობს; ერთჯერადი ჩამოტვირთვა დაახლოებით 25 მბ.
+Over 1,000 raster, vector, LiDAR, hydrology and terrain tools, from an optional download of about 20 MB.	1000-ზე მეტი რასტრის, ვექტორის, LiDAR-ის, ჰიდროლოგიისა და რელიეფის ხელსაწყო; არასავალდებულო ჩამოტვირთვა დაახლოებით 20 მბ.
+Overlay	გადაფარვა
+overlay	გადაფარვა
+Overlay (a transparent layer kept on top, such as labels or roads)	გადაფარვა (ზემოთ დარჩენილი გამჭვირვალე ფენა, მაგალითად წარწერები ან გზები)
+Package	პაკეტი
+Package a trained deep learning model.	გაწვრთნილი ღრმა სწავლების მოდელის დაპაკეტება.
+Package Map	რუკის დაპაკეტება
+Package Project	პროექტის დაპაკეტება
+Package Results	შედეგების დაპაკეტება
+Page	გვერდი
+Page\nSize	გვერდის\nზომა
+Page after: {name}	გვერდი მის შემდეგ: {name}
+Page before: {name}	გვერდი მის წინ: {name}
+Page number	გვერდის ნომერი
+Page Properties	გვერდის თვისებები
+Page Setup	გვერდის გამართვა
+Page Size	გვერდის ზომა
+Page text	გვერდის ტექსტი
+Page title	გვერდის სათაური
+Page {n} of {total}	გვერდი {n} / {total}
+Page {n} of {total}: {name}	გვერდი {n} / {total}: {name}
+Pages of maps, text, images and videos, shown one after another.	რუკების, ტექსტის, სურათებისა და ვიდეოების გვერდები, რომლებიც ერთმანეთის მიყოლებით ჩანს.
+Pan	გადაწევა
+Pan (Explore) · any tool	გადაწევა (შესწავლა) · ნებისმიერი ხელსაწყო
+Pan to a longitude/latitude.	გადაწევა გრძედ-განედზე.
+Pan with the mouse, zoom with the wheel and click features to see their attributes.	გადაწიეთ თაგვით, გაადიდეთ ბორბლით და დააწკაპუნეთ ობიექტებზე მათი ატრიბუტების სანახავად.
+Pane Sets	პანელების ნაკრებები
+Paper	ქაღალდი
+Parent folder	მშობელი საქაღალდე
+Paste	ჩასმა
+Paste copied features into the selected layer, or as a new layer.	დაკოპირებული ობიექტების ჩასმა არჩეულ ფენაში ან ახალ ფენად.
+Paste Special	სპეციალური ჩასმა
+Paste Special (as a new layer)	სპეციალური ჩასმა (ახალ ფენად)
+paste your key	ჩასვით თქვენი გასაღები
+Pause	პაუზა
+PDF or PNG	PDF ან PNG
+Percent Clip	პროცენტული მოჭრა
+Performance	წარმადობა
+Picture	სურათი
+Pictures	სურათები
+Pictures, attachments and chart	სურათები, დანართები და დიაგრამა
+Pixel	პიქსელი
+Pixel Editor	პიქსელის რედაქტორი
+Pixel type	პიქსელის ტიპი
+Place a raster on the map	რასტრის განთავსება რუკაზე
+Place a raster on the map from control points or the view.	რასტრის განთავსება რუკაზე საკონტროლო წერტილებით ან ხედით.
+Placement	განთავსება
+Places (name, category, address, rating)	ადგილები (სახელი, კატეგორია, მისამართი, რეიტინგი)
+Planar	ბრტყელი
+Planar Navigation	ბრტყელი ნავიგაცია
+Play	დაკვრა
+Play the animation.	ანიმაციის დაკვრა.
+Plugin\nManager	დანამატების\nმენეჯერი
+Plugin folder	დანამატების საქაღალდე
+Plugin Manager	დანამატების მენეჯერი
+Plugin Manager…	დანამატების მენეჯერი…
+Plugin registry	დანამატების რეესტრი
+Plugins	დანამატები
+Plugins are .rgplugin files. Install only plugins from people you trust.	დანამატები .rgplugin ფაილებია. დააყენეთ მხოლოდ იმ ადამიანების დანამატები, ვისაც ენდობით.
+Plugins run in a sandbox: they can't reach your files or the network, and they change the project only through RustGIS's own commands, within the permissions you accept.	დანამატები იზოლირებულ გარემოში მუშაობს: ისინი ვერ წვდებიან თქვენს ფაილებსა და ქსელს. პროექტს ცვლიან მხოლოდ RustGIS-ის საკუთარი ბრძანებებით, თქვენ მიერ მიღებული ნებართვების ფარგლებში.
+PMTiles archive	PMTiles არქივი
+PMTiles File…	PMTiles ფაილი…
+PNG frames (zip)	PNG კადრები (zip)
+PNG image	PNG სურათი
+Point	წერტილი
+Points	წერტილები
+points each	წერტილი თითოეულში
+Polar, conformal: Antarctica and the Southern Ocean.	პოლარული, კონფორმული: ანტარქტიდა და სამხრეთის ოკეანე.
+Polar, conformal: the Arctic and the northern lands.	პოლარული, კონფორმული: არქტიკა და ჩრდილოეთის მიწები.
+Polygon	პოლიგონი
+Polygon (draw)	პოლიგონი (ხატვა)
+Polygons	პოლიგონები
+Polyline	პოლილაინი
+Pop-up Mode	ამომხტარი ფანჯრის რეჟიმი
+pop_max > 1000000	pop_max > 1000000
+Populated Places	დასახლებული პუნქტები
+Portal	პორტალი
+Portrait	ვერტიკალური
+Postprocessing	პოსტდამუშავება
+power 2	ხარისხი 2
+Prepare every layer's geometry for this projection.	ამ პროექციისთვის ყველა ფენის გეომეტრიის მომზადება.
+Presentation	პრეზენტაცია
+Presentation File	პრეზენტაციის ფაილი
+Presentation Pane	პრეზენტაციის პანელი
+Preview and set up the report.	ანგარიშის გადახედვა და გამართვა.
+Preview, edit and play the presentation.	პრეზენტაციის გადახედვა, რედაქტირება და დაკვრა.
+Previous	წინა
+Previous Extent	წინა ფარგლები
+Previous Page	წინა გვერდი
+Primary\nSymbology	ძირითადი\nსიმბოლიზაცია
+Primary symbology	ძირითადი სიმბოლიზაცია
+Print	ბეჭდვა
+Print\nLayout	განლაგების\nბეჭდვა
+Print Map	რუკის ბეჭდვა
+Print the layout.	განლაგების ბეჭდვა.
+Print the map view (through the system's PDF viewer).	რუკის ხედის ბეჭდვა (სისტემის PDF მნახველით).
+Print the open layout (through the system's PDF viewer).	ღია განლაგების ბეჭდვა (სისტემის PDF მნახველით).
+printing failed unexpectedly	ბეჭდვა მოულოდნელად ჩავარდა
+printing needs the desktop app	ბეჭდვისთვის საჭიროა დესკტოპ აპლიკაცია
+Process	დამუშავება
+Profile	პროფილი
+Profile Along a Line	პროფილი ხაზის გასწვრივ
+Profile Along Selected Lines	პროფილი არჩეული ხაზების გასწვრივ
+Profile every field	ყველა ველის პროფილირება
+Profile Viewing	პროფილის ნახვა
+PROJ definition	PROJ განსაზღვრება
+Project	პროექტი
+Project\nPackage	პროექტის\nპაკეტი
+Project Info	პროექტის ინფორმაცია
+Project Template	პროექტის შაბლონი
+Project templates: start projects from a saved setup.	პროექტის შაბლონები: პროექტების დაწყება შენახული გამართვიდან.
+Projection	პროექცია
+Projections	პროექციები
+Proportional Symbols	პროპორციული სიმბოლოები
+Provider	პროვაიდერი
+Proximity	სიახლოვე
+Publish	გამოქვეყნება
+Publish › Output	გამოქვეყნება › გამოსავალი
+Put the layer back as it was then	ფენის დაბრუნება იმ მდგომარეობაში, როგორიც მაშინ იყო
+Quantile	კვანტილი
+Quick\nAccess	სწრაფი\nწვდომა
+Quick Access Toolbar	სწრაფი წვდომის პანელი
+radius km	რადიუსი კმ
+radius m	რადიუსი მ
+Rain	წვიმა
+Raise polygons by a height or a field.	პოლიგონების ამოწევა სიმაღლით ან ველით.
+Raise Priority	პრიორიტეტის აწევა
+Random points in polygons	შემთხვევითი წერტილები პოლიგონებში
+Raster	რასტრი
+Raster\nAnalysis	რასტრული\nანალიზი
+Raster\nInformation	რასტრის\nინფორმაცია
+Raster Data	რასტრული მონაცემები
+Raster Effects	რასტრის ეფექტები
+Raster Functions	რასტრული ფუნქციები
+Raster Information	რასტრის ინფორმაცია
+Raster Layer	რასტრული ფენა
+Raster tiles (XYZ)	რასტრული ფილები (XYZ)
+Raster · {w} × {h} · {n} bands · {renderer}	რასტრი · {w} × {h} · {n} არხი · {renderer}
+Read and write files on this computer	ფაილების წაკითხვა და ჩაწერა ამ კომპიუტერში
+Read the map's layers and features	რუკის ფენებისა და ობიექტების წაკითხვა
+Reads and writes files	კითხულობს და წერს ფაილებს
+Reads the map	კითხულობს რუკას
+Ready To Use	გამოსაყენებლად მზადაა
+Reality Mapping	რეალობის რუკების შედგენა
+Rectangle	მართკუთხედი
+Red	წითელი
+Redo	გამეორება
+Redo the change you undid.	თქვენ მიერ გაუქმებული ცვლილების გამეორება.
+Redo {action}	გამეორება: {action}
+Red–Blue	წითელი–ლურჯი
+Refine the search to see {n} more	დააზუსტეთ ძიება, რომ კიდევ {n} ნახოთ
+Refresh	განახლება
+Refresh Map Series	რუკების სერიის განახლება
+Refresh the map series from its index layer.	რუკების სერიის განახლება მისი ინდექსური ფენიდან.
+Regional, equal-area: the contiguous United States.	რეგიონული, ტოლფართობიანი: აშშ-ის კონტინენტური ნაწილი.
+Regional, equal-area: the European standard for statistics.	რეგიონული, ტოლფართობიანი: ევროპული სტანდარტი სტატისტიკისთვის.
+Relate	დაკავშირება
+Related\nData	დაკავშირებული\nმონაცემები
+Related Data	დაკავშირებული მონაცემები
+Related Report	დაკავშირებული ანგარიში
+Related report: {name}	დაკავშირებული ანგარიში: {name}
+Relationship	კავშირი
+Relationship name	კავშირის სახელი
+Relationships	კავშირები
+Remember the key on this computer	გასაღების დამახსოვრება ამ კომპიუტერში
+Remove	ამოშლა
+Remove All	ყველას ამოშლა
+Remove an offline area.	ოფლაინ არეალის ამოშლა.
+Remove Bookmark	სანიშნის ამოშლა
+Remove Folder	საქაღალდის ამოშლა
+Remove From Current Selection	მიმდინარე მონიშვნიდან ამოშლა
+Remove Keyframe	საკვანძო კადრის ამოშლა
+Remove Section	სექციის ამოშლა
+Remove Table	ცხრილის ამოშლა
+Remove the last keyframe.	ბოლო საკვანძო კადრის ამოშლა.
+Remove the layer from the map.	ფენის ამოშლა რუკიდან.
+Remove Tile Layer	ფილების ფენის ამოშლა
+Removes the parts of polygon features that overlap erase polygons.	პოლიგონური ობიექტების იმ ნაწილების ამოშლა, რომლებიც წასაშლელ პოლიგონებს გადაფარავს.
+Removes vertices that deviate less than a tolerance (Douglas–Peucker).	იმ წვეროების ამოშლა, რომლებიც ტოლერანტობაზე ნაკლებად გადაიხრება (დუგლას–პეკერი).
+Rename	გადარქმევა
+Rename Layer	ფენის გადარქმევა
+Rename Layout	განლაგების გადარქმევა
+Rename Map	რუკის გადარქმევა
+Rename Project	პროექტის გადარქმევა
+Rename…	გადარქმევა…
+Rendering	რენდერინგი
+Replace Web Layer	ვებ ფენის ჩანაცვლება
+Report	ანგარიში
+Report File	ანგარიშის ფაილი
+Report Pane	ანგარიშის პანელი
+Report Properties	ანგარიშის თვისებები
+Report Section	ანგარიშის სექცია
+Report Template	ანგარიშის შაბლონი
+Requests send your message and the map's layer names, fields and the rows the assistant reads to the provider.	მოთხოვნები პროვაიდერს უგზავნის თქვენს შეტყობინებას, რუკის ფენების სახელებსა და ველებს და იმ სტრიქონებს, რომლებსაც ასისტენტი კითხულობს.
+Resample	რესემპლირება
+Resampling	რესემპლირება
+Resampling Type	რესემპლირების ტიპი
+Reset	საწყისზე დაბრუნება
+Reset brightness, contrast and gamma.	სიკაშკაშის, კონტრასტისა და გამას საწყისზე დაბრუნება.
+Reset Effects	ეფექტების საწყისზე დაბრუნება
+Restore	აღდგენა
+Restore From Archive	არქივიდან აღდგენა
+Results	შედეგები
+Resume	გაგრძელება
+RGB	RGB
+Ribbon	ლენტი
+Right	მარჯვენა
+Robinson	რობინსონი
+Rotate	მობრუნება
+Rotate (°)	მობრუნება (°)
+Rotate 90°	90°-ით მობრუნება
+Rotation	მობრუნება
+Rotation Type	მობრუნების ტიპი
+rotation °	მობრუნება °
+Routes (name, surface, length)	მარშრუტები (სახელი, საფარი, სიგრძე)
+Rows	სტრიქონები
+Rule name	წესის სახელი
+Run	გაშვება
+Run All	ყველას გაშვება
+Run Cells	უჯრედების გაშვება
+Run Chain	ჯაჭვის გაშვება
+Run commands from text, one per line.	ბრძანებების გაშვება ტექსტიდან, თითო ხაზზე ერთი.
+Run Model	მოდელის გაშვება
+Run Script	სკრიპტის გაშვება
+Run Task	ამოცანის გაშვება
+Run the task	ამოცანის გაშვება
+Run Tool	ხელსაწყოს გაშვება
+Run {name}	{name}-ის გაშვება
+Running…	მიმდინარეობს გაშვება…
+RustGIS	RustGIS
+RustGIS deep learning package	RustGIS-ის ღრმა სწავლების პაკეტი
+RustGIS is a free and open-source GIS written in pure Rust. It runs on the desktop and in the browser, and every action is a command you can also run from the command line.	RustGIS არის უფასო, ღია კოდის GIS, სუფთა Rust-ზე დაწერილი. ის მუშაობს დესკტოპზე და ბრაუზერში. ყოველი მოქმედება ბრძანებაა, რომლის გაშვებაც ბრძანებათა ხაზიდანაც შეიძლება.
+RustGIS layer file	RustGIS-ის ფენის ფაილი
+RustGIS layers, maps and projects	RustGIS-ის ფენები, რუკები და პროექტები
+RustGIS layout	RustGIS-ის განლაგება
+RustGIS maps and projects	RustGIS-ის რუკები და პროექტები
+RustGIS or Jupyter notebook	RustGIS-ის ან Jupyter-ის რვეული
+RustGIS plugin	RustGIS-ის დანამატი
+RustGIS presentation	RustGIS-ის პრეზენტაცია
+RustGIS project	RustGIS-ის პროექტი
+RustGIS project template	RustGIS-ის პროექტის შაბლონი
+RustGIS ran into an internal error last time. The details are in {path}; please attach them to a bug report.	RustGIS-ს ბოლოს შიდა შეცდომა შეექმნა. დეტალები იხილეთ აქ: {path}; გთხოვთ, დაურთოთ ისინი შეცდომის შეტყობინებას.
+RustGIS ran into an internal error while handling the model's reply, so the request was stopped. Please report it at https://github.com/opengeos/RustGIS/issues.	RustGIS-ს მოდელის პასუხის დამუშავებისას შიდა შეცდომა შეექმნა, ამიტომ მოთხოვნა შეწყდა. გთხოვთ, შეატყობინოთ აქ: https://github.com/opengeos/RustGIS/issues.
+RustGIS report or report template	RustGIS-ის ანგარიში ან ანგარიშის შაბლონი
+RustGIS styles	RustGIS-ის სტილები
+RustGIS task	RustGIS-ის ამოცანა
+RustGIS {latest} is available.	ხელმისაწვდომია RustGIS {latest}.
+RustGIS {version} is the latest version.	RustGIS {version} უახლესი ვერსიაა.
+RUSTGIS_ASSISTANT_MODEL	RUSTGIS_ASSISTANT_MODEL
+RUSTGIS_ASSISTANT_PROVIDER	RUSTGIS_ASSISTANT_PROVIDER
+Sample data (Natural Earth)	სანიმუშო მონაცემები (Natural Earth)
+Sample data © Natural Earth (public domain). RustGIS is licensed under Apache-2.0.	სანიმუშო მონაცემები © Natural Earth (საჯარო დომენი). RustGIS ლიცენზირებულია Apache-2.0-ით.
+Sample data: Natural Earth (public domain). Licensed under Apache-2.0.	სანიმუშო მონაცემები: Natural Earth (საჯარო დომენი). ლიცენზია: Apache-2.0.
+Saturation	ნაჯერობა
+Save	შენახვა
+Save As	შენახვა როგორც
+Save As Presentation File…	პრეზენტაციის ფაილად შენახვა…
+Save As Report File…	ანგარიშის ფაილად შენახვა…
+Save As Report Template…	ანგარიშის შაბლონად შენახვა…
+Save as {name}	შენახვა როგორც {name}
+Save As…	შენახვა როგორც…
+Save Layer File	ფენის ფაილის შენახვა
+Save Layout File	განლაგების ფაილის შენახვა
+Save Map File	რუკის ფაილის შენახვა
+Save Notebook	რვეულის შენახვა
+save or load a pane set by name	პანელების ნაკრების შენახვა ან ჩატვირთვა სახელით
+Save Project	პროექტის შენახვა
+Save project	პროექტის შენახვა
+Save Project As	პროექტის შენახვა როგორც
+Save Project Template	პროექტის შაბლონის შენახვა
+Save Style Items	სტილის ელემენტების შენახვა
+Save Task Item	ამოცანის ელემენტის შენახვა
+Save the active map (with its data) as a map file.	აქტიური რუკის (მონაცემებითურთ) შენახვა რუკის ფაილად.
+Save the current extent as a bookmark.	მიმდინარე ფარგლების შენახვა სანიშნედ.
+Save the last task as a task file.	ბოლო ამოცანის შენახვა ამოცანის ფაილად.
+Save the layout as a layout file.	განლაგების შენახვა განლაგების ფაილად.
+Save the open layout as a layout file.	ღია განლაგების შენახვა განლაგების ფაილად.
+Save the panes you have open, and switch back to them.	თქვენ მიერ გახსნილი პანელების შენახვა და მათზე დაბრუნება.
+Save the project under a new name.	პროექტის შენახვა ახალი სახელით.
+Save the project with your edits.	პროექტის შენახვა თქვენი რედაქტირებით.
+Save the project's setup, without its features, as a template.	პროექტის გამართვის შენახვა ობიექტების გარეშე, შაბლონად.
+Save the project's styles to a style file.	პროექტის სტილების შენახვა სტილის ფაილში.
+Save the raster as a GeoTIFF.	რასტრის შენახვა GeoTIFF-ად.
+Save the selected layer with its symbology as a layer file.	არჩეული ფენის შენახვა სიმბოლიზაციით ფენის ფაილად.
+Save Web Link Chart	ვებ ბმულის დიაგრამის შენახვა
+Save Web Map	ვებ რუკის შენახვა
+Save Web Scene	ვებ სცენის შენახვა
+Saved keys are kept unencrypted in the app's preferences (in the browser's storage on the web).	შენახული გასაღებები დაუშიფრავად ინახება აპლიკაციის პარამეტრებში (ვებზე ბრაუზერის საცავში).
+Saved symbology: apply it to the selected layer, or save the layer's.	შენახული სიმბოლიზაცია: გამოიყენეთ არჩეულ ფენაზე ან შეინახეთ ფენის სიმბოლიზაცია.
+Saved View	შენახული ხედი
+Saved {name}	შეინახა {name}
+saving failed unexpectedly	შენახვა მოულოდნელად ჩავარდა
+Scale	მასშტაბი
+Scale\nBar	მასშტაბის\nხაზი
+Scale (×)	მასშტაბი (×)
+scale 0.9996	მასშტაბი 0.9996
+Scale 1:	მასშტაბი 1:
+Scale and rotate entered distances and directions to the grid.	შეყვანილი მანძილებისა და მიმართულებების მასშტაბირება და მობრუნება ბადესთან.
+Scale ×2	მასშტაბი ×2
+Scale ×½	მასშტაბი ×½
+Scene	სცენა
+Score two rasters 1–10 and weight them	ორი რასტრის შეფასება 1–10 ქულით და მათი აწონვა
+Script	სკრიპტი
+Scroll the ribbon left	ლენტის გადაწევა მარცხნივ
+Scroll the ribbon right	ლენტის გადაწევა მარჯვნივ
+Scroll the tabs left	ჩანართების გადაწევა მარცხნივ
+Scroll the tabs right	ჩანართების გადაწევა მარჯვნივ
+Search commands — e.g. buffer, basemap, labels	ბრძანებების ძიება — მაგ. buffer, basemap, labels
+Search Distance (km)	ძიების მანძილი (კმ)
+Search every command and its parameters	ყველა ბრძანებისა და მისი პარამეტრების ძიება
+Search plugins	დანამატების ძიება
+Seconds	წამი
+Sections	სექციები
+See and set the camera's position and scale.	კამერის პოზიციისა და მასშტაბის ნახვა და დაყენება.
+See the map as people with colour vision deficiencies do.	რუკის ნახვა ისე, როგორც ფერთა აღქმის დარღვევის მქონე ადამიანები ხედავენ.
+See the tools you've run.	თქვენ მიერ გაშვებული ხელსაწყოების ნახვა.
+See whether a newer RustGIS has been released.	შემოწმება, გამოვიდა თუ არა RustGIS-ის უფრო ახალი ვერსია.
+Select	მონიშვნა
+Select (click)	მონიშვნა (დაწკაპუნებით)
+Select (rectangle)	მონიშვნა (მართკუთხედით)
+Select a feature layer in the Layers pane	აირჩიეთ ობიექტების ფენა ფენების პანელში
+Select a layer in Layers to style it.	აირჩიეთ ფენა ფენების პანელში მისი სტილის შესაცვლელად.
+Select a layer in the Layers pane	აირჩიეთ ფენა ფენების პანელში
+select a layer in the Layers pane first	ჯერ აირჩიეთ ფენა ფენების პანელში
+Select a layer in the Layers pane.	აირჩიეთ ფენა ფენების პანელში.
+Select All	ყველას მონიშვნა
+Select By\nAttributes	მონიშვნა\nატრიბუტებით
+Select By\nLocation	მონიშვნა\nადგილმდებარეობით
+Select By Attributes	მონიშვნა ატრიბუტებით
+Select every feature.	ყველა ობიექტის მონიშვნა.
+Select features by their spatial relationship.	ობიექტების მონიშვნა სივრცითი კავშირით.
+Select features that intersect another layer.	იმ ობიექტების მონიშვნა, რომლებიც სხვა ფენას კვეთს.
+Select features with a SQL expression.	ობიექტების მონიშვნა SQL გამოსახულებით.
+Select Layer	ფენის არჩევა
+Select Layer By Attribute	ფენის არჩევა ატრიბუტით
+Select Layer By Location	ფენის არჩევა ადგილმდებარეობით
+Select Related	დაკავშირებულის მონიშვნა
+Select Rows	სტრიქონების მონიშვნა
+Select rows with a SQL expression.	სტრიქონების მონიშვნა SQL გამოსახულებით.
+Select Subset From Current Selection	ქვეჯგუფის მონიშვნა მიმდინარე მონიშვნიდან
+Select the rows related to the selection.	მონიშვნასთან დაკავშირებული სტრიქონების მონიშვნა.
+Selectable	მოსანიშნი
+Selectable Layers	მოსანიშნი ფენები
+Selected	მონიშნული
+Selected Features: {n}	მონიშნული ობიექტები: {n}
+Selected in Layers	მონიშნული ფენებში
+Selected only	მხოლოდ მონიშნული
+Selected records only	მხოლოდ მონიშნული ჩანაწერები
+Selecting Features	ობიექტების მონიშვნა
+Selection	მონიშვნა
+Selection Type	მონიშვნის ტიპი
+Selects features that intersect features in another layer.	ობიექტების მონიშვნა, რომლებიც სხვა ფენის ობიექტებს კვეთს.
+Selects features with a SQL where clause, e.g. pop_est > 1000000.	ობიექტების მონიშვნა SQL where პირობით, მაგ. pop_est > 1000000.
+Send	გაგზავნა
+Send offline edits back and refresh.	ოფლაინ რედაქტირებების უკან გაგზავნა და განახლება.
+Sepia	სეპია
+Set	დაყენება
+Set Cell Size	უჯრედის ზომის დაყენება
+Set Domain	დომენის დაყენება
+Set Filter	ფილტრის დაყენება
+Set Map Tool	რუკის ხელსაწყოს დაყენება
+Set Scale	მასშტაბის დაყენება
+Set Subtypes	ქვეტიპების დაყენება
+Set the pixels inside a polygon	პოლიგონში მოხვედრილი პიქსელების მნიშვნელობის დაყენება
+Set the pixels inside a polygon.	პოლიგონში მოხვედრილი პიქსელების მნიშვნელობის დაყენება.
+Settings	პარამეტრები
+Shade walls by the way they face the light.	კედლების დაჩრდილვა იმის მიხედვით, როგორ უდგას სინათლეს.
+Shaded	დაჩრდილული
+Shaded Relief	დაჩრდილული რელიეფი
+Shape	ფორმა
+Shapefile	Shapefile
+Share	გაზიარება
+Share As	გაზიარება როგორც
+Share every layer and table as OGC API Features collections.	ყველა ფენისა და ცხრილის გაზიარება OGC API Features კოლექციებად.
+Share the last model as a tool file.	ბოლო მოდელის გაზიარება ხელსაწყოს ფაილად.
+Share the map as a web page that needs no server.	რუკის გაზიარება ვებ გვერდად, რომელსაც სერვერი არ სჭირდება.
+Share the map in 3D (glTF), polygons extruded.	რუკის გაზიარება 3D-ში (glTF), პოლიგონები ამოწეულია.
+Share the map's relationships as a link chart page.	რუკის კავშირების გაზიარება ბმულის დიაგრამის გვერდად.
+Share the selected layer as an OGC API Features collection with its style.	არჩეული ფენის გაზიარება OGC API Features კოლექციად მისი სტილით.
+Share the selected layer's names as a place-search locator.	არჩეული ფენის სახელების გაზიარება ადგილის საძიებო ლოკატორად.
+Share the selected layer's symbology as a MapLibre style.	არჩეული ფენის სიმბოლიზაციის გაზიარება MapLibre სტილად.
+Shared Items	გაზიარებული ელემენტები
+Shares made, with Manage tools to update them.	შექმნილი გაზიარებები; მათ გასაახლებლად გამოიყენეთ მართვის ხელსაწყოები.
+Shift+	Shift+
+Shift+drag	Shift+გადათრევა
+Shortcuts	მალსახმობები
+Shortest route over a line network	უმოკლესი მარშრუტი ხაზოვან ქსელზე
+Show	ჩვენება
+Show a second map beside this one.	მეორე რუკის ჩვენება ამის გვერდით.
+Show details when hovering items in the Browser view.	დეტალების ჩვენება ბრაუზერის ხედში ელემენტებზე გაჩერებისას.
+Show different features at different scales.	სხვადასხვა ობიექტის ჩვენება სხვადასხვა მასშტაბზე.
+Show latitude/longitude lines on the basemap.	გრძედისა და განედის ხაზების ჩვენება საბაზისო რუკაზე.
+Show Map	რუკის ჩვენება
+Show or hide	ჩვენება ან დამალვა
+Show or hide the AI Assistant.	AI ასისტენტის ჩვენება ან დამალვა.
+Show or hide the Browser pane.	ბრაუზერის პანელის ჩვენება ან დამალვა.
+Show or hide the layer.	ფენის ჩვენება ან დამალვა.
+Show or hide the Layers pane.	ფენების პანელის ჩვენება ან დამალვა.
+Show or hide the Tools pane.	ხელსაწყოების პანელის ჩვენება ან დამალვა.
+Show the labels that don't fit, in red.	წარწერების ჩვენება, რომლებიც არ ეტევა, წითლად.
+Show the layer only inside another layer's polygons.	ფენის ჩვენება მხოლოდ სხვა ფენის პოლიგონებში.
+Show the layer only left of a divider, to compare it with what's beneath.	ფენის ჩვენება მხოლოდ გამყოფის მარცხნივ, ქვემოთ მყოფთან შესადარებლად.
+Show the map as a 3D globe, or as a flat map again.	რუკის ჩვენება 3D გლობუსად ან ისევ ბრტყელ რუკად.
+Show the next map series page.	რუკების სერიის შემდეგი გვერდის ჩვენება.
+Show the pointer's place on the other map.	კურსორის ადგილის ჩვენება მეორე რუკაზე.
+Show the previous map series page.	რუკების სერიის წინა გვერდის ჩვენება.
+Show the Symbology pane for the selected layer.	არჩეული ფენის სიმბოლიზაციის პანელის ჩვენება.
+Show vertices	წვეროების ჩვენება
+Side by Side	გვერდიგვერდ
+Simplify	გამარტივება
+Simulation	სიმულაცია
+Single Symbol	ერთი სიმბოლო
+Size	ზომა
+Size, bands, statistics and coordinate system.	ზომა, არხები, სტატისტიკა და კოორდინატთა სისტემა.
+Slideshow, PDF or PNG	სლაიდშოუ, PDF ან PNG
+Slope, aspect, hillshade, NDVI, band math, thresholds.	დახრილობა, ექსპოზიცია, დაჩრდილული რელიეფი, NDVI, არხების არითმეტიკა, ზღვრები.
+Slope, hillshade, NDVI and more.	დახრილობა, დაჩრდილული რელიეფი, NDVI და სხვა.
+Small scales	წვრილი მასშტაბები
+Snap new vertices to nearby vertices, edges and line ends.	ახალი წვეროების მიმაგრება ახლომდებარე წვეროებზე, წიბოებზე და ხაზების ბოლოებზე.
+Snap Point	წერტილის მიმაგრება
+Snapping	მიმაგრება
+Snow	თოვლი
+Source	წყარო
+South	სამხრეთი
+South Polar Stereographic	სამხრეთის პოლარული სტერეოგრაფიული
+Speaker notes	მომხსენებლის ჩანაწერები
+Spectral Analysis	სპექტრული ანალიზი
+Spectral indices	სპექტრული ინდექსები
+Speed Display	სიჩქარის ჩვენება
+Split	გაყოფა
+Split (click the line)	გაყოფა (დააწკაპუნეთ ხაზზე)
+SQL that must be true, e.g. pop > 0	SQL, რომელიც ჭეშმარიტი უნდა იყოს, მაგ. pop > 0
+Square	კვადრატი
+Squares	კვადრატები
+Standalone Tables	დამოუკიდებელი ცხრილები
+Standard Deviation	სტანდარტული გადახრა
+Star	ვარსკვლავი
+Start	დაწყება
+Start Over	თავიდან დაწყება
+Start With	დასაწყისი
+Start-up	გაშვებისას
+Statistics	სტატისტიკა
+Statistics Field	სტატისტიკის ველი
+Status	სტატუსი
+Status Bar	სტატუსის პანელი
+Std. Dev.	სტ. გადახრა
+Step through a task.	ამოცანის საფეხურ-საფეხურ გავლა.
+Step {n} done	საფეხური {n} შესრულდა
+Stop	გაჩერება
+Stop drawing labels, for faster navigation.	წარწერების ხატვის შეჩერება უფრო სწრაფი ნავიგაციისთვის.
+Stop filling the cache.	ქეშის შევსების შეჩერება.
+Stopped.	შეჩერდა.
+Stretch	გაჭიმვა
+Stretch\nType	გაჭიმვის\nტიპი
+Stretch it over the map view, or give control points (one per line: column row lon lat).	გაჭიმეთ რუკის ხედზე ან მიუთითეთ საკონტროლო წერტილები (თითო ხაზზე: სვეტი სტრიქონი გრძედი განედი).
+Stretch Type	გაჭიმვის ტიპი
+Stretch type	გაჭიმვის ტიპი
+Style	სტილი
+Style Items	სტილის ელემენტები
+Style › Drawing	სტილი › ხატვა
+Styles	სტილები
+Subreport	ქვეანგარიში
+Subreport: {name}	ქვეანგარიში: {name}
+Subtypes	ქვეტიპები
+Subtypes, one per line: code=name	ქვეტიპები, თითო ხაზზე ერთი: კოდი=სახელი
+Suitability Modeler	ვარგისიანობის მოდელერი
+Summarize	შეჯამება
+Summarize\nWithin	შეჯამება\nფარგლებში
+Summarize Within	შეჯამება ფარგლებში
+Summary\nStatistics	შემაჯამებელი\nსტატისტიკა
+Summary Statistics	შემაჯამებელი სტატისტიკა
+Supplemental Page	დამატებითი გვერდი
+Supplemental Page After	დამატებითი გვერდი მის შემდეგ
+Surface	ზედაპირი
+Surface: {layer}	ზედაპირი: {layer}
+Swipe	გადაწევა გამყოფით
+Switch	გადართვა
+Switch between light and dark themes.	ღია და მუქი თემის გადართვა.
+Switch Selection	მონიშვნის შებრუნება
+Switch selection	მონიშვნის შებრუნება
+Switch to a dark basemap	მუქ საბაზისო რუკაზე გადასვლა
+Symbol	სიმბოლო
+Symbol Color	სიმბოლოს ფერი
+Symbology	სიმბოლიზაცია
+Symbology Pane	სიმბოლიზაციის პანელი
+Symbology Pane…	სიმბოლიზაციის პანელი…
+Sync	სინქრონიზაცია
+tab is required	საჭიროა ჩანართი
+Table	ცხრილი
+Table Frame	ცხრილის ჩარჩო
+Tables	ცხრილები
+Take the data in view offline, to edit and sync back later.	ხედში მოხვედრილი მონაცემების ოფლაინ წაღება რედაქტირებისთვის და მოგვიანებით უკან სინქრონიზაციისთვის.
+Task	ამოცანა
+Task Item	ამოცანის ელემენტი
+Tasks	ამოცანები
+Tasks: guided steps that each run a command.	ამოცანები: ხელმძღვანელობითი საფეხურები, რომელთაგან თითოეული ბრძანებას უშვებს.
+Template name	შაბლონის სახელი
+Templates	შაბლონები
+Terrain	რელიეფი
+Text	ტექსტი
+Text Symbol	ტექსტის სიმბოლო
+The assistant is busy; stop it or wait for it to finish.	ასისტენტი დაკავებულია; შეაჩერეთ ან დაელოდეთ დასრულებას.
+The assistant wants to run this, and {why}:	ასისტენტს სურს ამის გაშვება და მიზეზი ასეთია: {why}:
+the capture failed unexpectedly	გადაღება მოულოდნელად ჩავარდა
+the Help tab always shows	დახმარების ჩანართი ყოველთვის ჩანს
+The job covers the map view	სამუშაო მოიცავს რუკის ხედს
+The key is kept for this session only.	გასაღები ინახება მხოლოდ ამ სესიისთვის.
+The layer's file couldn't be read: {error}	ფენის ფაილის წაკითხვა ვერ მოხერხდა: {error}
+the layout export failed unexpectedly	განლაგების ექსპორტი მოულოდნელად ჩავარდა
+The list of plugins to browse. Leave it empty for the RustGIS plugin registry.	დანამატების სია დასათვალიერებლად. დატოვეთ ცარიელი RustGIS-ის დანამატების რეესტრისთვის.
+the map has no layers	რუკას ფენები არ აქვს
+The map is drawn in this coordinate system; layers are projected on the fly.	რუკა ამ კოორდინატთა სისტემაშია დახატული; ფენები პროექცირდება ფრენისას.
+The map view as it is now	რუკის ხედი ახლა როგორიც არის
+The model answering; click to change it	მოდელი, რომელიც პასუხობს; დააწკაპუნეთ შესაცვლელად
+the model declined this request	მოდელმა ეს მოთხოვნა უარყო
+The model sent an empty reply; ask again, or try another model.	მოდელმა ცარიელი პასუხი გამოგზავნა; კიდევ ერთხელ ჰკითხეთ ან სცადეთ სხვა მოდელი.
+the page is too large to draw	გვერდი დასახატად ძალიან დიდია
+the presentation export failed unexpectedly	პრეზენტაციის ექსპორტი მოულოდნელად ჩავარდა
+the preview failed unexpectedly	გადახედვა მოულოდნელად ჩავარდა
+The project's items in place of the map.	პროექტის ელემენტები რუკის ადგილას.
+The project's thumbnail, from an image.	პროექტის მინიატურა სურათიდან.
+The project's thumbnail, from the map view.	პროექტის მინიატურა რუკის ხედიდან.
+The projection the map opens in.	პროექცია, რომელშიც რუკა იხსნება.
+The raster's data couldn't be read.	რასტრის მონაცემების წაკითხვა ვერ მოხერხდა.
+The raster's data couldn't be read: {path}	რასტრის მონაცემების წაკითხვა ვერ მოხერხდა: {path}
+the reply reached its length limit	პასუხმა სიგრძის ლიმიტს მიაღწია
+the report export failed unexpectedly	ანგარიშის ექსპორტი მოულოდნელად ჩავარდა
+The Shapefile's files download as one zip.	Shapefile-ის ფაილები ერთ zip-ად ჩამოიტვირთება.
+the view has no extent	ხედს ფარგლები არ აქვს
+The web app always runs the latest release: reload the page to get it.	ვებ აპლიკაცია ყოველთვის უახლეს რელიზს უშვებს: განახლებისთვის გადატვირთეთ გვერდი.
+Thermal	თერმული
+Thinking…	მიმდინარეობს ფიქრი…
+this build can't download plugins	ამ ვერსიას დანამატების ჩამოტვირთვა არ შეუძლია
+this build can't reach AI providers	ამ ვერსიას AI პროვაიდერებთან კავშირი არ შეუძლია
+This map has no layers yet.	ამ რუკას ჯერ ფენები არ აქვს.
+This map's thumbnail, from an image.	ამ რუკის მინიატურა სურათიდან.
+This map's thumbnail, from the view.	ამ რუკის მინიატურა ხედიდან.
+This plugin can:	ამ დანამატს შეუძლია:
+Thumbnail	მინიატურა
+Tile Layer Properties	ფილების ფენის თვისებები
+Tile Layers	ფილების ფენები
+Tilt-shift	ტილტ-შიფტი
+Tilt-shift blur and film grain.	ტილტ-შიფტის გაფუჭება და ფირის მარცვალი.
+Tint by elevation	ელევაციით შეფერვა
+Title	სათაური
+Toggle Dark Mode	მუქი რეჟიმის გადართვა
+Tolerance (km)	ტოლერანტობა (კმ)
+Tool Gallery	ხელსაწყოების გალერეა
+Toolbox	ხელსაწყოთა ყუთი
+Toolboxes	ხელსაწყოთა ყუთები
+Tools	ხელსაწყოები
+Tools\nPane	ხელსაწყოების\nპანელი
+Tools Pane	ხელსაწყოების პანელი
+Tools that analyse features.	ობიექტების გასაანალიზებელი ხელსაწყოები.
+Tools that analyse rasters.	რასტრების გასაანალიზებელი ხელსაწყოები.
+Tools you run appear here.	თქვენ მიერ გაშვებული ხელსაწყოები აქ გამოჩნდება.
+Topmost Layer	ყველაზე ზედა ფენა
+Topology	ტოპოლოგია
+Topology Options	ტოპოლოგიის პარამეტრები
+Topology Options…	ტოპოლოგიის პარამეტრები…
+Topology rules and the errors they find.	ტოპოლოგიური წესები და მათ მიერ ნაპოვნი შეცდომები.
+Total {total}   ·   Segment {segment}	ჯამში {total}   ·   სეგმენტი {segment}
+Track jobs and their status.	სამუშაოებისა და მათი სტატუსის თვალყურის დევნება.
+Train a neural network on training polygons	ნეირონული ქსელის გაწვრთნა სასწავლო პოლიგონებზე
+Train a neural network on training polygons and classify every pixel.	ნეირონული ქსელის გაწვრთნა სასწავლო პოლიგონებზე და ყველა პიქსელის კლასიფიკაცია.
+Train And Classify	გაწვრთნა და კლასიფიკაცია
+Train Deep Learning Model	ღრმა სწავლების მოდელის გაწვრთნა
+Trained models	გაწვრთნილი მოდელები
+Transparency	გამჭვირვალობა
+Traverse	გავლა
+Triangle	სამკუთხედი
+Turn editing on or off for the map.	რუკის რედაქტირების ჩართვა ან გამორთვა.
+Turn Labels Off	წარწერების გამორთვა
+Turn labels on or off for the selected layer.	არჩეული ფენის წარწერების ჩართვა ან გამორთვა.
+Turn labels on or off.	წარწერების ჩართვა ან გამორთვა.
+Turn Off	გამორთვა
+Type	ტიპი
+Unavailable: {reason}	მიუწვდომელია: {reason}
+Undo	გაუქმება
+Undo / Redo	გაუქმება / გამეორება
+Undo the last change.	ბოლო ცვლილების გაუქმება.
+Undo {action}	გაუქმება: {action}
+Uninstall	წაშლა
+Uninstall Plugin	დანამატის წაშლა
+Uninstalled {id}.	{id} წაიშალა.
+Unique Values	უნიკალური მნიშვნელობები
+Units	ერთეულები
+Unsupervised classes (k-means)	უკონტროლო კლასები (k-means)
+Unsupervised classes (k-means).	უკონტროლო კლასები (k-means).
+Update	განახლება
+Update Job	სამუშაოს განახლება
+Update to {version}	განახლება {version}-მდე
+Upload File	ფაილის ატვირთვა
+Upload File…	ფაილის ატვირთვა…
+USA Contiguous Albers Equal Area	აშშ-ის კონტინენტური ალბერსის ტოლფართობიანი
+Use	გამოყენება
+Use Current View	მიმდინარე ხედის გამოყენება
+Valid combinations, one per line: a, b	სწორი კომბინაციები, თითო ხაზზე ერთი: a, b
+Valid expression · {n} matching rows	სწორი გამოსახულება · შესატყვისი სტრიქონები: {n}
+Validate	ვალიდაცია
+value (empty: no-data)	მნიშვნელობა (ცარიელი: მონაცემების გარეშე)
+Vector and raster data	ვექტორული და რასტრული მონაცემები
+Vector tiles (MVT)	ვექტორული ფილები (MVT)
+Version {version}	ვერსია {version}
+Vertex	წვერო
+Video	ვიდეო
+Video file or URL	ვიდეო ფაილი ან URL
+Video Page	ვიდეოს გვერდი
+Videos	ვიდეოები
+Video…	ვიდეო…
+View	ხედი
+View Clipping	ხედის მოჭრა
+View Effects	ხედის ეფექტები
+View Extent	ხედის ფარგლები
+View Unplaced	განუთავსებლის ნახვა
+View › Windows	ხედი › ფანჯრები
+Viewshed from a point	ხილვადობის არეალი წერტილიდან
+Vignette	ვინიეტა
+Vignette and edge outlines.	ვინიეტა და წიბოების კონტურები.
+Visibility	ხილვადობა
+Visibility Analysis	ხილვადობის ანალიზი
+Visibility Range	ხილვადობის დიაპაზონი
+Visible	ხილული
+Visible Layers	ხილული ფენები
+Visual Effect	ვიზუალური ეფექტი
+Volume	მოცულობა
+Walk	სიარული
+Weather	ამინდი
+Web\nMap	ვებ\nრუკა
+Web Layer	ვებ ფენა
+Web Link Chart	ვებ ბმულის დიაგრამა
+Web Mercator	ვებ მერკატორი
+Web Scene	ვებ სცენა
+Web Style	ვებ სტილი
+Web Tile Layers	ვებ ფილების ფენები
+Web Tool	ვებ ხელსაწყო
+Website	ვებსაიტი
+Weights	წონები
+Welcome to RustGIS	მოგესალმებით RustGIS-ში
+West	დასავლეთი
+WGS 84 / Globe	WGS 84 / გლობუსი
+WGS 84 / Web Mercator	WGS 84 / ვებ მერკატორი
+What RustGIS opens with: the World Atlas sample or a blank map.	რას გახსნის RustGIS გაშვებისას: World Atlas-ის ნიმუშს ან ცარიელ რუკას.
+What's near a point	რა არის წერტილის ახლოს
+Where	სად
+Where Clause	Where პირობა
+Where labels sit relative to their features.	სად მდებარეობს წარწერები თავიანთი ობიექტების მიმართ.
+Where new features get their elevation (the z field).	საიდან იღებს ახალი ობიექტები სიმაღლეს (z ველი).
+Where the map opens: the full extent or a view you saved.	სად იხსნება რუკა: სრულ ფარგლებში ან თქვენ მიერ შენახულ ხედში.
+Where tools work	სად მუშაობს ხელსაწყოები
+Which 5 countries have the largest GDP?	რომელ 5 ქვეყანას აქვს ყველაზე დიდი მშპ?
+Whose borders the sample countries and the basemap outline show.	ვისი საზღვრები ჩანს ნიმუშ ქვეყნებზე და საბაზისო რუკის კონტურზე.
+Width (mm)	სიგანე (მმ)
+Windows	ფანჯრები
+Winkel Tripel	ვინკელ ტრიპელი
+Wireframe	კარკასი
+Withdrawn	გაუქმებულია
+Workflow Manager	სამუშაო პროცესის მენეჯერი
+Workflows	სამუშაო პროცესები
+Workspace	სამუშაო სივრცე
+Workspace cell size and blending.	სამუშაო სივრცის უჯრედის ზომა და შერწყმა.
+Workspace Options	სამუშაო სივრცის პარამეტრები
+World	მსოფლიო
+World Atlas	World Atlas
+World Atlas Sample	World Atlas-ის ნიმუში
+World Countries	მსოფლიოს ქვეყნები
+World, compromise: low overall distortion, used for world atlases.	მსოფლიო, კომპრომისული: მცირე საერთო დამახინჯება, გამოიყენება მსოფლიო ატლასებში.
+World, compromise: neither equal-area nor conformal, balanced for wall maps.	მსოფლიო, კომპრომისული: არც ტოლფართობიანი და არც კონფორმული, დაბალანსებული კედლის რუკებისთვის.
+World, compromise: rounded corners, gentle shapes near the poles.	მსოფლიო, კომპრომისული: მომრგვალებული კუთხეები, პოლუსებთან რბილი ფორმები.
+World, conformal: the usual web map; areas grow towards the poles.	მსოფლიო, კონფორმული: ჩვეულებრივი ვებ რუკა; ფართობები პოლუსებისკენ იზრდება.
+World, cylindrical: a compromise between Mercator and equal steps.	მსოფლიო, ცილინდრული: კომპრომისი მერკატორსა და თანაბარ ნაბიჯებს შორის.
+World, cylindrical: equal steps of longitude and latitude.	მსოფლიო, ცილინდრული: გრძედისა და განედის თანაბარი ნაბიჯები.
+World, equal-area, cylindrical: true sizes, flattened near the poles.	მსოფლიო, ტოლფართობიანი, ცილინდრული: ნამდვილი ზომები, პოლუსებთან გაბრტყელებული.
+World, equal-area: true sizes with a Robinson-like look.	მსოფლიო, ტოლფართობიანი: ნამდვილი ზომები რობინსონის მსგავსი იერით.
+World, equal-area: true sizes with rounded poles.	მსოფლიო, ტოლფართობიანი: ნამდვილი ზომები მომრგვალებული პოლუსებით.
+World, equal-area: true sizes, shapes bend towards the edges.	მსოფლიო, ტოლფართობიანი: ნამდვილი ზომები, ფორმები კიდეებისკენ იღუნება.
+Worldview	მსოფლიო ხედვა
+Write a plugin	დანამატის დაწერა
+X (mm)	X (მმ)
+X Field	X ველი
+XY Table To Point	XY ცხრილი წერტილებად
+XY Table To Point…	XY ცხრილი წერტილებად…
+Y (mm)	Y (მმ)
+Y Field	Y ველი
+Yes	დიახ
+You have version {version}.	თქვენ გაქვთ ვერსია {version}.
+z (m)	z (მ)
+Z factor	Z კოეფიციენტი
+Zoom	გადიდება
+Zoom about the pointer	გადიდება კურსორის გარშემო
+Zoom Box	გადიდების ჩარჩო
+Zoom Frame	გადიდების ჩარჩო
+Zoom In	გადიდება
+Zoom in	გადიდება
+Zoom in / out	გადიდება / დაპატარავება
+Zoom in on the centre of the map.	რუკის ცენტრზე გადიდება.
+Zoom in · finish a sketch	გადიდება · ესკიზის დასრულება
+Zoom Out	დაპატარავება
+Zoom out	დაპატარავება
+Zoom out from the centre of the map.	რუკის ცენტრიდან დაპატარავება.
+Zoom To	გადიდება არეზე
+Zoom To\nLayer	გადიდება\nფენაზე
+Zoom to a box (Explore)	გადიდება ჩარჩოზე (შესწავლა)
+Zoom To Extent	გადიდება ფარგლებზე
+Zoom To Layer	გადიდება ფენაზე
+Zoom To Map View	გადიდება რუკის ხედზე
+Zoom To Selection	გადიდება მონიშვნაზე
+Zoom to selection	გადიდება მონიშვნაზე
+Zoom to the error	გადიდება შეცდომაზე
+Zoom to the extent of all layers.	გადიდება ყველა ფენის ფარგლებზე.
+Zoom to the layer's extent.	გადიდება ფენის ფარგლებზე.
+Zoom to the selected features.	გადიდება მონიშნულ ობიექტებზე.
+Zoom to the whole world.	გადიდება მთელ მსოფლიოზე.
+Zoom to Tokyo	გადიდება ტოკიოზე
+Zoom To World	გადიდება მსოფლიოზე
+{id} changed since it was installed; install it again from the Plugin Manager.	{id} შეიცვალა ინსტალაციის შემდეგ; დააყენეთ ხელახლა დანამატების მენეჯერიდან.
+{name} was withdrawn from the plugin registry and has been turned off.	{name} დანამატების რეესტრიდან გაუქმდა და გამორთულია.
+{name} was withdrawn from the plugin registry: {reason}	{name} დანამატების რეესტრიდან გაუქმდა: {reason}
+{name}: the download doesn't match the registry; it wasn't installed.	{name}: ჩამოტვირთული რეესტრს არ ემთხვევა; არ დაყენებულა.
+{name}: the download is a different plugin; it wasn't installed.	{name}: ჩამოტვირთული სხვა დანამატია; არ დაყენებულა.
+{shown} of {total} plugins	{shown} / {total} დანამატი
+{total} plugins	{total} დანამატი
+{type} · {format}, read in place · a sample of {n} of the {matched} features in view (zoom in to see them all) · {renderer}	{type} · {format}, წაკითხულია ადგილზე · ხედში მოხვედრილი {matched} ობიექტიდან ნიმუში: {n} (ყველას სანახავად გაადიდეთ) · {renderer}
+{type} · {format}, read in place · {n} of {total} features in view · {renderer}	{type} · {format}, წაკითხულია ადგილზე · ხედში {n} / {total} ობიექტი · {renderer}
+{url}: only HTTPS addresses, or plain HTTP on this computer or network, are allowed	{url}: დაშვებულია მხოლოდ HTTPS მისამართები ან უბრალო HTTP ამ კომპიუტერზე თუ ქსელში
+© OpenStreetMap contributors	© OpenStreetMap contributors
+⌘K	⌘K

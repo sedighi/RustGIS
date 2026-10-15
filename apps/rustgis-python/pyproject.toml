@@ -1,0 +1,41 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "rustgis"
+description = "Python bindings to RustGIS, a fast, free and open-source GIS in pure Rust"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+authors = [{ name = "Qiusheng Wu", email = "giswqs@gmail.com" }]
+keywords = ["gis", "geospatial", "maps", "geoprocessing", "rust", "jupyter", "anywidget"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: Jupyter",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: GIS",
+]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+geopandas = ["geopandas>=0.14"]
+jupyter = ["anywidget>=0.9"]
+test = ["pytest>=7", "anywidget>=0.9"]
+
+[project.urls]
+Homepage = "https://rustgis.app"
+Documentation = "https://rustgis.app/python/"
+Repository = "https://github.com/opengeos/RustGIS"
+Issues = "https://github.com/opengeos/RustGIS/issues"
+
+[tool.maturin]
+python-source = "python"
+module-name = "rustgis._rustgis"
+features = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

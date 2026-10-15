@@ -1,6 +1,7 @@
 # de interface catalog: English<TAB>translation
  by 	 von
 (b4-b3)/(b4+b3)	(b4-b3)/(b4+b3)
+(filtered)	(gefiltert)
 00:00 UTC	00:00 UTC
 06:00 UTC	06:00 UTC
 12:00 UTC	12:00 UTC
@@ -247,6 +248,7 @@ Checking for updates…	Suche nach Updates…
 China	China
 Choose a band combination to display the raster layer.	Eine Kanalkombination zur Anzeige des Raster-Layers wählen.
 Choose a contrast stretch for the raster layer.	Eine Kontraststreckung für den Raster-Layer wählen.
+Choose a delimited text file or a spreadsheet, then pick its columns.	Wählen Sie eine Textdatei mit Trennzeichen oder eine Tabellenkalkulation und dann deren Spalten.
 Choose a model.	Wählen Sie ein Modell.
 Choose a resampling type for the raster layer.	Ein Resampling-Verfahren für den Raster-Layer wählen.
 Choose extra buttons for the Quick Access Toolbar.	Zusätzliche Schaltflächen für die Schnellzugriffsleiste wählen.
@@ -323,6 +325,7 @@ Color Vision	Farbsehen
 Color Vision Simulator	Farbsehsimulator
 Colormap	Farbtabelle
 Colors from the raster's own color table.	Farben aus der eigenen Farbtabelle des Rasters.
+Columns named like longitude/latitude, easting/northing or geometry are picked for you.	Spalten mit Namen wie longitude/latitude, easting/northing oder geometry werden für Sie ausgewählt.
 Combinations from the box above, one per line	Kombinationen aus dem Feld oben, eine pro Zeile
 Command\nSearch	Befehls-\nsuche
 command is required	command ist erforderlich
@@ -383,6 +386,7 @@ Create Polygon	Polygon erstellen
 Create Profile	Profil erstellen
 Create Thumbnail	Miniaturansicht erstellen
 Creates a point inside each input feature.	Erzeugt einen Punkt innerhalb jedes Eingabeobjekts.
+Creates points from a table's x and y coordinate fields.	Erzeugt Punkte aus den X- und Y-Koordinatenfeldern einer Tabelle.
 Creates polygons around input features at a given distance.	Erzeugt Polygone in einem bestimmten Abstand um die Eingabeobjekte.
 Cross Section	Querschnitt
 Cross Section (2 clicks)	Querschnitt (2 Klicks)
@@ -1307,6 +1311,7 @@ Remove Folder	Ordner entfernen
 Remove From Current Selection	Aus aktueller Auswahl entfernen
 Remove Keyframe	Keyframe entfernen
 Remove Section	Abschnitt entfernen
+Remove Table	Tabelle entfernen
 Remove the last keyframe.	Den letzten Keyframe entfernen.
 Remove the layer from the map.	Den Layer aus der Karte entfernen.
 Remove Tile Layer	Kachel-Layer entfernen
@@ -1812,7 +1817,11 @@ World, equal-area: true sizes, shapes bend towards the edges.	Welt, flächentreu
 Worldview	Grenzen
 Write a plugin	Ein Plugin schreiben
 X (mm)	X (mm)
+X Field	X-Feld
+XY Table To Point	XY-Tabelle zu Punkt
+XY Table To Point…	XY-Tabelle zu Punkt…
 Y (mm)	Y (mm)
+Y Field	Y-Feld
 Yes	Ja
 You have version {version}.	Sie haben Version {version}.
 z (m)	z (m)

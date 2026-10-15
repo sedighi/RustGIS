@@ -96,7 +96,7 @@ pub fn commands() -> Vec<C> {
             add_section(s, &json!({"report": i}), Section::Layout { layout, end: b(p, "end").unwrap_or(false) })
         })
         .when(need_report)
-        .params(r#"{"report"?, "layout"?: a layout's name, "path"?: "*.rgislayout", "text"?: layout JSON, "end"?: bool}"#),
+        .params(r#"{"report"?, "layout"?: a layout's name, "path"?: "*.rgislayout", "text"?: layout JSON, "data"?: base64 file, "end"?: bool}"#),
         C::new("report.relatedReport", "Related Report", "Publish › Report", |s, p| {
             let i = index(s, p)?;
             let other = ps(p, "related").ok_or("related is required (another report's name)")?;
@@ -233,7 +233,7 @@ pub fn commands() -> Vec<C> {
             .when(need_report)
             .params(r#"{"report"?, "path": "*.rgisrpttemplate"}"#),
         C::new("report.open", "Import Report", "Data › Project", open).params(
-            r#"{"path"?: "*.rgisreport|*.rgisrpttemplate", "text"?: report JSON, "layer"?: the layer a template reports on (default: the selected layer)}"#,
+            r#"{"path"?: "*.rgisreport|*.rgisrpttemplate", "text"?: report JSON, "data"?: base64 file, "layer"?: the layer a template reports on (default: the selected layer)}"#,
         ),
     ]
 }

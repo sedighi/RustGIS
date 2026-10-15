@@ -8,7 +8,7 @@
 //! Settings › Language picks one by hand.
 //!
 //! The language set follows GeoLibre's, minus scripts egui can't yet shape or lay out
-//! (Arabic, Hebrew, Hindi, Thai, Georgian).
+//! (Arabic, Persian, Hebrew, Hindi, Thai, Georgian).
 //!
 //! # Catalog format
 //! UTF-8, one `English<TAB>Translation` pair per line; `#` starts a comment line; `\n` and `\t`
@@ -27,7 +27,7 @@ pub const AUTO: &str = "auto";
 /// Writing systems that need an extra font.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Script {
-    /// Latin, Cyrillic or Greek: covered by the interface font.
+    /// Latin, Cyrillic, Greek or Georgian: covered by the interface fonts.
     Alphabetic,
     Cjk(CjkFont),
     Persian,
@@ -77,6 +77,7 @@ pub static LANGUAGES: [LangInfo; 16] = [
     lang!("zh", "简体中文", "Chinese (Simplified)", Script::Cjk(CjkFont::SimplifiedChinese), "zh.tsv"),
     lang!("ja", "日本語", "Japanese", Script::Cjk(CjkFont::Japanese), "ja.tsv"),
     lang!("ko", "한국어", "Korean", Script::Cjk(CjkFont::Korean), "ko.tsv"),
+    lang!("ka", "ქართული", "Georgian", Script::Alphabetic, "ka.tsv"),
 ];
 
 fn unescape(s: &str) -> String {

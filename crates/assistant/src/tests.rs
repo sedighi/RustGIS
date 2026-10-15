@@ -161,6 +161,7 @@ fn gate_rules() {
     assert!(g("run_tool", json!({"tool": "buffer", "params": {"input": "Cities", "distance": 100}})).is_none());
     assert!(g("list_layers", json!({})).is_none());
     assert!(g("run_command", json!({"command": "info.fileLayers", "params": {"path": "/etc/passwd"}})).is_some());
+    assert!(g("run_command", json!({"command": "info.fileColumns", "params": {"path": "/etc/passwd"}})).is_some());
 }
 
 /// What a command says beside its result reaches the model (issue #85).

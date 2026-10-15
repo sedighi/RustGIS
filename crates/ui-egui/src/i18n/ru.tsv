@@ -1,6 +1,7 @@
 # ru interface catalog: English<TAB>translation
  by 	 по
 (b4-b3)/(b4+b3)	(b4-b3)/(b4+b3)
+(filtered)	(отфильтрован)
 00:00 UTC	00:00 UTC
 06:00 UTC	06:00 UTC
 12:00 UTC	12:00 UTC
@@ -247,6 +248,7 @@ Checking for updates…	Проверка обновлений…
 China	Китай
 Choose a band combination to display the raster layer.	Выберите комбинацию каналов для отображения растрового слоя.
 Choose a contrast stretch for the raster layer.	Выберите растяжку контраста для растрового слоя.
+Choose a delimited text file or a spreadsheet, then pick its columns.	Выберите текстовый файл с разделителями или электронную таблицу, затем — её столбцы.
 Choose a model.	Выберите модель.
 Choose a resampling type for the raster layer.	Выберите тип передискретизации для растрового слоя.
 Choose extra buttons for the Quick Access Toolbar.	Выбрать дополнительные кнопки для панели быстрого доступа.
@@ -323,6 +325,7 @@ Color Vision	Цветовое зрение
 Color Vision Simulator	Симулятор цветового зрения
 Colormap	Цветовая карта
 Colors from the raster's own color table.	Цвета из собственной цветовой таблицы растра.
+Columns named like longitude/latitude, easting/northing or geometry are picked for you.	Столбцы с именами вроде longitude/latitude, easting/northing или geometry выбираются автоматически.
 Combinations from the box above, one per line	Сочетания из поля выше, по одному в строке
 Command\nSearch	Поиск\nкоманд
 command is required	требуется command
@@ -383,6 +386,7 @@ Create Polygon	Создать полигон
 Create Profile	Создать профиль
 Create Thumbnail	Создать эскиз
 Creates a point inside each input feature.	Создаёт точку внутри каждого входного объекта.
+Creates points from a table's x and y coordinate fields.	Создаёт точки по полям координат x и y таблицы.
 Creates polygons around input features at a given distance.	Создаёт полигоны вокруг входных объектов на заданном расстоянии.
 Cross Section	Поперечный разрез
 Cross Section (2 clicks)	Поперечный разрез (2 щелчка)
@@ -1307,6 +1311,7 @@ Remove Folder	Удалить папку
 Remove From Current Selection	Удалить из текущей выборки
 Remove Keyframe	Удалить ключевой кадр
 Remove Section	Удалить раздел
+Remove Table	Удалить таблицу
 Remove the last keyframe.	Удалить последний ключевой кадр.
 Remove the layer from the map.	Удалить слой с карты.
 Remove Tile Layer	Удалить слой тайлов
@@ -1812,7 +1817,11 @@ World, equal-area: true sizes, shapes bend towards the edges.	Мир, равно
 Worldview	Границы
 Write a plugin	Написать модуль
 X (mm)	X (мм)
+X Field	Поле X
+XY Table To Point	Таблица XY в точки
+XY Table To Point…	Таблица XY в точки…
 Y (mm)	Y (мм)
+Y Field	Поле Y
 Yes	Да
 You have version {version}.	У вас версия {version}.
 z (m)	z (м)

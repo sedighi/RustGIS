@@ -18,7 +18,7 @@ log = { workspace = true }
 # check its SHA-256 and unpack it. Native only: the browser uses the WASI runner instead.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
-sha2 = "0.10"
+sha2 = { workspace = true }
 flate2 = "1"
 tar = "0.4"
 zip = { version = "2", default-features = false, features = ["deflate"] }

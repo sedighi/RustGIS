@@ -20,6 +20,23 @@ pub struct Dialogs {
     pub flag: bool,
     pub error: Option<String>,
     pub info: Option<String>,
+    /// Choices found for the dialog (Add From Database's tables; Add Delimited Text's columns).
+    pub list: Vec<String>,
+    /// Add Delimited Text's file, picked before the dialog opens.
+    pub csv: Option<CsvFile>,
+}
+
+/// A file picked for Add Delimited Text.
+pub struct CsvFile {
+    pub name: String,
+    pub source: CsvSource,
+}
+
+/// Where a file picked for Add Delimited Text is: on disk, or (in the browser) its bytes, kept
+/// until it is added.
+pub enum CsvSource {
+    Path(String),
+    Bytes(Vec<u8>),
 }
 
 impl Dialogs {
@@ -38,7 +55,21 @@ impl Dialogs {
             "camera" => "camera",
             "addTiles" => "addTiles",
             "addCsv" => "addCsv",
+            "findPlace" => "findPlace",
+            "geocode" => "geocode",
+            "addUrl" => "addUrl",
+            "addService" => "addService",
+            "addDatabase" => "addDatabase",
+            "stac" => "stac",
+            "s3" => "s3",
+            "osm" => "osm",
+            "boundaries" => "boundaries",
+            "overture" => "overture",
+            "sourcecoop" => "sourcecoop",
+            "opendata" => "opendata",
+            "zarr" => "zarr",
             "exportLayer" => "exportLayer",
+            "saveProject" => "saveProject",
             other => return Err(format!("unknown dialog '{other}'")),
         };
         if matches!(name, "addField" | "calculateField" | "definitionQuery" | "renameLayer" | "exportLayer") && active.is_none() {
@@ -79,7 +110,16 @@ impl Dialogs {
             "calculateField" => self.a = active.and_then(|l| l.dataset.fields.last()).map(|f| f.name.clone()).unwrap_or_default(),
             "definitionQuery" => self.text = active.and_then(|l| l.definition_query.clone()).unwrap_or_default(),
             "renameLayer" => self.text = active.map(|l| l.name.clone()).unwrap_or_default(),
+            // A file name can't hold a folder separator, which a project name may.
+            "saveProject" => self.text = format!("{}.rgis", s.project.name.replace(['/', '\\'], "-")),
             "exportLayer" => self.mode = "geojson",
+            // A table of addresses is what's usually geocoded: picked by its id (`flag` says the
+            // choice is a table), since names can repeat.
+            "geocode" => {
+                if let Some(t) = s.project.tables.last() {
+                    (self.layer, self.flag) = (t.id.to_string(), true);
+                }
+            }
             _ => {}
         }
         Ok(())
@@ -100,7 +140,21 @@ pub fn show(app: &mut RustGisApp, ctx: &egui::Context) {
         "camera" => "Camera",
         "addTiles" => "Add Tile Layer",
         "addCsv" => "Add Delimited Text",
+        "findPlace" => "Find Place",
+        "geocode" => "Geocode Addresses",
+        "addUrl" => "Add Data From URL",
+        "addService" => "Add From Service",
+        "addDatabase" => "Add From Database",
+        "stac" => "STAC Search",
+        "s3" => "S3 Buckets",
+        "osm" => "OpenStreetMap",
+        "boundaries" => "Administrative Boundaries",
+        "overture" => "Overture Maps",
+        "sourcecoop" => "Source Cooperative",
+        "opendata" => "Search Open Data",
+        "zarr" => "Add Zarr Variable",
         "exportLayer" => "Export Features",
+        "saveProject" => "Save Project As",
         _ => "Rename Layer",
     };
     let t = Tokens::get(ctx);
@@ -108,8 +162,8 @@ pub fn show(app: &mut RustGisApp, ctx: &egui::Context) {
     let mut close = false;
     egui::Window::new(tl!(title)).id(egui::Id::new("dialog")).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, vec2(0.0, -40.0)).show(ctx, |ui| {
         ui.set_width(match which {
-            "coordinateSystem" => 660.0,
-            "addTiles" => 560.0,
+            "coordinateSystem" | "zarr" => 660.0,
+            "addTiles" | "addUrl" | "addService" | "stac" | "s3" | "sourcecoop" | "opendata" => 560.0,
             _ => 440.0,
         });
         ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
@@ -138,6 +192,19 @@ pub fn show(app: &mut RustGisApp, ctx: &egui::Context) {
             "coordinateSystem" => close = coordinate_system(app, ui, &t),
             "addTiles" => close = add_tiles(app, ui),
             "addCsv" => close = add_csv(app, ui),
+            "findPlace" => close = crate::geocodeui::find_place(app, ui),
+            "geocode" => close = crate::geocodeui::geocode(app, ui),
+            "addUrl" => close = add_url(app, ui),
+            "addService" => close = add_service(app, ui),
+            "addDatabase" => close = add_database(app, ui),
+            "stac" => crate::stacui::dialog(app, ui),
+            "s3" => crate::s3ui::dialog(app, ui),
+            "osm" => crate::portalsui::osm(app, ui),
+            "boundaries" => crate::portalsui::boundaries(app, ui),
+            "overture" => crate::catalogsui::overture(app, ui),
+            "sourcecoop" => crate::catalogsui::sourcecoop(app, ui),
+            "opendata" => crate::opendataui::dialog(app, ui),
+            "zarr" => close = crate::zarrui::dialog(app, ui),
             "exportLayer" => close = export_layer(app, ui),
             "camera" => {
                 egui::Grid::new("cam").num_columns(2).spacing(vec2(10.0, 8.0)).show(ui, |ui| {
@@ -229,6 +296,7 @@ pub fn show(app: &mut RustGisApp, ctx: &egui::Context) {
                 field_chips(app, ui);
                 close = buttons(app, ui, "Apply", |app| app.run("layer.definitionQuery", json!({"where": app.dialogs.text})).map(|_| ()));
             }
+            "saveProject" => close = save_project(app, ui),
             _ => {
                 ui.label(tl!("Name"));
                 ui.add(egui::TextEdit::singleline(&mut app.dialogs.text).desired_width(f32::INFINITY));
@@ -245,6 +313,26 @@ pub fn show(app: &mut RustGisApp, ctx: &egui::Context) {
     if !open || close {
         app.dialogs.open = None;
     }
+}
+
+/// Save Project As in the browser, which has no save dialog: the file name to download the
+/// project as. The browser decides where downloads go.
+fn save_project(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
+    ui.label(tl!("File name"));
+    let mut edit = egui::TextEdit::singleline(&mut app.dialogs.text).desired_width(f32::INFINITY).show(ui);
+    // Opened: the name is selected, so typing replaces it.
+    if app.dialogs.mode == "new" {
+        app.dialogs.mode = "";
+        edit.response.request_focus();
+        let end = app.dialogs.text.chars().count();
+        edit.state.cursor.set_char_range(Some(egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(end))));
+        edit.state.store(ui.ctx(), edit.response.id);
+    }
+    ui.label(egui::RichText::new(tl!("The project downloads as this file, to the folder your browser saves downloads in.")).small().weak());
+    buttons(app, ui, "Save", |app| {
+        let file = app.dialogs.text.clone();
+        app.save_download(&file)
+    })
 }
 
 /// The formats Export Features writes: (name, extension). Format names aren't translated.
@@ -286,45 +374,422 @@ fn export_layer(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
     })
 }
 
-/// Add Delimited Text: which columns hold the coordinates (or WKT geometry), their coordinate
-/// system and the separator, then the file.
-fn add_csv(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
-    if app.dialogs.mode == "new" {
-        app.dialogs.mode = "auto";
+/// Add Delimited Text's separators: (code, name).
+const SEPARATORS: [(&str, &str); 5] = [("auto", "Automatic"), (",", "Comma"), (";", "Semicolon"), ("\t", "Tab"), ("|", "Pipe")];
+
+/// Opens Add Delimited Text for a file picked: its columns, with the ones found by name picked.
+pub fn open_csv(app: &mut RustGisApp, name: &str, source: CsvSource) -> Result<Value, String> {
+    app.run("ui.dialog", json!({"name": "addCsv"}))?;
+    let file = CsvFile { name: name.to_string(), source };
+    app.dialogs.mode = "auto";
+    show_columns(&mut app.dialogs, csv_columns(&file, "auto"));
+    app.dialogs.csv = Some(file);
+    Ok(Value::Null)
+}
+
+/// The columns of a file picked for Add Delimited Text, split at `separator` (a code of
+/// [`SEPARATORS`]).
+fn csv_columns(file: &CsvFile, separator: &str) -> Result<Value, String> {
+    let p = if separator == "auto" { json!({}) } else { json!({"delimiter": separator}) };
+    match &file.source {
+        CsvSource::Path(path) => rustgis_engine::cmd::layer::columns_in_file(path, &p),
+        CsvSource::Bytes(bytes) => rustgis_engine::cmd::layer::columns_of(&file.name, bytes, &p),
     }
-    ui.label(egui::RichText::new(tl!("Leave a box empty to find it from the file: x/y columns named like longitude/latitude or easting/northing, or a WKT column named like geometry.")).weak());
+}
+
+/// Puts the columns read (`info.fileColumns`' answer) in the dialog, the ones found picked; an
+/// error leaves none.
+fn show_columns(d: &mut Dialogs, found: Result<Value, String>) {
+    let text = |v: &Value| v.as_str().unwrap_or("").to_string();
+    match found {
+        Ok(v) => {
+            d.list = v["columns"].as_array().map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default();
+            (d.a, d.b, d.c) = (text(&v["x"]), text(&v["y"]), text(&v["wkt"]));
+            if let Some((code, _)) = SEPARATORS.iter().find(|(c, _)| v["delimiter"].as_str() == Some(*c)) {
+                d.mode = *code;
+            }
+            d.error = None;
+        }
+        Err(e) => {
+            d.list.clear();
+            (d.a, d.b, d.c) = (String::new(), String::new(), String::new());
+            d.error = Some(e);
+        }
+    }
+}
+
+/// After the columns are read again: the x/y columns (or the WKT column) picked before stay picked
+/// when the file still has them; otherwise the ones found are.
+fn keep_picked(d: &mut Dialogs, [x, y, wkt]: [String; 3]) {
+    let has = |c: &String| !c.is_empty() && d.list.contains(c);
+    let (xy, w) = (has(&x) && has(&y), has(&wkt));
+    if xy {
+        (d.a, d.b, d.c) = (x, y, String::new());
+    } else if w {
+        (d.a, d.b, d.c) = (String::new(), String::new(), wkt);
+    }
+}
+
+/// Add Delimited Text, for the file picked: which of its columns hold the coordinates (or WKT
+/// geometry), their coordinate system and the separator.
+fn add_csv(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
+    let Some(name) = app.dialogs.csv.as_ref().map(|f| f.name.clone()) else {
+        // Opened without a file (`ui.dialog`): the file first.
+        ui.label(tl!("Choose a delimited text file or a spreadsheet, then pick its columns."));
+        let close = buttons(app, ui, "Choose File…", |app| app.run("ui.addDelimited", Value::Null).map(|_| ()));
+        // On the desktop the dialog is open again, for the file picked.
+        return close && app.dialogs.csv.is_none();
+    };
+    let sheet = rustgis_engine::data::sheets::is_sheet_name(&name);
+    let shown = std::path::Path::new(&name).file_name().and_then(|n| n.to_str()).unwrap_or(&name).to_string();
+    ui.label(egui::RichText::new(shown).strong());
+    ui.label(egui::RichText::new(tl!("Columns named like longitude/latitude, easting/northing or geometry are picked for you.")).weak());
+    let mut reread = false;
     egui::Grid::new("csv").num_columns(2).spacing(vec2(10.0, 8.0)).show(ui, |ui| {
-        for (label, hint, v) in [
-            ("X column", "longitude, easting…", &mut app.dialogs.a),
-            ("Y column", "latitude, northing…", &mut app.dialogs.b),
-            ("WKT column", "wkt, geometry…", &mut app.dialogs.c),
-            ("Coordinate system", "EPSG:4326", &mut app.dialogs.text),
-        ] {
+        let columns = app.dialogs.list.clone();
+        for (i, label) in ["X column", "Y column", "WKT column"].into_iter().enumerate() {
             ui.label(tl!(label));
-            ui.add(egui::TextEdit::singleline(v).hint_text(tl!(hint)).desired_width(240.0));
+            let d = &mut app.dialogs;
+            let v = match i {
+                0 => &mut d.a,
+                1 => &mut d.b,
+                _ => &mut d.c,
+            };
+            let before = v.clone();
+            let selected = if v.is_empty() { tl!("None").to_string() } else { v.clone() };
+            egui::ComboBox::from_id_salt(("csv_column", i)).selected_text(selected).width(240.0).show_ui(ui, |ui| {
+                ui.selectable_value(v, String::new(), tl!("None"));
+                for c in &columns {
+                    ui.selectable_value(v, c.clone(), c.as_str());
+                }
+            });
+            // x/y columns or a WKT column, not both.
+            if *v != before && !v.is_empty() {
+                if i == 2 {
+                    (d.a, d.b) = (String::new(), String::new());
+                } else {
+                    d.c.clear();
+                }
+            }
             ui.end_row();
         }
-        ui.label(tl!("Separator"));
-        let seps: [(&'static str, &str); 5] = [("auto", "Automatic"), (",", "Comma"), (";", "Semicolon"), ("\t", "Tab"), ("|", "Pipe")];
-        let shown = seps.iter().find(|(c, _)| *c == app.dialogs.mode).map(|(_, l)| tl!(*l).to_string()).unwrap_or_default();
-        egui::ComboBox::from_id_salt("csv_sep").selected_text(shown).width(240.0).show_ui(ui, |ui| {
-            for (code, label) in seps {
-                ui.selectable_value(&mut app.dialogs.mode, code, tl!(label));
-            }
-        });
+        ui.label(tl!("Coordinate system"));
+        ui.add(egui::TextEdit::singleline(&mut app.dialogs.text).hint_text("EPSG:4326").desired_width(240.0));
         ui.end_row();
+        // A sheet has no separator.
+        if !sheet {
+            ui.label(tl!("Separator"));
+            let before = app.dialogs.mode;
+            let shown = SEPARATORS.iter().find(|(c, _)| *c == app.dialogs.mode).map(|(_, l)| tl!(*l).to_string()).unwrap_or_default();
+            egui::ComboBox::from_id_salt("csv_sep").selected_text(shown).width(240.0).show_ui(ui, |ui| {
+                for (code, label) in SEPARATORS {
+                    ui.selectable_value(&mut app.dialogs.mode, code, tl!(label));
+                }
+            });
+            reread = app.dialogs.mode != before;
+            ui.end_row();
+        }
     });
-    buttons(app, ui, "Choose File…", |app| {
+    // Another separator splits the header differently: its columns are read again.
+    if reread && let Some(file) = &app.dialogs.csv {
+        let found = csv_columns(file, app.dialogs.mode);
+        let picked = [app.dialogs.a.clone(), app.dialogs.b.clone(), app.dialogs.c.clone()];
+        show_columns(&mut app.dialogs, found);
+        keep_picked(&mut app.dialogs, picked);
+    }
+    buttons(app, ui, "Add", |app| {
         let mut p = json!({});
         for (key, v) in [("x", &app.dialogs.a), ("y", &app.dialogs.b), ("wkt", &app.dialogs.c), ("crs", &app.dialogs.text)] {
             if !v.trim().is_empty() {
                 p[key] = json!(v.trim());
             }
         }
-        if app.dialogs.mode != "auto" {
+        if app.dialogs.mode != "auto" && !sheet {
             p["delimiter"] = json!(app.dialogs.mode);
         }
-        app.run("ui.addDelimited", p).map(|_| ())
+        let file = app.dialogs.csv.take().ok_or("choose a file first")?;
+        let r = match &file.source {
+            CsvSource::Path(path) => {
+                p["path"] = json!(path);
+                app.run("layer.addData", p)
+            }
+            CsvSource::Bytes(bytes) => app.open_bytes_with(&file.name, bytes, Some(p)),
+        };
+        // Kept for another try.
+        if r.is_err() {
+            app.dialogs.csv = Some(file);
+        }
+        r.map(|_| ())
+    })
+}
+
+/// How many of a service's layers Add From Service lists.
+const SHOWN_LAYERS: usize = 500;
+
+/// Add From Service: a WMS, WMTS, WFS, WCS, OGC API Features or ArcGIS REST service by its address
+/// (or a catalogue searched for them, `cswui`).
+/// Connect fetches its capabilities in the background; its layers are then listed, each with an
+/// Add button (map layers become tile layers, features are downloaded).
+fn add_service(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
+    const KINDS: [(&str, &str); 8] = [
+        ("auto", "Automatic"),
+        ("wms", "WMS"),
+        ("wmts", "WMTS"),
+        ("wfs", "WFS"),
+        ("wcs", "WCS"),
+        ("ogcapi", "OGC API Features and Tiles"),
+        ("arcgis", "ArcGIS REST"),
+        ("csw", "Catalogue search (CSW)"),
+    ];
+    if app.dialogs.mode == "new" {
+        app.dialogs.mode = "auto";
+    }
+    let kinds = |app: &mut RustGisApp, ui: &mut egui::Ui| {
+        ui.label(tl!("Type"));
+        let shown = KINDS.iter().find(|(c, _)| *c == app.dialogs.mode).map(|(_, l)| tl!(*l).to_string()).unwrap_or_default();
+        egui::ComboBox::from_id_salt("service_kind").selected_text(shown).width(240.0).show_ui(ui, |ui| {
+            for (code, label) in KINDS {
+                ui.selectable_value(&mut app.dialogs.mode, code, tl!(label));
+            }
+        });
+    };
+    // A catalogue: searched for records, whose links connect here or download.
+    if app.dialogs.mode == "csw" {
+        ui.label(egui::RichText::new(tl!("A catalogue's (CSW 2.0.2) address: search its records by words and, if you like, the map's area, then add the services and files they link to.")).weak());
+        crate::cswui::form(app, ui, kinds);
+        return false;
+    }
+    ui.label(egui::RichText::new(tl!("A map, feature or coverage service's address: WMS, WMTS, WFS, WCS, OGC API Features or Tiles, or an ArcGIS FeatureServer, MapServer, ImageServer or VectorTileServer.")).weak());
+    let mut connect = false;
+    egui::Grid::new("service").num_columns(2).spacing(vec2(10.0, 8.0)).show(ui, |ui| {
+        ui.label(tl!("Address"));
+        let r = ui.add(egui::TextEdit::singleline(&mut app.dialogs.text).hint_text("https://…/wms").desired_width(420.0));
+        connect |= r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        ui.end_row();
+        kinds(app, ui);
+        ui.end_row();
+    });
+    let t = Tokens::get(ui.ctx());
+    ui.horizontal(|ui| {
+        connect |= crate::widgets::dialog_button(ui, tl!("Connect"), Some(t.accent), vec2(96.0, 28.0)).clicked();
+    });
+    if connect {
+        let url = app.dialogs.text.trim().to_string();
+        app.dialogs.error = None;
+        app.dialogs.info = None;
+        if url.is_empty() {
+            app.dialogs.error = Some(tl!("Give the service's web address").to_string());
+        } else if let Err(e) = app.run("ui.addService", json!({"url": url, "type": app.dialogs.mode})) {
+            app.dialogs.error = Some(e);
+        }
+    }
+    // The service: connecting, an error, or its layers.
+    let mut add: Option<Value> = None;
+    if let Some(conn) = &app.ui.service {
+        ui.separator();
+        if let Some(e) = &conn.error {
+            ui.colored_label(t.red, e);
+        } else if let Some(v) = &conn.listing {
+            let kind = v.get("kind").and_then(Value::as_str).unwrap_or("");
+            let title = v.get("title").and_then(Value::as_str).unwrap_or("");
+            // Borrowed, not cloned: the dialog draws every frame.
+            let none = Vec::new();
+            let layers = v.get("layers").and_then(Value::as_array).unwrap_or(&none);
+            ui.label(
+                egui::RichText::new(crate::i18n::fmt(
+                    "{kind} {title}: {count} layers",
+                    &[("kind", kind), ("title", title), ("count", &layers.len().to_string())],
+                ))
+                .strong(),
+            );
+            for n in v.get("notes").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
+                ui.label(egui::RichText::new(n).small().weak());
+            }
+            if layers.len() > SHOWN_LAYERS {
+                ui.label(
+                    egui::RichText::new(crate::i18n::fmt("The first {n} are listed.", &[("n", &SHOWN_LAYERS.to_string())])).small().weak(),
+                );
+            }
+            egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
+                for l in layers.iter().take(SHOWN_LAYERS) {
+                    ui.horizontal(|ui| {
+                        if ui.small_button(tl!("Add")).clicked() {
+                            add = Some(l.clone());
+                        }
+                        let name = l.get("name").and_then(Value::as_str).unwrap_or("");
+                        ui.label(l.get("title").and_then(Value::as_str).unwrap_or(name)).on_hover_text(name);
+                        let what = match l.get("offer").and_then(|o| o.get("type")).and_then(Value::as_str) {
+                            Some("features") => tl!("features"),
+                            Some("style") => tl!("style"),
+                            Some("coverage") => tl!("coverage"),
+                            _ => tl!("map"),
+                        };
+                        ui.label(egui::RichText::new(what).small().weak());
+                    });
+                }
+            });
+        } else {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(crate::i18n::fmt("Connecting to {url}…", &[("url", &conn.url)]));
+            });
+        }
+    }
+    if let (Some(l), Some(conn)) = (add, &app.ui.service) {
+        let (url, kind, text) = (conn.url.clone(), conn.kind, conn.text.clone().unwrap_or_default());
+        let name = l.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+        let title = l.get("title").and_then(Value::as_str).unwrap_or(&name).to_string();
+        let offer = l.get("offer").cloned().unwrap_or_default();
+        // Features are downloaded in the background, as From URL… does; map layers are added now.
+        let r = if offer.get("type").and_then(Value::as_str) == Some("features") {
+            let items = offer.get("url").and_then(Value::as_str).unwrap_or("").to_string();
+            app.run("ui.addUrl", json!({"url": items, "name": title, "service": true})).map(|_| tl!("Downloading…"))
+        } else if offer.get("type").and_then(Value::as_str) == Some("coverage") {
+            // A coverage: its description first, off the frame (poll_describe asks for it).
+            let describe = offer.get("describe").and_then(Value::as_str).unwrap_or("").to_string();
+            let mut p = json!({"url": url, "layer": name, "text": text, "name": title});
+            if kind != "auto" {
+                p["type"] = json!(kind);
+            }
+            let slot = crate::fetch_into(&describe);
+            if let Some(c) = &mut app.ui.service {
+                c.describing = Some((p, slot));
+            }
+            Ok(tl!("Describing"))
+        } else {
+            let mut p = json!({"url": url, "layer": name, "text": text});
+            if kind != "auto" {
+                p["type"] = json!(kind);
+            }
+            match l.get("tilesets").and_then(Value::as_str) {
+                // An OGC API layer: its tileset's advertised template is read first, off the
+                // frame (poll_tiles_resolve adds the layer).
+                Some(list) => {
+                    p["name"] = json!(title);
+                    let fallback = offer.get("url").and_then(Value::as_str).unwrap_or("").to_string();
+                    let vector = offer.get("type").and_then(Value::as_str) == Some("vectorTiles");
+                    let slot = crate::fetch_into(list);
+                    if let Some(c) = &mut app.ui.service {
+                        c.resolving = Some(crate::TilesResolve {
+                            params: p,
+                            list: list.to_string(),
+                            doc: list.to_string(),
+                            read: 0,
+                            vector,
+                            fallback,
+                            slot,
+                        });
+                    }
+                    Ok(tl!("Reading the tileset of"))
+                }
+                None => app.run("service.add", p).map(|_| tl!("Added")),
+            }
+        };
+        match r {
+            Ok(m) => app.dialogs.info = Some(format!("{m} {title}")),
+            Err(e) => app.dialogs.error = Some(e),
+        }
+        app.map.invalidate();
+    }
+    if let Some(i) = &app.dialogs.info {
+        ui.label(egui::RichText::new(i).small());
+    }
+    false
+}
+
+/// Add Data From URL: a file on the web, downloaded and added (a PMTiles archive is read in place).
+fn add_url(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
+    let hint = if cfg!(target_arch = "wasm32") {
+        tl!(
+            "GeoJSON, CSV, GeoParquet, FlatGeobuf, GeoPackage, zipped Shapefiles, KML, GPX or GeoTIFF, up to 256 MB; the server must allow requests from web pages (CORS)."
+        )
+    } else {
+        tl!("GeoJSON, CSV, GeoParquet, FlatGeobuf, GeoPackage, zipped Shapefiles, KML, GPX or GeoTIFF, up to 512 MB.")
+    };
+    ui.label(egui::RichText::new(hint).weak());
+    egui::Grid::new("url").num_columns(2).spacing(vec2(10.0, 8.0)).show(ui, |ui| {
+        ui.label(tl!("Address"));
+        ui.add(egui::TextEdit::singleline(&mut app.dialogs.text).hint_text("https://…/data.geojson").desired_width(400.0));
+        ui.end_row();
+        ui.label(tl!("Name"));
+        ui.add(egui::TextEdit::singleline(&mut app.dialogs.a).hint_text(tl!("from the address")).desired_width(400.0));
+        ui.end_row();
+    });
+    buttons(app, ui, "Add", |app| {
+        let url = app.dialogs.text.trim().to_string();
+        if url.is_empty() {
+            return Err(tl!("Give the file's web address").to_string());
+        }
+        app.run("ui.addUrl", json!({"url": url, "name": app.dialogs.a.trim()})).map(|_| ())
+    })
+}
+
+/// Add From Database: a PostgreSQL/PostGIS connection (or a DuckDB file), its password (kept for
+/// the session only) and one table or all of them.
+fn add_database(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
+    ui.label(egui::RichText::new(tl!("A PostgreSQL connection (host=… port=… dbname=… user=…, or a postgresql:// address) or a DuckDB file. Read through DuckDB; the password is kept until RustGIS closes, never in the project.")).weak());
+    // A bare connection string is a PostgreSQL one.
+    let database = |a: &str| {
+        let a = a.trim();
+        if a.contains('=') && !a.contains("://") && !a.to_ascii_lowercase().starts_with("postgres:") {
+            format!("postgres:{a}")
+        } else {
+            a.to_string()
+        }
+    };
+    let mut list = false;
+    egui::Grid::new("database").num_columns(2).spacing(vec2(10.0, 8.0)).show(ui, |ui| {
+        ui.label(tl!("Connection"));
+        ui.add(egui::TextEdit::singleline(&mut app.dialogs.a).hint_text("host=localhost dbname=gis user=postgres").desired_width(280.0));
+        ui.end_row();
+        ui.label(tl!("Password"));
+        ui.add(
+            egui::TextEdit::singleline(&mut app.dialogs.b).password(true).hint_text(tl!("none, or from PGPASSWORD")).desired_width(280.0),
+        );
+        ui.end_row();
+        ui.label(tl!("Table"));
+        ui.horizontal(|ui| {
+            let shown = if app.dialogs.c.is_empty() { tl!("All tables with geometry").to_string() } else { app.dialogs.c.clone() };
+            egui::ComboBox::from_id_salt("db_table").selected_text(shown).width(190.0).show_ui(ui, |ui| {
+                ui.selectable_value(&mut app.dialogs.c, String::new(), tl!("All tables with geometry"));
+                for t in app.dialogs.list.clone() {
+                    ui.selectable_value(&mut app.dialogs.c, t.clone(), t);
+                }
+            });
+            list = ui.button(tl!("List Tables")).clicked();
+        });
+        ui.end_row();
+        ui.label(tl!("Coordinate system"));
+        ui.add(egui::TextEdit::singleline(&mut app.dialogs.text).hint_text(tl!("of a geometry that doesn't say")).desired_width(280.0));
+        ui.end_row();
+    });
+    if list {
+        let p = json!({"database": database(&app.dialogs.a), "password": app.dialogs.b});
+        match app.run("info.databaseTables", p) {
+            Ok(v) => {
+                app.dialogs.list = v["layers"].as_array().into_iter().flatten().filter_map(|t| t.as_str().map(str::to_string)).collect();
+                app.dialogs.error = None;
+                app.dialogs.info = Some(crate::i18n::fmt("{n} tables with geometry", &[("n", &app.dialogs.list.len().to_string())]));
+            }
+            Err(e) => {
+                app.dialogs.info = None;
+                app.dialogs.error = Some(e);
+            }
+        }
+    }
+    buttons(app, ui, "Add", |app| {
+        let mut p = json!({"database": database(&app.dialogs.a), "password": app.dialogs.b});
+        for (key, v) in [("layer", &app.dialogs.c), ("crs", &app.dialogs.text)] {
+            if !v.trim().is_empty() {
+                p[key] = json!(v.trim());
+            }
+        }
+        let r = app.run("layer.addDatabase", p).map(|_| ());
+        // The password is the session's to keep, not the dialog's.
+        if r.is_ok() {
+            app.dialogs.b.clear();
+        }
+        r
     })
 }
 
@@ -393,7 +858,7 @@ fn add_tiles(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
 }
 
 /// OK/Cancel row; returns true when the dialog should close.
-fn buttons(app: &mut RustGisApp, ui: &mut egui::Ui, ok: &str, f: impl FnOnce(&mut RustGisApp) -> Result<(), String>) -> bool {
+pub(crate) fn buttons(app: &mut RustGisApp, ui: &mut egui::Ui, ok: &str, f: impl FnOnce(&mut RustGisApp) -> Result<(), String>) -> bool {
     let mut close = false;
     ui.add_space(4.0);
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {

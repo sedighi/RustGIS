@@ -5,7 +5,13 @@
 //! column (GeoParquet 1.1, `covering.bbox`), then filter rows by those bounding boxes before any
 //! geometry is decoded. Only the columns needed are read. Files without a covering still work: their
 //! geometry is decoded and tested row by row.
+//!
+//! A file by its web address is read by range: its footer (from the end), then for a read the
+//! covering's column chunks of the row groups that meet the extent, then the geometry and field
+//! chunks of the rows the read takes, each set fetched in one round. Files without a covering are
+//! downloaded whole instead.
 
+use super::remote::{self, Remote};
 use super::{Batch, FeatureSource, Reproject, Request, Sampler, SourceInfo, clamp_limit, in_request};
 use crate::{DataError, Feature, Field, FieldType, GeometryType, Result, Value, wkb};
 use bytes::Bytes;
@@ -37,12 +43,14 @@ pub struct ParquetSource {
     /// Leaf column indices of the bbox covering's xmin, ymin, xmax, ymax.
     covering: Option<[usize; 4]>,
     reproject: Reproject,
+    /// The file, when it is read by its web address.
+    remote: Option<Arc<Remote>>,
 }
 
 impl ParquetSource {
     pub fn open_path(path: &Path, name: &str) -> Result<Self> {
         let file = std::fs::File::open(path)?;
-        Self::new(Arc::new(SerializedFileReader::new(file).map_err(err)?), name)
+        Self::new(Arc::new(SerializedFileReader::new(file).map_err(err)?), name, None)
     }
 
     pub fn open_bytes(bytes: Vec<u8>, name: &str) -> Result<Self> {
@@ -51,10 +59,35 @@ impl ParquetSource {
 
     /// From bytes shared with the caller, without a copy.
     pub fn open_shared(bytes: super::Shared, name: &str) -> Result<Self> {
-        Self::new(Arc::new(SerializedFileReader::new(Bytes::from_owner(bytes)).map_err(err)?), name)
+        Self::new(Arc::new(SerializedFileReader::new(Bytes::from_owner(bytes)).map_err(err)?), name, None)
     }
 
-    fn new(reader: Arc<dyn FileReader>, name: &str) -> Result<Self> {
+    /// A file by its web address, read by range. Fails with [`remote::NEED`] until its footer is
+    /// fetched (run it with [`remote::drive`]); a file without a bbox covering can't be read in
+    /// place ([`remote::READ_WHOLE`]).
+    pub fn open_remote(file: Arc<Remote>, name: &str) -> Result<Self> {
+        let (mut tail, whole) = file.tail(FOOTER).ok_or_else(remote::need)?;
+        let meta_len = footer_length(&tail)?;
+        let need = meta_len.saturating_add(8);
+        if need > tail.len() as u64 {
+            if whole || need > MAX_FOOTER {
+                return Err(DataError::Format(format!("GeoParquet: a footer of {need} bytes, longer than the file or too long to read")));
+            }
+            tail = file.tail(need).ok_or_else(remote::need)?.0;
+        }
+        let end = tail.len().saturating_sub(8);
+        let start = end.saturating_sub(usize::try_from(meta_len).unwrap_or(usize::MAX));
+        let md = parquet::file::metadata::ParquetMetaDataReader::decode_metadata(tail.get(start..end).unwrap_or_default()).map_err(err)?;
+        let props = Arc::new(parquet::file::properties::ReaderProperties::builder().build());
+        let reader = Arc::new(RemoteFile { chunks: Arc::new(Chunks(file.clone())), metadata: Arc::new(md), props });
+        let src = Self::new(reader, name, Some(file))?;
+        if src.covering.is_none() {
+            return Err(DataError::Unsupported(format!("a GeoParquet without a bbox covering {}", remote::READ_WHOLE)));
+        }
+        Ok(src)
+    }
+
+    fn new(reader: Arc<dyn FileReader>, name: &str, remote: Option<Arc<Remote>>) -> Result<Self> {
         let md = reader.metadata();
         let schema = md.file_metadata().schema_descr();
         let kv = md.file_metadata().key_value_metadata();
@@ -138,7 +171,7 @@ impl ParquetSource {
             indexed: covering.is_some(),
             notes,
         };
-        let mut src = ParquetSource { info, reader, geom_col, field_cols, covering, reproject };
+        let mut src = ParquetSource { info, reader, geom_col, field_cols, covering, reproject, remote };
         if src.info.geometry_type == GeometryType::None {
             src.info.geometry_type = super::peek_kind(&src);
         }
@@ -164,18 +197,49 @@ impl FeatureSource for ParquetSource {
             rows.min(values).min(MAX_GROUP_ROWS)
         };
         // Row groups whose bounding box meets the extent.
-        let groups: Vec<usize> = (0..md.num_row_groups())
+        let mut groups: Vec<usize> = (0..md.num_row_groups())
             .filter(|&g| match (native, self.covering) {
                 (Some(e), Some(c)) => group_extent(md, g, c).is_none_or(|ge| ge.intersects(&e)),
                 _ => true,
             })
             .collect();
+        // Read by address: no more row groups than a read may fetch (an evenly spread part of them,
+        // a sample), and the covering's chunks of those asked for together.
+        // A row group wholly inside the extent: every row matches, its covering unread.
+        let inside = |g: usize| match (native, self.covering) {
+            (Some(e), Some(c)) => group_extent(md, g, c).is_some_and(|ge| contains(&e, &ge)),
+            _ => true,
+        };
+        let mut thinned = 1usize;
+        if let Some(file) = &self.remote {
+            // Far more rows than the read takes: a sample of row groups evenly spread over them
+            // (the read samples their rows), so what is fetched stays near what is shown. No more
+            // bytes than a read may fetch.
+            let rows: u64 = groups.iter().map(|&g| rows_in(g) as u64).sum();
+            if rows > (limit as u64).saturating_mul(8) && !groups.is_empty() {
+                thinned = usize::try_from(rows.div_ceil((limit as u64).saturating_mul(4).max(1))).unwrap_or(usize::MAX).max(2);
+            }
+            let cols: Vec<usize> = self.covering.map(|c| c.to_vec()).unwrap_or_default();
+            let all: Vec<usize> = cols.iter().copied().chain([self.geom_col]).chain(self.field_cols.iter().copied()).collect();
+            let cost: u64 = groups.iter().step_by(thinned).map(|&g| chunks_size(md, g, &all)).sum();
+            if cost > remote::READ_BUDGET {
+                thinned = thinned.saturating_mul(usize::try_from(cost.div_ceil(remote::READ_BUDGET)).unwrap_or(usize::MAX).max(2));
+            }
+            if thinned > 1 {
+                groups = groups.into_iter().step_by(thinned).collect();
+            }
+            let edge: Vec<usize> = groups.iter().copied().filter(|&g| !inside(g)).collect();
+            if native.is_some() && !want_chunks(file, md, &edge, &cols)? {
+                return Err(remote::need());
+            }
+        }
 
         // Which rows of those groups match: with a covering and an extent, exactly the rows whose
         // bounding box meets it (read from the covering alone); otherwise all of them.
         let mut keep: Vec<Option<Vec<bool>>> = Vec::with_capacity(groups.len());
         for &g in &groups {
             keep.push(match (native, self.covering) {
+                (Some(_), Some(_)) if inside(g) => None,
                 (Some(e), Some(c)) => {
                     let rg = self.reader.get_row_group(g).map_err(err)?;
                     let n = rows_in(g);
@@ -199,6 +263,22 @@ impl FeatureSource for ParquetSource {
         // as they come. Otherwise the match count is known, and every `step`-th is read.
         let late = native.is_some() && self.covering.is_none();
         let mut sample = if late { Sampler::new(limit) } else { Sampler::with_total(limit, matched) };
+        // The rows of each group the sample takes, decided before anything else is read.
+        let takes: Vec<Vec<bool>> = groups
+            .iter()
+            .zip(&keep)
+            .map(|(&g, k)| {
+                (0..rows_in(g)).map(|r| k.as_ref().is_none_or(|k| k.get(r).copied().unwrap_or(false)) && (late || sample.wants())).collect()
+            })
+            .collect();
+        // Read by address: the geometry and field chunks of the groups any row is taken from.
+        if let Some(file) = &self.remote {
+            let cols: Vec<usize> = [self.geom_col].into_iter().chain(self.field_cols.iter().copied()).collect();
+            let used: Vec<usize> = groups.iter().zip(&takes).filter(|(_, t)| t.iter().any(|&t| t)).map(|(&g, _)| g).collect();
+            if !want_chunks(file, md, &used, &cols)? {
+                return Err(remote::need());
+            }
+        }
         let mut skipped = 0;
         let mut starts = Vec::with_capacity(md.num_row_groups());
         let mut first_row = 0u64;
@@ -207,17 +287,13 @@ impl FeatureSource for ParquetSource {
             starts.push(first_row);
             first_row = first_row.saturating_add(u64::try_from(md.row_group(g).num_rows()).unwrap_or(0));
         }
-        for (&g, k) in groups.iter().zip(&keep) {
-            let n = rows_in(g);
-            // The rows of this group the sample takes, decided before anything else is read.
-            let take: Vec<bool> =
-                (0..n).map(|r| k.as_ref().is_none_or(|k| k.get(r).copied().unwrap_or(false)) && (late || sample.wants())).collect();
+        for (&g, take) in groups.iter().zip(&takes) {
             if !take.iter().any(|&t| t) {
                 continue;
             }
             let rg = self.reader.get_row_group(g).map_err(err)?;
-            let geoms = read_bytes(rg.as_ref(), self.geom_col, &take)?;
-            let attrs: Vec<Vec<Value>> = self.field_cols.iter().map(|&c| read_values(rg.as_ref(), c, &take)).collect::<Result<_>>()?;
+            let geoms = read_bytes(rg.as_ref(), self.geom_col, take)?;
+            let attrs: Vec<Vec<Value>> = self.field_cols.iter().map(|&c| read_values(rg.as_ref(), c, take)).collect::<Result<_>>()?;
             // A column shorter than its row group (a truncated or corrupt file) would pair values
             // with the wrong rows: refuse it.
             let wanted = take.iter().filter(|&&t| t).count();
@@ -239,7 +315,117 @@ impl FeatureSource for ParquetSource {
                 sample.keep(Feature { id: base + r as u64 + 1, geometry: Some(geometry), attrs: values });
             }
         }
-        Ok(Batch { matched: if late { sample.seen() } else { matched }, complete: sample.complete(), skipped, features: sample.items })
+        let matched = if late { sample.seen() } else { matched.saturating_mul(thinned as u64) };
+        Ok(Batch { matched, complete: sample.complete() && thinned == 1, skipped, features: sample.items })
+    }
+
+    fn remote(&self) -> Option<Arc<Remote>> {
+        self.remote.clone()
+    }
+}
+
+/// The footer read first from a file by its address: enough for most files' metadata.
+const FOOTER: u64 = 256 << 10;
+/// The longest footer read.
+const MAX_FOOTER: u64 = 64 << 20;
+
+/// The metadata's length, from a file's last 8 bytes.
+fn footer_length(tail: &[u8]) -> Result<u64> {
+    let n = tail.len();
+    if n < 12 || tail.get(n - 4..) != Some(b"PAR1".as_slice()) {
+        return Err(DataError::Format("not a Parquet file".into()));
+    }
+    let len = tail.get(n - 8..n - 4).and_then(|b| b.try_into().ok()).map(u32::from_le_bytes).unwrap_or(0);
+    Ok(u64::from(len))
+}
+
+/// A column chunk's bytes: (start, length), from its offsets (checked, never negative).
+fn chunk_range(md: &ParquetMetaData, g: usize, col: usize) -> Option<(u64, u64)> {
+    let c = md.row_groups().get(g)?.columns().get(col)?;
+    let start = c.dictionary_page_offset().unwrap_or(c.data_page_offset());
+    Some((u64::try_from(start).ok()?, u64::try_from(c.compressed_size()).ok()?))
+}
+
+/// The bytes of some columns' chunks of a row group.
+fn chunks_size(md: &ParquetMetaData, g: usize, cols: &[usize]) -> u64 {
+    cols.iter().filter_map(|&c| chunk_range(md, g, c)).map(|(_, n)| n).sum()
+}
+
+/// Asks for some columns' chunks of some row groups: `true` when all are held.
+fn want_chunks(file: &Remote, md: &ParquetMetaData, groups: &[usize], cols: &[usize]) -> Result<bool> {
+    let mut held = true;
+    for &g in groups {
+        for &c in cols {
+            let (at, len) =
+                chunk_range(md, g, c).ok_or_else(|| DataError::Format(format!("GeoParquet: row group {g} has no column {c}")))?;
+            if len > remote::READ_BUDGET {
+                return Err(DataError::Format(format!("GeoParquet: a column chunk of {len} bytes is too large to read in place")));
+            }
+            held &= file.want(at, len);
+        }
+    }
+    Ok(held)
+}
+
+/// A file by its address, as the `parquet` crate reads it: from the parts held (a read of one not
+/// held notes it missing and fails).
+struct Chunks(Arc<Remote>);
+
+impl parquet::file::reader::Length for Chunks {
+    fn len(&self) -> u64 {
+        // Not known (the footer is read from the end): reads are bounded by the parts held.
+        u64::MAX
+    }
+}
+
+impl parquet::file::reader::ChunkReader for Chunks {
+    type T = bytes::buf::Reader<Bytes>;
+
+    fn get_read(&self, start: u64) -> parquet::errors::Result<Self::T> {
+        use bytes::Buf;
+        self.0.from(start, remote::MIN_FETCH).map(Buf::reader).ok_or_else(|| parquet::errors::ParquetError::General(remote::NEED.into()))
+    }
+
+    fn get_bytes(&self, start: u64, length: usize) -> parquet::errors::Result<Bytes> {
+        match self.0.bytes(start, length as u64) {
+            Some(b) if b.len() == length => Ok(b),
+            Some(_) => Err(parquet::errors::ParquetError::EOF("the file ends early".into())),
+            None => Err(parquet::errors::ParquetError::General(remote::NEED.into())),
+        }
+    }
+}
+
+/// A file by its address, with its metadata read from the footer.
+struct RemoteFile {
+    chunks: Arc<Chunks>,
+    metadata: Arc<ParquetMetaData>,
+    props: parquet::file::properties::ReaderPropertiesPtr,
+}
+
+impl FileReader for RemoteFile {
+    fn metadata(&self) -> &ParquetMetaData {
+        &self.metadata
+    }
+
+    fn num_row_groups(&self) -> usize {
+        self.metadata.num_row_groups()
+    }
+
+    fn get_row_group(&self, i: usize) -> parquet::errors::Result<Box<dyn RowGroupReader + '_>> {
+        let rg = self.metadata.row_groups().get(i).ok_or_else(|| parquet::errors::ParquetError::General(format!("no row group {i}")))?;
+        Ok(Box::new(parquet::file::serialized_reader::SerializedRowGroupReader::new(
+            self.chunks.clone(),
+            rg,
+            self.metadata.page_index_for_row_group(i),
+            self.props.clone(),
+        )?))
+    }
+
+    fn get_row_iter(
+        &self,
+        projection: Option<parquet::schema::types::Type>,
+    ) -> parquet::errors::Result<parquet::record::reader::RowIter<'_>> {
+        parquet::record::reader::RowIter::from_file(projection, self)
     }
 }
 
@@ -327,6 +513,11 @@ fn group_extent(md: &ParquetMetaData, g: usize, c: [usize; 4]) -> Option<Extent>
     let s = |i: usize, max: bool| stat(rg.columns().get(*c.get(i)?)?.statistics(), max);
     let e = Extent::new(s(0, false)?, s(1, false)?, s(2, true)?, s(3, true)?);
     (!e.is_empty()).then_some(e)
+}
+
+/// Whether `outer` holds all of `inner`.
+fn contains(outer: &Extent, inner: &Extent) -> bool {
+    outer.min_x <= inner.min_x && outer.min_y <= inner.min_y && outer.max_x >= inner.max_x && outer.max_y >= inner.max_y
 }
 
 fn groups_extent(md: &ParquetMetaData, c: [usize; 4]) -> Extent {

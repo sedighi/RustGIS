@@ -56,7 +56,7 @@ pub fn commands() -> Vec<C> {
         .when(need_raster)
         .params(r#"{"layer": raster, "training": polygon layer, "classField": field naming each polygon's class, "bands"?: [1-based], "hidden"?: [units per hidden layer] (default [32, 16]), "epochs"?: 1..500 (default 60), "model"?: name}"#),
         C::new("dl.classify", "Deep Learning Tools", "Analyze › Image Classification", classify).when(need_raster).params(
-            r#"{"layer": raster, "model"?: a trained model's name, or "training" + "classField" (+ "bands", "hidden", "epochs") to train one first, "name"?: output}"#,
+            r#"{"layer": raster, "model"?: a trained model's name, "training"?: polygon layer, "classField"?: field, "bands"?: [1-based], "hidden"?: [units], "epochs"?: 1..500 (without a model: train one first, as dl.train), "name"?: output}"#,
         ),
         C::new("dl.package", "Deep Learning Package", "Publish › Package", |s, p| {
             let path = ps(p, "path").ok_or("path is required")?;

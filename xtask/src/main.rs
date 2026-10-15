@@ -1,7 +1,9 @@
-//! `cargo xtask ci | layers`
+//! `cargo xtask ci | layers | web-pwa <dir>`
 //!
 //! - `layers`: enforces the crate layering (nothing below L6 may depend on egui/eframe/rfd).
 //! - `ci`: fmt check, clippy -D warnings, tests and the layer check.
+//! - `web-pwa <dir>`: writes the web app's service worker into a `trunk build` output directory
+//!   (`dist/web`) from the template `apps/rustgis-web/sw.js`, listing the built files to cache.
 
 use std::process::{Command, ExitCode};
 
@@ -56,6 +58,87 @@ fn cargo(args: &[&str]) -> Result<(), String> {
     if st.success() { Ok(()) } else { Err(format!("cargo {} failed", args.join(" "))) }
 }
 
+/// Files in a web build the service worker must not cache: itself, and the GitHub Pages
+/// configuration the deploy adds.
+const NOT_SHELL: &[&str] = &["sw.js", "CNAME", ".nojekyll"];
+
+/// The files under `dir` (a `trunk build` output) for the service worker to cache, as sorted
+/// `/`-separated paths relative to `dir`, plus a version that changes whenever any of them or the
+/// service worker `template` does.
+fn web_shell(dir: &std::path::Path, template: &str) -> Result<(Vec<String>, String), String> {
+    fn walk(dir: &std::path::Path, base: &str, out: &mut Vec<String>) -> Result<(), String> {
+        for entry in std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let rel = if base.is_empty() { name.clone() } else { format!("{base}/{name}") };
+            let kind = entry.file_type().map_err(|e| e.to_string())?;
+            if kind.is_dir() {
+                // Trunk's staging directory, left behind by an interrupted build.
+                if name != ".stage" {
+                    walk(&entry.path(), &rel, out)?;
+                }
+            } else if kind.is_file() && !(base.is_empty() && NOT_SHELL.contains(&name.as_str())) {
+                out.push(rel);
+            }
+        }
+        Ok(())
+    }
+    let mut files = Vec::new();
+    walk(dir, "", &mut files)?;
+    files.sort();
+    if !files.iter().any(|f| f == "index.html") {
+        return Err(format!("{}: no index.html; run `trunk build --release` first", dir.display()));
+    }
+    // FNV-1a over every path and its contents: the same on every platform and Rust version.
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in template.bytes().chain([0]) {
+        h = (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+    }
+    for f in &files {
+        let bytes = std::fs::read(dir.join(f)).map_err(|e| format!("{f}: {e}"))?;
+        for b in f.bytes().chain([0]).chain(bytes) {
+            h = (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    Ok((files, format!("{h:016x}")))
+}
+
+/// A JavaScript string literal holding `s`.
+fn js_string(s: &str) -> String {
+    let mut q = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '"' | '\\' => {
+                q.push('\\');
+                q.push(c);
+            }
+            c if c.is_control() || c == '\u{2028}' || c == '\u{2029}' => q.push_str(&format!("\\u{:04x}", u32::from(c))),
+            c => q.push(c),
+        }
+    }
+    q.push('"');
+    q
+}
+
+/// The service worker for a web build: the template with its file list and version filled in.
+fn web_sw(template: &str, files: &[String], version: &str) -> Result<String, String> {
+    if !template.contains("\"__VERSION__\"") || !template.contains("__SHELL__") {
+        return Err("apps/rustgis-web/sw.js: the __VERSION__ or __SHELL__ placeholder is missing".into());
+    }
+    let list = format!("[\n{}\n]", files.iter().map(|f| format!("  {},", js_string(f))).collect::<Vec<_>>().join("\n"));
+    Ok(template.replace("\"__VERSION__\"", &js_string(version)).replace("__SHELL__", &list))
+}
+
+fn web_pwa(dir: Option<String>) -> Result<(), String> {
+    let dir = std::path::PathBuf::from(dir.ok_or("usage: cargo xtask web-pwa <trunk build output, e.g. dist/web>")?);
+    let template = std::fs::read_to_string(root().join("apps/rustgis-web/sw.js")).map_err(|e| format!("apps/rustgis-web/sw.js: {e}"))?;
+    let (files, version) = web_shell(&dir, &template)?;
+    let sw = web_sw(&template, &files, &version)?;
+    std::fs::write(dir.join("sw.js"), sw).map_err(|e| format!("{}: {e}", dir.display()))?;
+    println!("web-pwa: {} caches {} files (version {version})", dir.join("sw.js").display(), files.len());
+    Ok(())
+}
+
 fn main() -> ExitCode {
     let task = std::env::args().nth(1).unwrap_or_default();
     let r = match task.as_str() {
@@ -64,7 +147,8 @@ fn main() -> ExitCode {
             .and_then(|_| cargo(&["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]))
             .and_then(|_| cargo(&["test", "--workspace", "-q"]))
             .and_then(|_| layers()),
-        _ => Err("usage: cargo xtask ci | layers".into()),
+        "web-pwa" => web_pwa(std::env::args().nth(2)),
+        _ => Err("usage: cargo xtask ci | layers | web-pwa <dir>".into()),
     };
     match r {
         Ok(()) => ExitCode::SUCCESS,
@@ -72,5 +156,42 @@ fn main() -> ExitCode {
             eprintln!("{e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn web_sw_fills_the_real_template() {
+        let template = include_str!("../../apps/rustgis-web/sw.js");
+        let files = vec!["index.html".to_string(), "rustgis-web-1a2b.js".to_string(), "odd\"name\\.wasm".to_string()];
+        let sw = web_sw(template, &files, "00ff").unwrap();
+        assert!(!sw.contains("__VERSION__") && !sw.contains("__SHELL__"));
+        assert!(sw.contains("const VERSION = \"00ff\";"));
+        assert!(sw.contains("  \"index.html\",\n  \"rustgis-web-1a2b.js\",\n  \"odd\\\"name\\\\.wasm\",\n]"));
+        assert!(web_sw("no placeholders", &files, "00ff").is_err());
+    }
+
+    #[test]
+    fn web_shell_lists_the_app_files_and_versions_them() {
+        let dir = std::env::temp_dir().join(format!("rustgis-xtask-web-shell-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("snippets/x")).unwrap();
+        std::fs::create_dir_all(dir.join(".stage")).unwrap();
+        for f in ["index.html", "app-1.js", "app-1_bg.wasm", "snippets/x/inline0.js", "sw.js", "CNAME", ".nojekyll", ".stage/tmp"] {
+            std::fs::write(dir.join(f), f).unwrap();
+        }
+        let (files, v1) = web_shell(&dir, "sw").unwrap();
+        assert_eq!(files, ["app-1.js", "app-1_bg.wasm", "index.html", "snippets/x/inline0.js"]);
+        assert_eq!(web_shell(&dir, "sw").unwrap().1, v1);
+        // A new service worker alone is a new version too.
+        assert_ne!(web_shell(&dir, "sw 2").unwrap().1, v1);
+        std::fs::write(dir.join("index.html"), "changed").unwrap();
+        assert_ne!(web_shell(&dir, "sw").unwrap().1, v1);
+        std::fs::remove_file(dir.join("index.html")).unwrap();
+        assert!(web_shell(&dir, "sw").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -112,6 +112,14 @@ fn inet_aton(h: &str) -> Option<Ipv4Addr> {
 /// Whether `url` may be fetched. `from` is where it was found (a document, or the address that
 /// redirected to it), or `None` when the user gave it.
 pub fn check(url: &str, from: Option<&str>) -> Result<(), String> {
+    // An `s3://` address is judged by the web address it is fetched from.
+    // An address read anonymously is judged as the address it marks.
+    if let (inner, true) = crate::s3::split_anonymous(url) {
+        return if crate::s3::is_s3(inner) { check(&crate::s3::https_url(url)?, from) } else { check(inner, from) };
+    }
+    if crate::s3::is_s3(url) {
+        return check(&crate::s3::https_url(url)?, from);
+    }
     let lower = url.to_ascii_lowercase();
     if !(lower.starts_with("https://") || lower.starts_with("http://")) {
         return Err(format!("{url}: only http:// and https:// addresses are fetched"));

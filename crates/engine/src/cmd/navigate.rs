@@ -38,7 +38,9 @@ pub fn commands() -> Vec<C> {
         C::new("map.zoomToExtent", "Zoom To Extent", "Home › Navigate", zoom_to_extent)
             .view()
             .params(r#"{"extent": [minLon, minLat, maxLon, maxLat]}"#),
-        C::new("map.goToXY", "Go To XY", "Home › Navigate", go_to_xy).view().params(r#"{"lon": number, "lat": number, "scale"?: number}"#),
+        C::new("map.goToXY", "Go To XY", "Home › Navigate", go_to_xy)
+            .view()
+            .params(r#"{"lon" | "x": number, "lat" | "y": number, "scale"?: number}"#),
         C::new("map.setScale", "Set Scale", "Status Bar", |s, p| {
             let sc = f(p, "scale").ok_or("scale is required")?;
             s.map_mut().set_scale(sc);
@@ -53,7 +55,8 @@ pub fn commands() -> Vec<C> {
             let m = s.map_mut();
             m.graticule = super::b(p, "on").unwrap_or(!m.graticule);
             Ok(Value::Null)
-        }),
+        })
+        .params(r#"{"on"?: bool (toggles when omitted)}"#),
         C::new("map.projection", "Globe", "View › View", |s, p| {
             let m = s.map_mut();
             let next = match ps(p, "type") {
@@ -83,7 +86,8 @@ pub fn commands() -> Vec<C> {
             let before = m.bookmarks.len();
             m.bookmarks.retain(|b| !b.name.eq_ignore_ascii_case(n));
             if m.bookmarks.len() == before { Err(format!("no bookmark '{n}'")) } else { Ok(Value::Null) }
-        }),
+        })
+        .params(r#"{"name": string}"#),
         C::new("map.new", "New Map", "Data › Project", new_map).params(r#"{"name"?: string}"#),
         C::new("map.activate", "Activate Map", "Browser", |s, p| {
             let n = s_name(p)?;
@@ -93,6 +97,7 @@ pub fn commands() -> Vec<C> {
             s.table_layer = None;
             Ok(Value::Null)
         })
+        .params(r#"{"name": string}"#)
         .view(),
         C::new("map.rename", "Rename Map", "Layers", |s, p| {
             let n = s_name(p)?.trim();
@@ -101,7 +106,8 @@ pub fn commands() -> Vec<C> {
             }
             s.map_mut().name = n.chars().take(200).collect();
             Ok(Value::Null)
-        }),
+        })
+        .params(r#"{"name": string (the active map's new name)}"#),
         C::new("map.remove", "Delete Map", "Browser", |s, p| {
             if s.project.maps.len() < 2 {
                 return Err("a project keeps at least one map".into());
@@ -112,7 +118,8 @@ pub fn commands() -> Vec<C> {
             s.project.active_map = 0;
             s.active_layer = s.map().layers.first().map(|l| l.id);
             Ok(Value::Null)
-        }),
+        })
+        .params(r#"{"name": string}"#),
     ]
 }
 

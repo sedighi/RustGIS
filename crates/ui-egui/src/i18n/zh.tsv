@@ -1,6 +1,7 @@
 # zh interface catalog: English<TAB>translation
  by 	 与
 (b4-b3)/(b4+b3)	(b4-b3)/(b4+b3)
+(filtered)	(已筛选)
 00:00 UTC	00:00 UTC
 06:00 UTC	06:00 UTC
 12:00 UTC	12:00 UTC
@@ -247,6 +248,7 @@ Checking for updates…	正在检查更新…
 China	中国
 Choose a band combination to display the raster layer.	选择用于显示栅格图层的波段组合。
 Choose a contrast stretch for the raster layer.	为栅格图层选择对比度拉伸。
+Choose a delimited text file or a spreadsheet, then pick its columns.	选择分隔文本文件或电子表格，然后选择其列。
 Choose a model.	请选择模型。
 Choose a resampling type for the raster layer.	为栅格图层选择重采样类型。
 Choose extra buttons for the Quick Access Toolbar.	为快速访问工具栏选择额外按钮。
@@ -323,6 +325,7 @@ Color Vision	色觉
 Color Vision Simulator	色觉模拟器
 Colormap	色彩映射表
 Colors from the raster's own color table.	使用栅格自带颜色表中的颜色。
+Columns named like longitude/latitude, easting/northing or geometry are picked for you.	名为 longitude/latitude、easting/northing 或 geometry 等的列会自动选中。
 Combinations from the box above, one per line	上方框中的组合，每行一个
 Command\nSearch	命令\n搜索
 command is required	需要提供 command
@@ -383,6 +386,7 @@ Create Polygon	创建多边形
 Create Profile	创建剖面
 Create Thumbnail	创建缩略图
 Creates a point inside each input feature.	在每个输入要素内部创建一个点。
+Creates points from a table's x and y coordinate fields.	根据表的 x 和 y 坐标字段创建点。
 Creates polygons around input features at a given distance.	在输入要素周围按给定距离创建多边形。
 Cross Section	横截面
 Cross Section (2 clicks)	横截面（2 次单击）
@@ -1307,6 +1311,7 @@ Remove Folder	移除文件夹
 Remove From Current Selection	从当前选择中移除
 Remove Keyframe	移除关键帧
 Remove Section	移除节
+Remove Table	移除表
 Remove the last keyframe.	移除最后一个关键帧。
 Remove the layer from the map.	从地图中移除图层。
 Remove Tile Layer	移除瓦片图层
@@ -1812,7 +1817,11 @@ World, equal-area: true sizes, shapes bend towards the edges.	世界，等积: �
 Worldview	国界
 Write a plugin	编写插件
 X (mm)	X（mm）
+X Field	X 字段
+XY Table To Point	XY 表转点
+XY Table To Point…	XY 表转点…
 Y (mm)	Y（mm）
+Y Field	Y 字段
 Yes	是
 You have version {version}.	你的版本是 {version}。
 z (m)	z（m）

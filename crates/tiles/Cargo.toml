@@ -20,6 +20,9 @@ tiny-skia = { workspace = true }
 image = { workspace = true, features = ["jpeg", "webp"] }
 # Vector tiles are sometimes served gzipped without saying so.
 miniz_oxide = { workspace = true }
+# S3 requests are signed (Signature Version 4) and its listings are XML.
+sha2 = { workspace = true }
+roxmltree = { workspace = true }
 
 # Fetching tiles on worker threads. The browser fetches them itself (see `set_fetcher`).
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

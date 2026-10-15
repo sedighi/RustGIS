@@ -4,7 +4,7 @@ const emptyState = document.querySelector("#empty-state");
 const platformNav = document.querySelector("#platform-nav");
 let artifacts = [];
 
-const platformOrder = ["Windows", "macOS", "Linux", "Other"];
+const platformOrder = ["Windows", "macOS", "Linux", "Python", "Other"];
 
 const bytes = new Intl.NumberFormat("en", {
   style: "unit",
@@ -20,6 +20,8 @@ function formatBytes(value) {
 
 function platformFor(name) {
   const value = name.toLowerCase();
+  // The rustgis Python package: its wheels and its source distribution (`rustgis-0.2.0.tar.gz`).
+  if (/\.whl$/.test(value) || /^rustgis-\d[^-]*\.tar\.gz$/.test(value)) return "Python";
   if (/\.(exe|msi|msix)$/.test(value) || value.includes("windows") || value.includes("portable"))
     return "Windows";
   if (/\.(dmg|pkg)$/.test(value) || value.includes("macos") || value.includes(".app."))

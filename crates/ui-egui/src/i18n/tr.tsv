@@ -1,6 +1,7 @@
 # tr interface catalog: English<TAB>translation
  by 	 ×
 (b4-b3)/(b4+b3)	(b4-b3)/(b4+b3)
+(filtered)	(filtrelenmiş)
 00:00 UTC	00:00 UTC
 06:00 UTC	06:00 UTC
 12:00 UTC	12:00 UTC
@@ -47,7 +48,7 @@ Add a scale bar for the map frame.	Harita çerçevesi için ölçek çubuğu ekl
 add a second map first (Data › New Map)	önce ikinci bir harita ekleyin (Veri › Yeni Harita)
 Add a second map frame first	Önce ikinci bir harita çerçevesi ekleyin
 Add a text element.	Bir metin öğesi ekle.
-Add an elevation raster first.	Önce bir yükseklik rasterı ekleyin.
+Add an elevation raster first.	Önce bir yükseklik rasteri ekleyin.
 Add an empty layer with a ready-made schema, to draw into.	Çizim yapmak için hazır şemalı boş bir katman ekle.
 Add and Open	Ekle ve Aç
 Add and Open Notebook	Not Defteri Ekle ve Aç
@@ -120,7 +121,7 @@ Angle	Açı
 Animation	Animasyon
 API key	API anahtarı
 Apply	Uygula
-Apply a function to a raster	Bir rastera fonksiyon uygula
+Apply a function to a raster	Bir rastere fonksiyon uygula
 Apply Control Points	Kontrol Noktalarını Uygula
 Apply Style	Stili Uygula
 Apply to the selected layer	Seçili katmana uygula
@@ -247,12 +248,13 @@ Checking for updates…	Güncellemeler denetleniyor…
 China	Çin
 Choose a band combination to display the raster layer.	Raster katmanını görüntülemek için bir bant kombinasyonu seçin.
 Choose a contrast stretch for the raster layer.	Raster katmanı için bir kontrast germe seçin.
+Choose a delimited text file or a spreadsheet, then pick its columns.	Sınırlandırılmış bir metin dosyası veya elektronik tablo seçin, ardından sütunlarını seçin.
 Choose a model.	Bir model seçin.
 Choose a resampling type for the raster layer.	Raster katmanı için bir yeniden örnekleme türü seçin.
 Choose extra buttons for the Quick Access Toolbar.	Hızlı Erişim Araç Çubuğu için ek düğmeler seç.
 Choose how the flat map lays out the Earth.	Düz haritanın Dünya'yı nasıl gösterdiğini seçin.
 Choose how the layer is drawn.	Katmanın nasıl çizileceğini seç.
-Choose how the raster is drawn.	Rasterın nasıl çizileceğini seçin.
+Choose how the raster is drawn.	Rasterin nasıl çizileceğini seçin.
 Choose the interface language.	Arayüz dilini seç.
 Choose which layers a click identifies.	Bir tıklamanın hangi katmanları tanımlayacağını seç.
 Choose which tabs the ribbon shows.	Şeridin hangi sekmeleri göstereceğini seç.
@@ -301,7 +303,7 @@ Click to add vertices · double-click to finish the line	Köşe eklemek için t�
 Click to place a point graphic.	Nokta grafiği yerleştirmek için tıklayın.
 Click to switch between decimal degrees and DMS	Ondalık derece ile DMS arasında geçiş için tıklayın
 Clip	Kırp
-Clip a raster to the view, or resample it.	Bir rasterı görünüme kırp veya yeniden örnekle.
+Clip a raster to the view, or resample it.	Bir rasteri görünüme kırp veya yeniden örnekle.
 Clip Features	Detayları Kırp
 Clip or resample	Kırp veya yeniden örnekle
 Clip To Map View	Harita Görünümüne Kırp
@@ -322,7 +324,8 @@ Color scheme	Renk şeması
 Color Vision	Renk Görme
 Color Vision Simulator	Renk Görme Simülatörü
 Colormap	Renk haritası
-Colors from the raster's own color table.	Rasterın kendi renk tablosundaki renkler.
+Colors from the raster's own color table.	Rasterin kendi renk tablosundaki renkler.
+Columns named like longitude/latitude, easting/northing or geometry are picked for you.	longitude/latitude, easting/northing veya geometry gibi adlandırılmış sütunlar sizin için seçilir.
 Combinations from the box above, one per line	Yukarıdaki kutudan kombinasyonlar, her satıra bir tane
 Command\nSearch	Komut\nAra
 command is required	command gerekli
@@ -331,7 +334,7 @@ Commands	Komutlar
 Commands on the Plugins tab: {commands} · Tools in the Tools pane: {tools}	Eklentiler sekmesindeki komutlar: {commands} · Araçlar panelindeki araçlar: {tools}
 Commands…	Komutlar…
 Compare	Karşılaştır
-Compare two rasters	İki rasterı karşılaştır
+Compare two rasters	İki rasteri karşılaştır
 Completed	Tamamlandı
 Connect a folder to the Browser.	Tarayıcıya bir klasör bağla.
 Connections	Bağlantılar
@@ -383,6 +386,7 @@ Create Polygon	Poligon Oluştur
 Create Profile	Profil Oluştur
 Create Thumbnail	Küçük Resim Oluştur
 Creates a point inside each input feature.	Her girdi detayının içinde bir nokta oluşturur.
+Creates points from a table's x and y coordinate fields.	Bir tablonun x ve y koordinat alanlarından noktalar oluşturur.
 Creates polygons around input features at a given distance.	Girdi detaylarının çevresinde belirli bir mesafede poligonlar oluşturur.
 Cross Section	Enine Kesit
 Cross Section (2 clicks)	Enine Kesit (2 tıklama)
@@ -400,8 +404,8 @@ Current time	Geçerli saat
 Curve	Eğri
 Customize	Özelleştir
 Cut	Kes
-Cut a raster into web map tiles	Bir rasterı web harita karolarına böl
-Cut a raster into web map tiles (XYZ PNG) with a viewer page.	Bir rasterı görüntüleyici sayfasıyla birlikte web harita karolarına (XYZ PNG) böl.
+Cut a raster into web map tiles	Bir rasteri web harita karolarına böl
+Cut a raster into web map tiles (XYZ PNG) with a viewer page.	Bir rasteri görüntüleyici sayfasıyla birlikte web harita karolarına (XYZ PNG) böl.
 Dark\nMode	Koyu\nMod
 Data	Veri
 Data Design	Veri Tasarımı
@@ -571,11 +575,11 @@ Export	Dışa Aktar
 Export\nFeatures	Detayları\nDışa Aktar
 Export\nLayout	Sayfa Düzenini\nDışa Aktar
 Export\nMap	Haritayı\nDışa Aktar
-Export\nRaster	Rasterı\nDışa Aktar
+Export\nRaster	Rasteri\nDışa Aktar
 Export Animation	Animasyonu Dışa Aktar
 Export Features	Detayları Dışa Aktar
 Export Features (tool)	Detayları Dışa Aktar (araç)
-Export Features needs a vector layer (Data › Export Raster writes a raster)	Detayları Dışa Aktar bir vektör katmanı gerektirir (Veri › Rasterı Dışa Aktar raster yazar)
+Export Features needs a vector layer (Data › Export Raster writes a raster)	Detayları Dışa Aktar bir vektör katmanı gerektirir (Veri › Rasteri Dışa Aktar raster yazar)
 Export Features…	Detayları Dışa Aktar…
 Export Layout	Sayfa Düzenini Dışa Aktar
 Export Map	Haritayı Dışa Aktar
@@ -585,8 +589,8 @@ Export Mesh	Ağı Dışa Aktar
 Export Mesh (OBJ)…	Ağı Dışa Aktar (OBJ)…
 Export Presentation	Sunumu Dışa Aktar
 Export Presentation…	Sunumu Dışa Aktar…
-Export Raster	Rasterı Dışa Aktar
-Export Raster…	Rasterı Dışa Aktar…
+Export Raster	Rasteri Dışa Aktar
+Export Raster…	Rasteri Dışa Aktar…
 Export Report	Raporu Dışa Aktar
 Export Report…	Raporu Dışa Aktar…
 Export Table	Tabloyu Dışa Aktar
@@ -739,7 +743,7 @@ Hide features far from the view's centre.	Görünümün merkezinden uzaktaki det
 Hide labels when the viewer is closer than this.	Görüntüleyen bundan daha yakındayken etiketleri gizle.
 Hide labels when the viewer is farther than this.	Görüntüleyen bundan daha uzaktayken etiketleri gizle.
 Hide walls facing away from you.	Size dönük olmayan duvarları gizle.
-High values of the first raster and low values of the second score best.	İlk rasterın yüksek, ikincinin düşük değerleri en iyi puanı alır.
+High values of the first raster and low values of the second score best.	İlk rasterin yüksek, ikincinin düşük değerleri en iyi puanı alır.
 Histogram Equalize	Histogram Eşitleme
 Histograms and correlations	Histogramlar ve korelasyonlar
 History	Geçmiş
@@ -952,7 +956,7 @@ Measure	Ölç
 Measure Area	Alan Ölç
 Measure Distance	Mesafe Ölç
 Measure geodesic distances and areas on the map.	Haritada jeodezik mesafe ve alanları ölç.
-Measure with an elevation raster	Bir yükseklik rasterıyla ölç
+Measure with an elevation raster	Bir yükseklik rasteriyle ölç
 Measurements so far.	Şimdiye kadarki ölçümler.
 Mensuration	Ölçümleme
 Mensuration Tools	Ölçümleme Araçları
@@ -1178,8 +1182,8 @@ Pictures, attachments and chart	Resimler, ekler ve grafik
 Pixel	Piksel
 Pixel Editor	Piksel Düzenleyici
 Pixel type	Piksel türü
-Place a raster on the map	Bir rasterı haritaya yerleştir
-Place a raster on the map from control points or the view.	Bir rasterı kontrol noktalarından veya görünümden haritaya yerleştir.
+Place a raster on the map	Bir rasteri haritaya yerleştir
+Place a raster on the map from control points or the view.	Bir rasteri kontrol noktalarından veya görünümden haritaya yerleştir.
 Placement	Yerleşim
 Places (name, category, address, rating)	Yerler (ad, kategori, adres, puan)
 Planar	Düzlemsel
@@ -1307,6 +1311,7 @@ Remove Folder	Klasörü Kaldır
 Remove From Current Selection	Geçerli Seçimden Kaldır
 Remove Keyframe	Anahtar Kareyi Kaldır
 Remove Section	Bölümü Kaldır
+Remove Table	Tabloyu Kaldır
 Remove the last keyframe.	Son anahtar kareyi kaldır.
 Remove the layer from the map.	Katmanı haritadan kaldır.
 Remove Tile Layer	Karo Katmanını Kaldır
@@ -1415,7 +1420,7 @@ Save the project under a new name.	Projeyi yeni bir adla kaydet.
 Save the project with your edits.	Projeyi düzenlemelerinizle birlikte kaydet.
 Save the project's setup, without its features, as a template.	Projenin yapılandırmasını detayları olmadan şablon olarak kaydet.
 Save the project's styles to a style file.	Projenin stillerini bir stil dosyasına kaydet.
-Save the raster as a GeoTIFF.	Rasterı GeoTIFF olarak kaydet.
+Save the raster as a GeoTIFF.	Rasteri GeoTIFF olarak kaydet.
 Save the selected layer with its symbology as a layer file.	Seçili katmanı sembolojisiyle birlikte katman dosyası olarak kaydet.
 Save Web Link Chart	Web Bağlantı Grafiğini Kaydet
 Save Web Map	Web Haritasını Kaydet
@@ -1434,7 +1439,7 @@ Scale and rotate entered distances and directions to the grid.	Girilen mesafeler
 Scale ×2	Ölçek ×2
 Scale ×½	Ölçek ×½
 Scene	Sahne
-Score two rasters 1–10 and weight them	İki rasterı 1–10 arasında puanla ve ağırlıklandır
+Score two rasters 1–10 and weight them	İki rasteri 1–10 arasında puanla ve ağırlıklandır
 Script	Betik
 Scroll the ribbon left	Şeridi sola kaydır
 Scroll the ribbon right	Şeridi sağa kaydır
@@ -1656,8 +1661,8 @@ The project's items in place of the map.	Harita yerine projenin öğeleri.
 The project's thumbnail, from an image.	Bir görüntüden projenin küçük resmi.
 The project's thumbnail, from the map view.	Harita görünümünden projenin küçük resmi.
 The projection the map opens in.	Haritanın açıldığı projeksiyon.
-The raster's data couldn't be read.	Rasterın verisi okunamadı.
-The raster's data couldn't be read: {path}	Rasterın verisi okunamadı: {path}
+The raster's data couldn't be read.	Rasterin verisi okunamadı.
+The raster's data couldn't be read: {path}	Rasterin verisi okunamadı: {path}
 the reply reached its length limit	yanıt uzunluk sınırına ulaştı
 the report export failed unexpectedly	rapor dışa aktarımı beklenmedik şekilde başarısız oldu
 The Shapefile's files download as one zip.	Shapefile dosyaları tek bir zip olarak indirilir.
@@ -1812,7 +1817,11 @@ World, equal-area: true sizes, shapes bend towards the edges.	Dünya, eşalan: g
 Worldview	Sınırlar
 Write a plugin	Eklenti yaz
 X (mm)	X (mm)
+X Field	X Alanı
+XY Table To Point	XY Tablosundan Noktaya
+XY Table To Point…	XY Tablosundan Noktaya…
 Y (mm)	Y (mm)
+Y Field	Y Alanı
 Yes	Evet
 You have version {version}.	Sizdeki sürüm: {version}.
 z (m)	z (m)

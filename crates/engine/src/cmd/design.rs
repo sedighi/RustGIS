@@ -241,7 +241,7 @@ pub fn commands() -> Vec<C> {
                 .map(|e| json!({"time": e.time, "feature": e.id, "action": match (&e.before, &e.after) { (None, _) => "insert", (_, None) => "delete", _ => "update" }}))
                 .collect();
             Ok(json!({"edits": a.len(), "recent": rows}))
-        })
+        }).params(r#"{"layer"?: name|id (default: the active layer)}"#)
         .view()
         .when(need_feature_layer),
         C::new("data.archiveRestore", "Restore From Archive", "Data › Archiving", archive_restore)

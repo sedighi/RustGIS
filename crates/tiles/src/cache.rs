@@ -59,6 +59,9 @@ pub const MAX_BYTES: usize = 16 << 20;
 /// The error a fetcher gives a request it dropped unfetched (the view moved on): the address is
 /// forgotten rather than failed, so it is fetched again when it is next wanted.
 pub const DROPPED: &str = "dropped: the view moved on";
+/// The end of a fetcher's error when a range was asked for and the server answered with the
+/// whole file: a file read in place by range is downloaded whole instead.
+pub const NO_RANGES: &str = "the server doesn't answer byte-range requests";
 
 enum Entry {
     Ready(Arc<Payload>, usize),
@@ -166,6 +169,8 @@ pub fn clear() {
     crate::source::forget();
     crate::pmtiles::forget();
     crate::mbtiles::forget();
+    crate::cog::forget();
+    rustgis_data::source::remote::forget();
     GENERATION.fetch_add(1, Ordering::Relaxed);
 }
 
@@ -210,6 +215,11 @@ fn start(url: String, want: Want) {
         crate::pmtiles::fetch(&url, done);
         return;
     }
+    // A tile of a cloud-optimised GeoTIFF is drawn from the file's tiles, read by range.
+    if crate::cog::is_tile(&url) {
+        crate::cog::fetch(&url, done);
+        return;
+    }
     // A tile from an MBTiles archive is read from the file, or the upload in memory.
     if crate::mbtiles::is_tile(&url) {
         crate::mbtiles::fetch(&url, done);
@@ -231,6 +241,86 @@ pub fn split_range(url: &str) -> (&str, Option<(u64, u64)>) {
         },
         None => (url, None),
     }
+}
+
+/// Marks an address asking for the file's last bytes, `#rustgis-tail=<n>` (`Range: bytes=-n`),
+/// where its length isn't known (a GeoParquet's footer). A shorter answer is the whole file.
+pub const TAIL: &str = "#rustgis-tail=";
+
+/// Splits an address into the address to fetch and how many of its last bytes it asks for, if any.
+pub fn split_tail(url: &str) -> (&str, Option<u64>) {
+    match url.rsplit_once(TAIL) {
+        Some((base, n)) => match n.parse::<u64>() {
+            Ok(n) if n > 0 => (base, Some(n)),
+            _ => (url, None),
+        },
+        None => (url, None),
+    }
+}
+
+/// Starts an address that [`download`] made: the fetchers take up to [`MAX_DOWNLOAD`] bytes for
+/// it, and [`MAX_BYTES`] (a tile) for any other. No tile, style or archive address can start with
+/// it: those pass `address::check`, which takes only `http(s)://` ones.
+pub const DOWNLOAD: &str = "rustgis-download:";
+
+/// The most bytes a data download may have.
+pub const MAX_DOWNLOAD: usize = if cfg!(target_arch = "wasm32") { 256 << 20 } else { 512 << 20 };
+
+/// Splits an address into the address to fetch and whether it is a download ([`DOWNLOAD`]).
+pub fn split_download(url: &str) -> (&str, bool) {
+    match url.strip_prefix(DOWNLOAD) {
+        Some(u) => (u, true),
+        None => (url, false),
+    }
+}
+
+/// The HTTP status a fetch's error is, if it is one: the whole message, as the native fetcher
+/// (`http status: 404`) and the browser's (`HTTP 404`) give it — never a number found inside
+/// another message (an address can hold "404").
+pub fn http_status(error: &str) -> Option<u16> {
+    let e = error.trim();
+    let code = e.strip_prefix("http status: ").or_else(|| e.strip_prefix("HTTP "))?;
+    (code.len() == 3 && code.bytes().all(|b| b.is_ascii_digit())).then(|| code.parse().ok()).flatten()
+}
+
+/// Downloads a file the user named (data added by its web address): up to [`MAX_DOWNLOAD`]
+/// bytes, uncached, off the frame (a thread natively, the browser's fetch on the web), counted as
+/// a fetch under way.
+pub fn download(url: &str, done: Done) {
+    if let Err(e) = crate::address::check(url, None) {
+        done(Err(e));
+        return;
+    }
+    let marked = format!("{DOWNLOAD}{url}");
+    IN_FLIGHT.fetch_add(1, Ordering::Relaxed);
+    let done: Done = Box::new(move |r| {
+        done(r);
+        finished();
+    });
+    let f = fetcher().lock().unwrap_or_else(|e| e.into_inner()).clone();
+    match f {
+        Some(f) => f(marked, done),
+        None => native::download(marked, done),
+    }
+}
+
+/// How long a download the caller waits for may take: commands run where the app waits too (the
+/// AI Assistant's), so a large file comes through Add Data › From URL, which downloads off the
+/// frame.
+#[cfg(not(target_arch = "wasm32"))]
+pub const BLOCKING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Downloads a file the user named, waiting for it (at most [`BLOCKING_TIMEOUT`]).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn download_blocking(url: &str) -> Result<Vec<u8>, String> {
+    crate::address::check(url, None)?;
+    native::get(&native::download_agent(BLOCKING_TIMEOUT), &format!("{DOWNLOAD}{url}")).map_err(|e| {
+        if e.contains("timeout") || e.contains("timed out") {
+            format!("{e} (a large file: add it with Add Data › From URL, which downloads in the background)")
+        } else {
+            e
+        }
+    })
 }
 
 /// Fetches an address's bytes, uncached (through the browser's fetcher, or the worker threads).
@@ -358,8 +448,23 @@ pub fn decode(bytes: &[u8], want: Want) -> Result<Payload, String> {
     }
 }
 
+/// Starts a picture drawn by RustGIS itself (a COG's map tile): its width and height (u32, little
+/// end first), then straight RGBA pixels. No encoding, so no PNG encoder in the browser build.
+pub(crate) const RAW: &[u8] = b"RUSTGIS-RGBA";
+
 /// Decodes a PNG, JPEG or WebP picture into a premultiplied pixmap (at most 4096 pixels a side).
 pub fn decode_image(bytes: &[u8]) -> Result<Pixmap, String> {
+    if let Some(rest) = bytes.strip_prefix(RAW) {
+        let dim = |at: usize| rest.get(at..at + 4).and_then(|b| b.try_into().ok()).map(u32::from_le_bytes).unwrap_or(0);
+        let (w, h) = (dim(0), dim(4));
+        let mut data = rest.get(8..).unwrap_or_default().to_vec();
+        if w == 0 || h == 0 || w > 4096 || h > 4096 || data.len() != (w as usize) * (h as usize) * 4 {
+            return Err("a picture of the wrong size".into());
+        }
+        premultiply(&mut data);
+        return Pixmap::from_vec(data, tiny_skia::IntSize::from_wh(w, h).ok_or("an empty picture")?)
+            .ok_or_else(|| "a picture of the wrong size".into());
+    }
     let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().map_err(|e| e.to_string())?;
     let mut limits = image::Limits::default();
     limits.max_image_width = Some(4096);
@@ -369,6 +474,12 @@ pub fn decode_image(bytes: &[u8]) -> Result<Pixmap, String> {
     let img = reader.decode().map_err(|e| e.to_string())?.into_rgba8();
     let (w, h) = img.dimensions();
     let mut data = img.into_raw();
+    premultiply(&mut data);
+    Pixmap::from_vec(data, tiny_skia::IntSize::from_wh(w, h).ok_or("an empty picture")?).ok_or_else(|| "a picture of the wrong size".into())
+}
+
+/// Straight RGBA to premultiplied, in place.
+fn premultiply(data: &mut [u8]) {
     for px in data.as_chunks_mut::<4>().0 {
         let a = u16::from(px[3]);
         if a < 255 {
@@ -377,7 +488,6 @@ pub fn decode_image(bytes: &[u8]) -> Result<Pixmap, String> {
             }
         }
     }
-    Pixmap::from_vec(data, tiny_skia::IntSize::from_wh(w, h).ok_or("an empty picture")?).ok_or_else(|| "a picture of the wrong size".into())
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -442,6 +552,21 @@ mod native {
             .into()
     }
 
+    /// An agent for downloads, which may take minutes.
+    pub(super) fn download_agent(timeout: std::time::Duration) -> ureq::Agent {
+        ureq::Agent::config_builder()
+            .timeout_global(Some(timeout))
+            .user_agent(concat!("RustGIS/", env!("CARGO_PKG_VERSION"), " (+https://rustgis.app)"))
+            .max_redirects(0)
+            .build()
+            .into()
+    }
+
+    /// Downloads on a thread of its own, so a large file doesn't hold up the tiles.
+    pub(super) fn download(url: String, done: Done) {
+        std::thread::spawn(move || done(get(&download_agent(std::time::Duration::from_secs(900)), &url)));
+    }
+
     fn work() {
         let agent = agent();
         let q = queue();
@@ -473,17 +598,42 @@ mod native {
             let (a, b) = range.ok_or("a local read without a range")?;
             return crate::pmtiles::read_file(path, a, b - a + 1);
         }
+        let (url, whole) = super::split_download(url);
+        let max = if whole { super::MAX_DOWNLOAD } else { MAX_BYTES };
+        let (url, tail) = super::split_tail(url);
         let (url, range) = super::split_range(url);
-        let mut at = url.to_string();
+        // An `s3://` address becomes its web address, and a request to an S3 connection's
+        // endpoint is signed.
+        let prepared = crate::s3::prepare(url)?;
+        let mut at = prepared.url.clone();
         let mut redirects = 0;
         let mut resp = loop {
             let mut req = agent.get(&at);
             if let Some((a, b)) = range {
                 req = req.header("Range", &format!("bytes={a}-{b}"));
+            } else if let Some(n) = tail {
+                req = req.header("Range", &format!("bytes=-{n}"));
+            }
+            // A range of the file's own bytes: a server compressing its answer would count the
+            // range in the compressed ones.
+            if range.is_some() || tail.is_some() {
+                req = req.header("Accept-Encoding", "identity");
+            }
+            if redirects == 0 {
+                for (k, v) in &prepared.headers {
+                    req = req.header(k.as_str(), v.as_str());
+                }
             }
             let resp = req.call().map_err(|e| e.to_string())?;
             if !resp.status().is_redirection() {
                 break resp;
+            }
+            // A signed request goes only where its credentials are for.
+            if prepared.signed {
+                return Err(format!(
+                    "{url}: the S3 endpoint answered with a redirect (HTTP {}), which a signed request doesn't follow: check the connection's region and endpoint",
+                    resp.status().as_u16()
+                ));
             }
             let location = resp.headers().get("location").and_then(|v| v.to_str().ok()).ok_or("a redirect with no Location")?;
             let next = crate::template::join(&at, location);
@@ -509,16 +659,36 @@ mod native {
         if let Some((a, _)) = range.filter(|_| whole)
             && a > 0
         {
-            return Err(format!("{url}: the server doesn't answer byte-range requests"));
+            return Err(format!("{url}: {}", super::NO_RANGES));
         }
         let mut buf = Vec::new();
-        resp.body_mut().with_config().limit(MAX_BYTES as u64 + 1).reader().read_to_end(&mut buf).map_err(|e| e.to_string())?;
-        if buf.len() > MAX_BYTES {
-            return Err(format!("larger than {} MB", MAX_BYTES >> 20));
+        if !resp.status().is_success() {
+            return Err(format!("HTTP {}", resp.status().as_u16()));
+        }
+        // The last bytes asked for and the whole file answered: fine when it is no longer.
+        if let Some(n) = tail.filter(|_| resp.status().as_u16() != 206) {
+            // Read one byte past `n` (no more, and no error at the limit): a longer file is
+            // reported as a server without ranges, so the file is downloaded whole instead.
+            let limit = n.saturating_add(1);
+            resp.body_mut()
+                .with_config()
+                .limit(limit.saturating_add(1))
+                .reader()
+                .take(limit)
+                .read_to_end(&mut buf)
+                .map_err(|e| e.to_string())?;
+            if buf.len() as u64 > n {
+                return Err(format!("{url}: {}", super::NO_RANGES));
+            }
+            return Ok(buf);
+        }
+        resp.body_mut().with_config().limit(max as u64 + 1).reader().read_to_end(&mut buf).map_err(|e| e.to_string())?;
+        if buf.len() > max {
+            return Err(format!("larger than {} MB", max >> 20));
         }
         if let Some((a, b)) = range.filter(|_| whole) {
             if buf.len() as u64 > b - a + 1 {
-                return Err(format!("{url}: the server doesn't answer byte-range requests"));
+                return Err(format!("{url}: {}", super::NO_RANGES));
             }
             buf.truncate(usize::try_from(b - a + 1).unwrap_or(usize::MAX));
         }
@@ -534,6 +704,10 @@ mod native {
         done(Err(format!("{url}: this build has no way to fetch tiles")));
     }
 
+    pub(super) fn download(url: String, done: Done) {
+        fetch(url, done);
+    }
+
     pub(super) fn fetch_local(url: String, done: Done) {
         let (path, _) = super::split_range(&url);
         done(Err(format!("{path}: the web app reads PMTiles archives from web addresses only")));
@@ -543,6 +717,17 @@ mod native {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn http_statuses_from_whole_messages() {
+        assert_eq!(http_status("http status: 404"), Some(404));
+        assert_eq!(http_status("HTTP 403"), Some(403));
+        assert_eq!(http_status("HTTP 500"), Some(500));
+        // A number inside another message is not a status.
+        assert_eq!(http_status("https://x.org/404/a.zarr: timed out"), None);
+        assert_eq!(http_status("HTTP 4040"), None);
+        assert_eq!(http_status("io: connection reset (read 404 bytes)"), None);
+    }
 
     #[test]
     fn decodes_pictures_and_documents() {

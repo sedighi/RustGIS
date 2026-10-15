@@ -48,13 +48,12 @@ cask "rustgis" do
   sha256 arm:   "$dmg_arm",
          intel: "$dmg_intel"
 
-  url "$releases/RustGIS-#{version}-macos-#{arch}.dmg",
-      verified: "github.com/$repo/"
+  url "$releases/RustGIS-#{version}-macos-#{arch}.dmg"
   name "RustGIS"
   desc "GIS platform"
   homepage "https://rustgis.app/"
 
-  depends_on macos: ">= :big_sur"
+  depends_on macos: :big_sur
 
   app "RustGIS.app"
 

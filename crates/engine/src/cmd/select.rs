@@ -36,7 +36,7 @@ pub fn commands() -> Vec<C> {
             let n = s.map().layer(id).map(|l| l.dataset.features.len()).unwrap_or(0);
             set(s, id, (0..n).collect(), Mode::New);
             Ok(Value::Null)
-        })
+        }).params(r#"{"layer"?: name|id (default: the active layer)}"#)
         .when(need_layer),
         C::new("select.switch", "Switch Selection", "Data › Selection", |s, p| {
             let id = s.layer_id(p)?;
@@ -44,7 +44,7 @@ pub fn commands() -> Vec<C> {
             let rows: Vec<usize> = (0..l.dataset.features.len()).filter(|r| !l.selection.contains(r)).collect();
             set(s, id, rows, Mode::New);
             Ok(Value::Null)
-        })
+        }).params(r#"{"layer"?: name|id (default: the active layer)}"#)
         .when(need_layer),
         C::new("select.zoomTo", "Zoom To Selection", "Home › Selection", |s, _| {
             let e = s.map().selection_extent();
@@ -70,7 +70,7 @@ pub fn commands() -> Vec<C> {
             }
             let nid = super::layer::add_dataset(s, ds);
             Ok(json!({"layer": nid}))
-        })
+        }).params(r#"{"layer"?: name|id (default: the active layer, which need not be the layer last selected in)}"#)
         .when(need_selection),
         C::new("identify", "Identify", "Home › Inspect", identify).view().params(
             r#"{"lon", "lat", "tolerancePx"?, "mode"?: "topmost"|"visible"|"selectable"|"selectedInContents"|"none" (the map's pop-up mode when omitted)}"#,

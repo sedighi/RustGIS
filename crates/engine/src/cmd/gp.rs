@@ -9,7 +9,7 @@ use crate::{CmdResult, CommandSpec as C, GpRecord, Session};
 
 pub fn commands() -> Vec<C> {
     vec![
-        C::new("gp.run", "Run Tool", "Analyze › Geoprocessing", run).when(need_layers).params(r#"{"tool": tool id, "params": {...}}"#),
+        C::new("gp.run", "Run Tool", "Analyze › Geoprocessing", run).when(need_layers).params(r#"{"tool": tool id, "params": {...} (a layer by name; a standalone table by name or id)}"#),
         C::new("gp.tools", "Tools", "Analyze › Geoprocessing", |_, _| {
             Ok(Value::Array(
                 rustgis_analysis::tools()
@@ -29,6 +29,7 @@ pub fn commands() -> Vec<C> {
             Ok(json!({"path": path, "status": geolibre_status()}))
         })
         .view(),
+        C::new("gp.uninstallGeolibre", "Uninstall GeoLibre Tools", "Analyze › Geoprocessing", |_, _| uninstall_geolibre()).view(),
         C::new("gp.finish", "Finish Tool Run", "Analyze › Geoprocessing", finish)
             .params(r#"{"id": a finished run (the browser's GeoLibre tools run asynchronously)}"#),
         C::new("gp.setGeolibre", "Locate GeoLibre Runner", "Analyze › Geoprocessing", set_geolibre)
@@ -76,6 +77,8 @@ pub fn geolibre_status() -> Value {
             "supported": true,
             "web": false,
             "available": found.is_some(),
+            // The runner in use is the one `gp.installGeolibre` put in place (so it can be uninstalled).
+            "installed": found.as_ref().is_some_and(|(p, _)| rustgis_geolibre::install::is_installed(p)),
             "path": found.as_ref().map(|(p, _)| p.display().to_string()),
             "version": found.map(|(_, v)| v),
             "tools": geolibre_tools().len(),
@@ -104,6 +107,24 @@ pub fn install_geolibre(progress: &dyn Fn(u64, Option<u64>)) -> Result<String, S
         let _ = progress;
         Err("this build can't install the GeoLibre runner".into())
     }
+}
+
+/// Removes the runner `gp.installGeolibre` installed, then looks for one again (a runner of the
+/// user's own, found elsewhere, stays in use). In the browser: unloads the tools.
+fn uninstall_geolibre() -> CmdResult {
+    #[cfg(all(feature = "geolibre", not(target_arch = "wasm32")))]
+    {
+        rustgis_geolibre::install::uninstall()?;
+        rustgis_geolibre::set_runner(None)?;
+        Ok(geolibre_status())
+    }
+    #[cfg(all(feature = "geolibre", target_arch = "wasm32"))]
+    {
+        rustgis_geolibre::set_manifests("[]")?;
+        Ok(geolibre_status())
+    }
+    #[cfg(not(feature = "geolibre"))]
+    Err("this build doesn't include the GeoLibre tools".into())
 }
 
 /// Chooses the GeoLibre runner (an optional download), or looks for it again. Native only.
@@ -220,7 +241,7 @@ fn finish(s: &mut Session, p: &Value) -> CmdResult {
 
 struct MapInputs<'a>(
     &'a rustgis_map::Map,
-    &'a [Dataset],
+    &'a [crate::project::Table],
     std::collections::HashMap<String, Vec<usize>>,
     /// Streamed layers the tool reads, loaded whole (by lowercase name).
     std::collections::HashMap<String, Dataset>,
@@ -326,7 +347,11 @@ impl Inputs for MapInputs<'_> {
         self.3
             .get(&layer.to_ascii_lowercase())
             .or_else(|| self.0.layer_by_name(layer).map(|l| &l.dataset))
-            .or_else(|| self.1.iter().find(|t| t.name.eq_ignore_ascii_case(layer)))
+            // A table as commands find one: by its name, else (names can repeat) by its id.
+            .or_else(|| crate::project::find_table(self.1, layer).and_then(|i| self.1.get(i)).map(|t| &t.dataset))
+    }
+    fn table(&self, id: u32) -> Option<&Dataset> {
+        self.1.iter().find(|t| t.id == id).map(|t| &t.dataset)
     }
     fn selection(&self, layer: &str) -> &[usize] {
         match self.0.layer_by_name(layer) {
@@ -425,8 +450,7 @@ fn apply(s: &mut Session, name: String, params: Value, res: Result<rustgis_analy
         }
         Output::Table(t) => {
             let n = t.name.clone();
-            s.project.tables.retain(|x| x.name != n);
-            s.project.tables.push(t);
+            s.project.put_table(t);
             json!({"table": n})
         }
         Output::Layers(outputs) => {
@@ -451,8 +475,7 @@ fn apply(s: &mut Session, name: String, params: Value, res: Result<rustgis_analy
                     }
                     OutputLayer::Table(t) => {
                         let n = t.name.clone();
-                        s.project.tables.retain(|x| x.name != n);
-                        s.project.tables.push(t);
+                        s.project.put_table(t);
                         tables.push(n);
                     }
                 }

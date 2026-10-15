@@ -249,9 +249,13 @@ pub fn show(app: &mut RustGisApp, ui: &mut Ui, t: &Tokens) {
             let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), egui::Sense::hover());
             icons::paint(ui.painter(), r, "assistant", t.text_dim, t.accent);
             let model_label = egui::Label::new(RichText::new(format!("{} · {}", tl!(label), model)).small().color(t.text_dim))
+                .truncate()
                 .sense(egui::Sense::click());
+            // Room for the two buttons; a long model name is cut short.
+            let w = (ui.available_width() - 2.0 * (26.0 + ui.spacing().item_spacing.x)).max(0.0);
             if ui
-                .add(model_label)
+                .allocate_ui(vec2(w, 16.0), |ui| ui.add(model_label))
+                .inner
                 .on_hover_text(tl!("The model answering; click to change it"))
                 .on_hover_cursor(egui::CursorIcon::PointingHand)
                 .clicked()
@@ -285,7 +289,11 @@ pub fn show(app: &mut RustGisApp, ui: &mut Ui, t: &Tokens) {
     );
     // The conversation in between.
     egui::ScrollArea::vertical().auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {
-        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 8)).show(ui, |ui| transcript(app, ui, t, &ctx));
+        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 8)).show(ui, |ui| {
+            // Text in a row (a list item, a quote, the user's message) wraps too, instead of widening the pane.
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+            transcript(app, ui, t, &ctx);
+        });
     });
 }
 
@@ -501,7 +509,7 @@ fn transcript(app: &mut RustGisApp, ui: &mut Ui, t: &Tokens, ctx: &egui::Context
                 ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                     egui::Frame::NONE.fill(t.selection).corner_radius(8).inner_margin(egui::Margin::symmetric(10, 6)).show(ui, |ui| {
                         ui.set_max_width(ui.available_width() * 0.85);
-                        ui.label(RichText::new(text).color(t.text));
+                        ui.add(egui::Label::new(RichText::new(text).color(t.text)).halign(Align::LEFT));
                     });
                 });
                 ui.add_space(4.0);
@@ -513,12 +521,18 @@ fn transcript(app: &mut RustGisApp, ui: &mut Ui, t: &Tokens, ctx: &egui::Context
             Entry::Tool { name, summary, result, error } => {
                 let (mark, col) = if *error { ("✗", t.red) } else { ("✓", t.green) };
                 let head = format!("{mark} {}", summary.chars().take(90).collect::<String>());
-                egui::CollapsingHeader::new(RichText::new(head).monospace().small().color(col))
-                    .id_salt(("assistant_tool", name, summary.as_str(), result.len()))
-                    .show(ui, |ui| {
-                        ui.label(RichText::new(summary).monospace().small());
-                        ui.label(RichText::new(result.chars().take(2000).collect::<String>()).monospace().small().color(t.text_dim));
-                    });
+                // A header never wraps: it is cut to the room there is. Opened, it shows the whole call.
+                let room = (ui.available_width() - ui.spacing().indent - ui.spacing().button_padding.x).max(0.0);
+                let head = egui::WidgetText::from(RichText::new(head).monospace().small().color(col)).into_galley(
+                    ui,
+                    Some(egui::TextWrapMode::Truncate),
+                    room,
+                    egui::TextStyle::Button,
+                );
+                egui::CollapsingHeader::new(head).id_salt(("assistant_tool", name, summary.as_str(), result.len())).show(ui, |ui| {
+                    ui.label(RichText::new(summary).monospace().small());
+                    ui.label(RichText::new(result.chars().take(2000).collect::<String>()).monospace().small().color(t.text_dim));
+                });
             }
             Entry::Error(e) => {
                 ui.label(RichText::new(tl!(e)).color(t.red));
@@ -664,4 +678,64 @@ fn inline(ui: &Ui, text: &str, t: &Tokens, size: f32, heading: bool) -> egui::te
     }
     flush(&mut job, &mut buf, bold, italic);
     job
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The right pane's width with `entries` in the conversation and `model` as the model's name.
+    fn pane_width(entries: Vec<Entry>, model: &str) -> f32 {
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1400.0, 860.0)).with_max_steps(64).build_ui_state(
+            |ui, app: &mut RustGisApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            RustGisApp::with_sample(),
+        );
+        h.state_mut().run("ui.pane.assistant", serde_json::Value::Null).unwrap();
+        for _ in 0..4 {
+            h.step();
+        }
+        let app = h.state_mut();
+        app.assistant.settings = false;
+        let agent = app.assistant.agent.as_mut().unwrap();
+        agent.config.model = model.into();
+        agent.transcript = entries;
+        for _ in 0..6 {
+            h.step();
+        }
+        egui::containers::panel::PanelState::load(&h.ctx, egui::Id::new("right_pane")).unwrap().size().x
+    }
+
+    #[test]
+    fn long_lines_wrap_instead_of_widening_the_pane() {
+        let sentence = "The assistant ran the buffer tool on the cities layer and added the result to the map. ".repeat(4);
+        let empty = pane_width(Vec::new(), "m");
+        let mut widened = Vec::new();
+        for (what, entry, model) in [
+            ("a list item", Entry::Assistant(format!("- {sentence}")), "m"),
+            ("a numbered item", Entry::Assistant(format!("1. {sentence}")), "m"),
+            ("a quote", Entry::Assistant(format!("> {sentence}")), "m"),
+            ("a word with no spaces", Entry::Assistant(format!("- {}", "x".repeat(400))), "m"),
+            ("the user's message", Entry::User(sentence.clone()), "m"),
+            (
+                "a tool call",
+                Entry::Tool { name: "run_command".into(), summary: "gp.run ".repeat(20), result: sentence.clone(), error: false },
+                "m",
+            ),
+            (
+                "the model's name",
+                Entry::Assistant("Done.".into()),
+                "provider/a-very-long-model-name-with-many-parts-preview-2026-10-14-extended",
+            ),
+        ] {
+            let w = pane_width(vec![entry], model);
+            if (w - empty).abs() > 0.5 {
+                widened.push(format!("{what}: {empty} to {w}"));
+            }
+        }
+        assert!(widened.is_empty(), "the pane grew wider with {widened:?}");
+    }
 }

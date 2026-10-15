@@ -58,7 +58,7 @@ pub fn commands() -> Vec<C> {
             s.active_presentation = Some(i);
             Ok(json!({"presentation": i, "name": name}))
         })
-        .params(r#"{"path"?: "*.rgispres", "text"?: presentation JSON}"#),
+        .params(r#"{"path"?: "*.rgispres", "text"?: presentation JSON, "data"?: base64 file}"#),
         C::new("presentation.activate", "Open Presentation", "Browser", |s, p| {
             let i = index(s, p)?;
             s.active_presentation = Some(i);
@@ -96,7 +96,7 @@ pub fn commands() -> Vec<C> {
             add_page(s, p, ps(p, "title").unwrap_or("").to_string(), PageKind::Blank { text, background })
         })
         .when(need_presentation)
-        .params(r##"{"presentation"?, "title"?, "text"?, "background"?: "#RRGGBB", "at"?}"##),
+        .params(r##"{"presentation"?, "title"?, "text"?, "background"?: "#RRGGBB"|"#RRGGBBAA", "at"?}"##),
         C::new("presentation.imagePage", "Image Page", "Publish › Page", |s, p| {
             // A picture opened in the browser arrives as base64 `data`.
             let image = match ps(p, "data") {
@@ -122,7 +122,7 @@ pub fn commands() -> Vec<C> {
         .when(need_presentation)
         .params(r#"{"presentation"?, "source": video file or URL, "poster"?: PNG/JPEG file, "posterImage"?: base64, "title"?, "caption"?, "at"?}"#),
         C::new("presentation.updatePage", "Page Properties", "Presentation", update_page).when(need_presentation).params(
-            r##"{"presentation"?, "page": index, "title"?, "text"?, "caption"?, "notes"?, "seconds"?, "background"?: "#RRGGBB", "moveTo"?: index}"##,
+            r##"{"presentation"?, "page": index, "title"?, "text"?, "caption"?, "notes"?, "seconds"?, "background"?: "#RRGGBB"|"#RRGGBBAA", "moveTo"?: index}"##,
         ),
         C::new("presentation.removePage", "Delete Page", "Presentation", |s, p| {
             let (i, k) = page_of(s, p)?;

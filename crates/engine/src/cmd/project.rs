@@ -14,7 +14,7 @@ pub fn commands() -> Vec<C> {
         C::new("project.new", "New Project", "Project", new).key("Mod+N").view().params(r#"{"name"?: string}"#),
         C::new("project.sample", "World Atlas Sample", "Project", sample).view(),
         C::new("project.open", "Open Project", "Project", open).key("Mod+O").view().params(r#"{"path": string}"#),
-        C::new("project.openText", "Open Project (from text)", "Project", open_text).view().params(r#"{"text": project JSON}"#),
+        C::new("project.openText", "Open Project (from text)", "Project", open_text).view().params(r#"{"text": project JSON, "fileName"?: string}"#),
         C::new("project.save", "Save Project", "Project", save).key("Mod+S").view().params(r#"{"path"?: string}"#),
         C::new("project.saveAs", "Save Project As", "Project", save_as).key("Mod+Shift+S").view().params(r#"{"path": string}"#),
         C::new("project.rename", "Rename Project", "Project", rename).params(r#"{"name": string}"#),
@@ -43,6 +43,7 @@ fn reset(s: &mut Session, p: Project) {
     s.project = p;
     s.active_layer = s.map().layers.first().map(|l| l.id);
     s.table_layer = None;
+    s.table_standalone = None;
     s.active_layout = None;
     s.tool = Tool::Explore;
     s.clear_history();
@@ -84,6 +85,9 @@ fn open(s: &mut Session, p: &Value) -> CmdResult {
     };
     reset(s, proj);
     // A package opens as a new, unsaved project (saving writes a plain project file).
+    if !is_package {
+        name_from_file(s, &path);
+    }
     s.path = if is_package { None } else { Some(path) };
     s.notify(format!("Opened {}", s.project.name), false);
     Ok(Value::Null)
@@ -93,6 +97,10 @@ fn open_text(s: &mut Session, p: &Value) -> CmdResult {
     let text = super::ps(p, "text").ok_or("text is required")?;
     let proj = Project::from_json(text)?;
     reset(s, proj);
+    // The browser opens files by name and contents: the name still names the project.
+    if let Some(file) = super::ps(p, "fileName") {
+        name_from_file(s, std::path::Path::new(file));
+    }
     s.path = None;
     s.notify(format!("Opened {}", s.project.name), false);
     Ok(Value::Null)
@@ -106,6 +114,14 @@ fn write(s: &mut Session, path: PathBuf) -> CmdResult {
     s.notify(format!("Saved {}", path.display()), false);
     s.path = Some(path.clone());
     Ok(json!({"path": path.display().to_string()}))
+}
+
+/// Names the project after its file, as Save As does, so a renamed or copied file opens under
+/// its own name.
+fn name_from_file(s: &mut Session, file: &std::path::Path) {
+    if let Some(stem) = file.file_stem().and_then(|x| x.to_str()).map(str::trim).filter(|x| !x.is_empty()) {
+        s.project.name = stem.chars().take(200).collect();
+    }
 }
 
 fn save(s: &mut Session, p: &Value) -> CmdResult {
@@ -177,7 +193,10 @@ fn info(s: &mut Session, _: &Value) -> CmdResult {
                 "fields": l.dataset.fields.iter().map(|f| format!("{} ({})", f.name, f.ty.label())).collect::<Vec<_>>(),
             }),
         }).collect::<Vec<_>>(),
-        "tables": s.project.tables.iter().map(|t| t.name.clone()).collect::<Vec<_>>(),
+        "tables": s.project.tables.iter().map(|t| json!({
+            "id": t.id, "name": t.name, "rows": t.features.len(),
+            "fields": t.fields.iter().map(|f| format!("{} ({})", f.name, f.ty.label())).collect::<Vec<_>>(),
+        })).collect::<Vec<_>>(),
     }))
 }
 

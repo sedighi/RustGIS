@@ -1,6 +1,7 @@
 # fr interface catalog: English<TAB>translation
  by 	 par
 (b4-b3)/(b4+b3)	(b4-b3)/(b4+b3)
+(filtered)	(filtrée)
 00:00 UTC	00:00 UTC
 06:00 UTC	06:00 UTC
 12:00 UTC	12:00 UTC
@@ -247,6 +248,7 @@ Checking for updates…	Recherche de mises à jour…
 China	Chine
 Choose a band combination to display the raster layer.	Choisir une combinaison de bandes pour afficher la couche raster.
 Choose a contrast stretch for the raster layer.	Choisir un étirement du contraste pour la couche raster.
+Choose a delimited text file or a spreadsheet, then pick its columns.	Choisissez un fichier texte délimité ou un classeur, puis ses colonnes.
 Choose a model.	Choisissez un modèle.
 Choose a resampling type for the raster layer.	Choisir un type de rééchantillonnage pour la couche raster.
 Choose extra buttons for the Quick Access Toolbar.	Choisir des boutons supplémentaires pour la barre d'outils Accès rapide.
@@ -323,6 +325,7 @@ Color Vision	Vision des couleurs
 Color Vision Simulator	Simulateur de vision des couleurs
 Colormap	Table de couleurs
 Colors from the raster's own color table.	Couleurs issues de la table de couleurs du raster.
+Columns named like longitude/latitude, easting/northing or geometry are picked for you.	Les colonnes nommées comme longitude/latitude, easting/northing ou geometry sont choisies pour vous.
 Combinations from the box above, one per line	Combinaisons de la zone ci-dessus, une par ligne
 Command\nSearch	Rechercher\nune commande
 command is required	command est requis
@@ -383,6 +386,7 @@ Create Polygon	Créer un polygone
 Create Profile	Créer un profil
 Create Thumbnail	Créer une miniature
 Creates a point inside each input feature.	Crée un point à l'intérieur de chaque entité en entrée.
+Creates points from a table's x and y coordinate fields.	Crée des points à partir des champs de coordonnées x et y d'une table.
 Creates polygons around input features at a given distance.	Crée des polygones autour des entités en entrée à une distance donnée.
 Cross Section	Coupe transversale
 Cross Section (2 clicks)	Coupe transversale (2 clics)
@@ -1307,6 +1311,7 @@ Remove Folder	Supprimer le dossier
 Remove From Current Selection	Supprimer de la sélection courante
 Remove Keyframe	Supprimer l'image clé
 Remove Section	Supprimer la section
+Remove Table	Supprimer la table
 Remove the last keyframe.	Supprimer la dernière image clé.
 Remove the layer from the map.	Supprimer la couche de la carte.
 Remove Tile Layer	Supprimer la couche de tuiles
@@ -1812,7 +1817,11 @@ World, equal-area: true sizes, shapes bend towards the edges.	Monde, équivalent
 Worldview	Frontières
 Write a plugin	Écrire une extension
 X (mm)	X (mm)
+X Field	Champ X
+XY Table To Point	Table XY vers point
+XY Table To Point…	Table XY vers point…
 Y (mm)	Y (mm)
+Y Field	Champ Y
 Yes	Oui
 You have version {version}.	Vous avez la version {version}.
 z (m)	z (m)

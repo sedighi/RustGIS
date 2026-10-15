@@ -9,17 +9,38 @@ use crate::{CmdResult, CommandSpec as C, Session};
 
 /// Commands that make the map fetch from an address they're given (a plugin needs the
 /// `network` permission to run them).
-pub const NETWORK: &[&str] = &["map.addTiles"];
+pub const NETWORK: &[&str] = &[
+    "map.addTiles",
+    "layer.addUrl",
+    "service.layers",
+    "service.add",
+    "service.coverage",
+    "catalog.search",
+    "stac.collections",
+    "stac.search",
+    "stac.addAsset",
+    "map.findPlace",
+    "layer.geocode",
+    "osm.download",
+    "boundaries.add",
+    "boundaries.countries",
+    "s3.list",
+    "overture.add",
+    "sourcecoop.products",
+    "sourcecoop.list",
+    "portal.search",
+    "portal.add",
+];
 
 pub fn commands() -> Vec<C> {
     vec![
         C::new("map.addTiles", "Add Tile Layer", "Home › Add", add).params(
-            r#"{"url": "https://…/{z}/{x}/{y}.png" | vector tiles ".pbf" or TileJSON | MapLibre style.json | a PMTiles archive (web address or file path) | an MBTiles file path, "kind"?: "raster"|"vector"|"style"|"pmtiles"|"mbtiles" (guessed from the url), "name"?: text, "attribution"?: text, "minZoom"?: number, "maxZoom"?: number, "tileSize"?: 256|512, "tms"?: bool, "subdomains"?: [text], "opacity"?: 0–1, "overlay"?: bool (a transparent layer kept on top), "replace"?: bool (removes the other tile basemaps, not overlays), "id"?: catalog id}"#,
+            r#"{"url": "https://…/{z}/{x}/{y}.png" | vector tiles ".pbf" or TileJSON | MapLibre style.json | a PMTiles archive (web address or file path) | an MBTiles file path, "kind"?: "raster"|"vector"|"style"|"pmtiles"|"mbtiles" (guessed from the url), "name"?: text, "attribution"?: text, "minZoom"?: number, "maxZoom"?: number, "tileSize"?: 256|512, "tms"?: bool, "subdomains"?: [text], "layers"?: [vector tile layer names, drawn in colours of their own], "opacity"?: 0–1, "overlay"?: bool (a transparent layer kept on top), "replace"?: bool (removes the other tile basemaps, not overlays), "id"?: catalog id}"#,
         ),
         C::new("map.removeTiles", "Remove Tile Layer", "Home › Add", remove)
             .params(r#"{"name"?: text, "index"?: number, "id"?: catalog id} (removes every tile layer when none is given)"#),
         C::new("map.setTiles", "Tile Layer Properties", "Home › Add", set).params(
-            r#"{"name"?: text | "index"?: number (0 = top), "visible"?: bool, "opacity"?: 0–1, "move"?: "up"|"down"|"top"|"bottom", "rename"?: text}"#,
+            r#"{"name"?: text | "index"?: number (0 = top) | "id"?: catalog id, "visible"?: bool, "opacity"?: 0–1, "move"?: "up"|"down"|"top"|"bottom", "rename"?: text}"#,
         ),
         C::new("map.tiles", "Tile Layers", "Home › Add", |s, _| Ok(list(s))).view(),
     ]
@@ -64,6 +85,10 @@ pub(crate) fn add(s: &mut Session, p: &Value) -> CmdResult {
     t.overlay = b(p, "overlay").unwrap_or(false);
     if let Some(o) = f(p, "opacity") {
         t.opacity = o as f32;
+    }
+    // Vector tiles' layer names (an OGC API collection's), each drawn in a colour of its own.
+    if let Some(names) = p.get("layers").and_then(Value::as_array) {
+        t.layers = names.iter().filter_map(Value::as_str).map(str::to_string).collect();
     }
     if let Some(subs) = p.get("subdomains") {
         t.subdomains = match subs {
