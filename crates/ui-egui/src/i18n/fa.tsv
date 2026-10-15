@@ -1,6 +1,7 @@
 # fa interface catalog: English	translation
  by 	 × 
 (b4-b3)/(b4+b3)	(b4-b3)/(b4+b3)
+(filtered)	(فیلترشده)
 00:00 UTC	00:00 UTC
 06:00 UTC	06:00 UTC
 12:00 UTC	12:00 UTC
@@ -247,6 +248,7 @@ Checking for updates…	در حال بررسی به‌روزرسانی‌ها…
 China	چین
 Choose a band combination to display the raster layer.	انتخاب ترکیب باندی برای نمایش لایه رستری.
 Choose a contrast stretch for the raster layer.	انتخاب کشش کنتراست برای لایه رستری.
+Choose a delimited text file or a spreadsheet, then pick its columns.	یک فایل متنی دارای جداکننده یا یک صفحه گسترده را انتخاب کنید، سپس ستون‌های آن را مشخص نمایید.
 Choose a model.	انتخاب یک مدل.
 Choose a resampling type for the raster layer.	انتخاب نوع نمونه‌برداری مجدد برای لایه رستری.
 Choose extra buttons for the Quick Access Toolbar.	انتخاب دکمه‌های اضافی برای نوار ابزار دسترسی سریع.
@@ -323,6 +325,7 @@ Color Vision	دید رنگی
 Color Vision Simulator	شبیه‌ساز دید رنگی
 Colormap	نقشه رنگی
 Colors from the raster's own color table.	رنگ‌ها برگرفته از جدول رنگ اختصاصی رستر.
+Columns named like longitude/latitude, easting/northing or geometry are picked for you.	ستون‌هایی با نام‌های طول/عرض جغرافیایی، easting/northing یا هندسه به‌طور خودکار انتخاب می‌شوند.
 Combinations from the box above, one per line	ترکیبات از کادر بالا، هر خط یک مورد
 Command\nSearch	جستجوی\nدستور
 command is required	دستور الزامی است
@@ -383,6 +386,7 @@ Create Polygon	ایجاد پلی‌گون
 Create Profile	ایجاد پروفایل
 Create Thumbnail	ایجاد تصویر بندانگشتی
 Creates a point inside each input feature.	ایجاد یک نقطه در داخل هر عارضه ورودی.
+Creates points from a table's x and y coordinate fields.	از فیلدهای مختصات x و y یک جدول، نقطه ایجاد می‌کند.
 Creates polygons around input features at a given distance.	ایجاد پلی‌گون‌ها در اطراف عارضه‌های ورودی با فاصله معین.
 Cross Section	مقطع عرضی
 Cross Section (2 clicks)	مقطع عرضی (۲ کلیک)
@@ -1307,6 +1311,7 @@ Remove Folder	حذف پوشه
 Remove From Current Selection	حذف از انتخاب فعلی
 Remove Keyframe	حذف فریم کلیدی
 Remove Section	حذف بخش
+Remove Table	حذف جدول
 Remove the last keyframe.	حذف آخرین فریم کلیدی.
 Remove the layer from the map.	حذف لایه از نقشه.
 Remove Tile Layer	حذف لایه کاشی
@@ -1812,7 +1817,11 @@ World, equal-area: true sizes, shapes bend towards the edges.	جهانی، هم�
 Worldview	مرزها و دیدگاه جهانی
 Write a plugin	نوشتن یک افزونه
 X (mm)	X (میلی‌متر)
+X Field	فیلد X
+XY Table To Point	جدول XY به نقطه
+XY Table To Point…	جدول XY به نقطه…
 Y (mm)	Y (میلی‌متر)
+Y Field	فیلد Y
 Yes	بله
 You have version {version}.	شما نسخه {version} را در اختیار دارید.
 z (m)	z (متر)
