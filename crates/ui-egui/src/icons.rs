@@ -928,6 +928,19 @@ pub fn paint(painter: &Painter, r: Rect, name: &str, ink: Color32, accent: Color
                 p.plus_badge(15.0, 2.0);
             }
         }
+        "database" => {
+            p.rect(4.0, 6.0, 16.0, 13.0, Some(p.tint(40)), None, 0.0);
+            p.line(&[(4.0, 6.0), (4.0, 19.0)], 1.3, ink);
+            p.line(&[(20.0, 6.0), (20.0, 19.0)], 1.3, ink);
+            p.arc(12.0, 6.0, 8.0, 0.0, 360.0, 1.3, ink);
+            p.arc(12.0, 12.0, 8.0, 0.0, 180.0, 1.1, ink);
+            p.arc(12.0, 19.0, 8.0, 0.0, 180.0, 1.3, ink);
+        }
+        "feature_dataset" => {
+            p.rect(3.0, 8.0, 12.0, 11.0, Some(amber.gamma_multiply(0.4)), Some((1.1, ink)), 1.0);
+            p.rect(6.0, 5.5, 12.0, 11.0, Some(p.tint(60)), Some((1.1, ink)), 1.0);
+            p.rect(9.0, 3.0, 12.0, 11.0, Some(accent), Some((1.2, ink)), 1.0);
+        }
         _ => {
             p.rect(4.0, 4.0, 16.0, 16.0, Some(p.tint(60)), Some((1.2, ink)), 3.0);
         }
@@ -1052,4 +1065,6 @@ pub const ALL: &[&str] = &[
     "brightness",
     "contrast",
     "gamma",
+    "database",
+    "feature_dataset",
 ];

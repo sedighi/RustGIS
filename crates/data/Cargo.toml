@@ -15,9 +15,8 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 csv = { workspace = true }
 shapefile = { workspace = true }
-# Zstandard, the usual compression of COGs, is C code that compiles to WebAssembly with clang
-# (on the CI runners), so the browser decodes it too.
-tiff = { workspace = true, features = ["zstd"] }
+# Zstandard, the usual compression of COGs, is C code (native only unless clang is installed).
+tiff = { workspace = true }
 proj4rs = { workspace = true }
 crs-definitions = { workspace = true }
 miniz_oxide = { workspace = true }
@@ -39,6 +38,7 @@ ruzstd = { workspace = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # zstd is C: native only. GeoParquet files compressed with it don't open in the browser yet.
 parquet = { workspace = true, features = ["zstd"] }
+tiff = { workspace = true, features = ["zstd"] }
 rusqlite = { workspace = true }
 
 [dev-dependencies]

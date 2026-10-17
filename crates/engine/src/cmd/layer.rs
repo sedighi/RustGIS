@@ -26,14 +26,14 @@ pub fn commands() -> Vec<C> {
             r#"{"sql": "one DuckDB SELECT; DuckDB Spatial's ST_ functions, read_parquet('…'), web addresses", "name"?: string, "database"?: "a .duckdb file or a PostgreSQL connection (postgres:host=… dbname=…) whose tables the query names", "password"?: "the connection's, kept for this session only", "crs"?: "EPSG:… of a geometry that doesn't say", "stream"?: bool, "ran"?: "a result the app ran (the SQL pane)"}"#,
         ),
         C::new("layer.addDatabase", "Add Data From Database", "Home › Add", add_database).params(
-            r#"{"database": "postgres:host=… dbname=… user=… (or a postgresql:// address), or a .duckdb file", "password"?: "kept for this session only, never saved", "layer"?: "a table, as table or schema.table (default: every table with a geometry column)", "crs"?: "EPSG:… of a geometry that doesn't say", "name"?: string, "stream"?: bool}"#,
+            r#"{"database"?: "postgres:host=… dbname=… user=… (or a postgresql:// address), or a .duckdb file", "host"?: string, "port"?: number|string, "user"?: string, "dbname"?: string, "password"?: "kept for this session only, never saved", "layer"?: "a table, as table or schema.table (default: every table with a geometry column)", "crs"?: "EPSG:… of a geometry that doesn't say", "name"?: string, "stream"?: bool}"#,
         ),
         C::new("info.databaseTables", "List Database Tables", "Home › Add › Add Data From Database", database_tables)
             .view()
             .params(r#"{"database"?: "as layer.addDatabase", "host"?: string, "port"?: number|string, "user"?: string, "dbname"?: string, "password"?: string, "schema"?: string}"#),
         C::new("info.databaseList", "List Databases", "Home › Add › Add Data From Database", database_list)
             .view()
-            .params(r#"{"database"?: string, "host"?: string, "port"?: number|string, "user"?: string, "password"?: string}"#),
+            .params(r#"{"database"?: string, "host"?: string, "port"?: number|string, "user"?: string, "dbname"?: string, "password"?: string}"#),
         C::new("info.databaseSchemas", "List Database Schemas", "Home › Add › Add Data From Database", database_schemas)
             .view()
             .params(r#"{"database"?: string, "host"?: string, "port"?: number|string, "user"?: string, "dbname"?: string, "password"?: string}"#),
@@ -1007,17 +1007,10 @@ pub fn database_param(p: &Value) -> Option<rustgis_data::source::duckdb::Databas
     } else if let Some(host) = host {
         let port = ps(p, "port").map(str::trim).filter(|pt| !pt.is_empty()).unwrap_or("5432");
         let user = ps(p, "user").map(str::trim).filter(|u| !u.is_empty()).unwrap_or("postgres");
-        let dbname = ps(p, "dbname")
-            .or_else(|| ps(p, "db"))
-            .or(db_param)
-            .map(str::trim)
-            .filter(|db| !db.is_empty())
-            .unwrap_or("postgres");
+        let dbname = ps(p, "dbname").or(db_param).map(str::trim).filter(|db| !db.is_empty()).unwrap_or("postgres");
         format!("postgres:host={host} port={port} user={user} dbname={dbname}")
-    } else if let Some(d) = db_param {
-        d.to_string()
     } else {
-        return None;
+        db_param?.to_string()
     };
     let db = match Database::parse(&db_str) {
         Database::File(f) => Database::File(std::path::absolute(&f).unwrap_or(f)),
@@ -1056,9 +1049,15 @@ fn database_tables(_s: &mut Session, p: &Value) -> CmdResult {
                     "geometry_column": t.geom_col,
                     "geometry_type": t.geom_type,
                     "is_sde": t.is_sde(),
+                    "feature_dataset": t.feature_dataset,
+                    "srid": t.srid,
+                    "crs": t.crs(),
                 })
             })
             .collect();
+        let mut feature_datasets: Vec<String> = filtered.iter().filter_map(|t| t.feature_dataset.clone()).collect();
+        feature_datasets.sort();
+        feature_datasets.dedup();
         let mut schemas = rustgis_data::source::duckdb::schemas_of(&db).unwrap_or_default();
         for t in &tables {
             if !schemas.contains(&t.schema) {
@@ -1071,6 +1070,7 @@ fn database_tables(_s: &mut Session, p: &Value) -> CmdResult {
             "count": layers.len(),
             "layers": layers,
             "tables": tables_json,
+            "feature_datasets": feature_datasets,
             "schemas": schemas,
         }))
     }
@@ -1166,7 +1166,9 @@ fn add_tables(s: &mut Session, p: &Value, db: &rustgis_data::source::duckdb::Dat
     let mut empty = 0usize;
     let single = tables.len() == 1;
     for t in tables {
-        let out = match duckdb::convert_table_of(db, &t, crs) {
+        let t_crs = t.crs();
+        let table_crs = crs.or(t_crs.as_deref());
+        let out = match duckdb::convert_table_of(db, &t, table_crs) {
             Ok(o) => o,
             // Empty tables (common in a PostGIS database: its TIGER geocoder's) are left out quietly.
             Err(rustgis_data::DataError::Format(m)) if !single && m == duckdb::NO_ROWS => {
@@ -1184,7 +1186,7 @@ fn add_tables(s: &mut Session, p: &Value, db: &rustgis_data::source::duckdb::Dat
             sql: None,
             database: Some(original.clone()),
             table: Some(t.label()),
-            crs: crs.map(str::to_string),
+            crs: table_crs.map(str::to_string),
             family,
         };
         parts.extend(duckdb_parts(s, &t.label(), out, origin));

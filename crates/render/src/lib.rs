@@ -436,7 +436,7 @@ impl Ctx<'_> {
         let n = ring.len();
         for (i, c) in ring.iter().enumerate() {
             let (x, y) = self.px(*c);
-            if !x.is_finite() || !y.is_finite() {
+            if !x.is_finite() || !y.is_finite() || x.abs() > 100_000.0 || y.abs() > 100_000.0 {
                 // A point the projection can't show breaks the line rather than being bridged.
                 if close && last.is_some() {
                     pb.close();
@@ -491,8 +491,8 @@ impl Ctx<'_> {
 
     fn marker(&self, pm: &mut Pixmap, c: Coord, s: &Symbol, opacity: f32, halo: Option<Rgba>) {
         let (x, y) = self.px(c);
-        if !x.is_finite() || !y.is_finite() {
-            return; // behind the globe
+        if !x.is_finite() || !y.is_finite() || x.abs() > 100_000.0 || y.abs() > 100_000.0 {
+            return; // behind the globe or far outside render area
         }
         let r = (s.size.max(1.0) * self.ppp) / 2.0;
         let mut pb = PathBuilder::new();

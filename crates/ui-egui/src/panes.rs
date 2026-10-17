@@ -35,6 +35,7 @@ pub fn show(app: &mut RustGisApp, ui: &mut Ui) {
     if let Some(right) = app.ui.right {
         egui::Panel::right("right_pane").resizable(true).default_size(320.0).size_range(260.0..=560.0).frame(frame).show(ui, |ui| {
             let (title, close) = match right {
+                RightPane::Catalog => ("Catalog", "ui.pane.catalog"),
                 RightPane::Geoprocessing => ("Tools", "ui.pane.geoprocessing"),
                 RightPane::Symbology => ("Symbology", "ui.pane.symbology"),
                 RightPane::History => ("History", "ui.pane.history"),
@@ -56,6 +57,11 @@ pub fn show(app: &mut RustGisApp, ui: &mut Ui) {
                 RightPane::Sql => ("SQL", "ui.pane.sql"),
             };
             pane_header(app, ui, tl!(title), close, &t);
+            // The Catalog pane lays out its own scrolling.
+            if right == RightPane::Catalog {
+                crate::catalogpane::show(app, ui, &t);
+                return;
+            }
             // The chat lays out its own scrolling, with the message box kept at the bottom.
             if right == RightPane::Assistant {
                 crate::assistantpane::show(app, ui, &t);
@@ -84,7 +90,7 @@ pub fn show(app: &mut RustGisApp, ui: &mut Ui) {
                     RightPane::Report => crate::reportpane::report(app, ui, &t),
                     RightPane::Presentation => crate::docpanes::presentation(app, ui, &t),
                     RightPane::Notebook => crate::docpanes::notebook(app, ui, &t),
-                    RightPane::Assistant | RightPane::Sql => {}
+                    RightPane::Catalog | RightPane::Assistant | RightPane::Sql => {}
                     RightPane::Shares => crate::docpanes::shares(app, ui, &t),
                 });
             });
@@ -181,6 +187,7 @@ fn contents(app: &mut RustGisApp, ui: &mut Ui, t: &Tokens) {
         let scale = app.session.scale();
         let blocks: Vec<(u32, Rect)> = layers.iter().map(|l| (l.id, layer_row(app, ui, l, scale, t))).collect();
         layer_drop(app, ui, &blocks, t);
+        catalog_layers_drop(app, ui, t);
         // The basemap row at the bottom, like a desktop GIS.
         ui.add_space(2.0);
         ui.horizontal(|ui| {
@@ -286,6 +293,23 @@ fn layer_drop(app: &mut RustGisApp, ui: &Ui, blocks: &[(u32, Rect)], t: &Tokens)
     }
     if ui.input(|i| i.pointer.any_released()) {
         let _ = app.run("layer.move", json!({"layer": dragged.0, "to": to}));
+    }
+}
+
+/// Dropping dragged catalog layers onto the Layers pane: adds all layers to the map.
+fn catalog_layers_drop(app: &mut RustGisApp, ui: &Ui, t: &Tokens) {
+    let Some(dragged) = egui::DragAndDrop::payload::<crate::catalogpane::DraggedCatalogLayers>(ui.ctx()) else { return };
+    let view = ui.clip_rect();
+    let Some(pointer) = ui.ctx().pointer_interact_pos().filter(|p| view.contains(*p)) else { return };
+    ui.painter().rect_stroke(view.shrink(2.0), CornerRadius::same(4), Stroke::new(2.0, t.accent), egui::StrokeKind::Inside);
+    let count = dragged.layers.len();
+    let label = if count == 1 { format!("+ Add '{}' to map", dragged.layers[0].name) } else { format!("+ Add {count} layers to map") };
+    let badge_rect = Rect::from_min_size(pos2(pointer.x + 14.0, pointer.y + 14.0), vec2(label.len() as f32 * 7.0 + 16.0, 22.0));
+    ui.painter().rect_filled(badge_rect, CornerRadius::same(4), t.pane);
+    ui.painter().rect_stroke(badge_rect, CornerRadius::same(4), Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
+    ui.painter().text(pos2(badge_rect.min.x + 8.0, badge_rect.center().y), Align2::LEFT_CENTER, &label, semibold(11.5), t.text);
+    if ui.input(|i| i.pointer.any_released()) {
+        crate::catalogpane::add_catalog_layers_to_map(app, &dragged.conn_params, &dragged.layers);
     }
 }
 

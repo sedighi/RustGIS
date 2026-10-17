@@ -1561,9 +1561,20 @@ fn view_tab(app: &mut RustGisApp, ui: &mut Ui) {
             "catalog",
             "Browser\nPane",
             "Show or hide the Browser pane.",
-            "ui.pane.catalog",
+            "ui.pane.browser",
             Value::Null,
             app.ui.left == Some(crate::LeftPane::Catalog),
+            false,
+        );
+        big(
+            ui,
+            app,
+            "database",
+            "Catalog\nPane",
+            "Show or hide the ArcGIS Pro-style Catalog pane: Databases, Feature Datasets, Feature Classes.",
+            "ui.pane.catalog",
+            Value::Null,
+            app.ui.right == Some(RightPane::Catalog),
             false,
         );
         big(

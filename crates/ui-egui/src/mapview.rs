@@ -282,6 +282,22 @@ fn main_view(app: &mut RustGisApp, ui: &mut Ui, t: &Tokens) {
 
     interact(app, ui, &resp, rect);
 
+    // Dropping dragged catalog layers onto the map view: adds all dragged layers to the map.
+    if let Some(dragged) = egui::DragAndDrop::payload::<crate::catalogpane::DraggedCatalogLayers>(ui.ctx())
+        && let Some(pos) = ui.ctx().pointer_interact_pos().filter(|p| rect.contains(*p))
+    {
+        ui.painter().rect_stroke(rect.shrink(3.0), CornerRadius::same(6), Stroke::new(2.5, t.accent), egui::StrokeKind::Inside);
+        let count = dragged.layers.len();
+        let label = if count == 1 { format!("+ Add '{}' to map", dragged.layers[0].name) } else { format!("+ Add {count} layers to map") };
+        let badge_rect = Rect::from_min_size(pos2(pos.x + 14.0, pos.y + 14.0), vec2(label.len() as f32 * 7.0 + 16.0, 22.0));
+        ui.painter().rect_filled(badge_rect, CornerRadius::same(4), t.pane);
+        ui.painter().rect_stroke(badge_rect, CornerRadius::same(4), Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
+        ui.painter().text(pos2(badge_rect.min.x + 8.0, badge_rect.center().y), Align2::LEFT_CENTER, &label, semibold(11.5), t.text);
+        if ui.input(|i| i.pointer.any_released()) {
+            crate::catalogpane::add_catalog_layers_to_map(app, &dragged.conn_params, &dragged.layers);
+        }
+    }
+
     // Render when the map changed and we're not in the middle of a pan/zoom: meanwhile the flat
     // map's last frame is shifted and scaled. The globe can't be faked that way (turning and
     // zooming in perspective aren't shifts and scales), so while it moves it redraws every frame

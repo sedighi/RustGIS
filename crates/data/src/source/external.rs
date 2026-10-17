@@ -40,6 +40,12 @@ pub(crate) fn cache_dir(env: &str, sub: &str) -> Option<PathBuf> {
 pub(crate) fn output(mut c: Command, timeout: std::time::Duration, what: &str) -> std::io::Result<std::process::Output> {
     use std::io::Read;
     use std::process::Stdio;
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        c.creation_flags(CREATE_NO_WINDOW);
+    }
     let mut child = c.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
     let drain = |p: Option<Box<dyn Read + Send>>| {
         std::thread::spawn(move || {

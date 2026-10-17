@@ -16,6 +16,9 @@ pub struct DbTableItem {
     pub geometry_column: Option<String>,
     pub geometry_type: Option<String>,
     pub is_sde: bool,
+    pub feature_dataset: Option<String>,
+    pub srid: Option<i32>,
+    pub crs: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -838,6 +841,9 @@ fn add_database(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
                             geometry_column: None,
                             geometry_type: Some("GEOMETRY".into()),
                             is_sde: false,
+                            feature_dataset: None,
+                            srid: None,
+                            crs: None,
                         })
                         .collect();
                     app.dialogs.db.status_msg = Some((
@@ -882,7 +888,8 @@ fn add_database(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
                         }
                     });
                     if prev_db != app.dialogs.db.database {
-                        let current_db = if app.dialogs.db.database.trim().is_empty() { "postgres" } else { app.dialogs.db.database.trim() };
+                        let current_db =
+                            if app.dialogs.db.database.trim().is_empty() { "postgres" } else { app.dialogs.db.database.trim() };
                         let sp = json!({
                             "host": app.dialogs.db.host.trim(),
                             "port": app.dialogs.db.port.trim(),
@@ -918,7 +925,8 @@ fn add_database(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
                             {
                                 app.dialogs.db.database = first.clone();
                             }
-                            let current_db = if app.dialogs.db.database.trim().is_empty() { "postgres" } else { app.dialogs.db.database.trim() };
+                            let current_db =
+                                if app.dialogs.db.database.trim().is_empty() { "postgres" } else { app.dialogs.db.database.trim() };
                             let sp = json!({
                                 "host": app.dialogs.db.host.trim(),
                                 "port": app.dialogs.db.port.trim(),
@@ -975,11 +983,11 @@ fn add_database(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
                 match app.run("info.databaseTest", p.clone()) {
                     Ok(_) => {
                         app.dialogs.db.status_msg = Some((false, tl!("Connection test succeeded").to_string()));
-                        if app.dialogs.db.schemas.is_empty() {
-                            if let Ok(sv) = app.run("info.databaseSchemas", p) {
-                                app.dialogs.db.schemas =
-                                    sv["schemas"].as_array().into_iter().flatten().filter_map(|s| s.as_str().map(str::to_string)).collect();
-                            }
+                        if app.dialogs.db.schemas.is_empty()
+                            && let Ok(sv) = app.run("info.databaseSchemas", p)
+                        {
+                            app.dialogs.db.schemas =
+                                sv["schemas"].as_array().into_iter().flatten().filter_map(|s| s.as_str().map(str::to_string)).collect();
                         }
                     }
                     Err(e) => {
@@ -989,13 +997,17 @@ fn add_database(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
             }
 
             if ui.button(tl!("List Tables / Feature Classes")).clicked() {
-                let db_target = if app.dialogs.db.database.trim().is_empty() { "postgres" } else { app.dialogs.db.database.trim() };
+                let db_target = if app.dialogs.db.database.trim().is_empty() {
+                    "postgres".to_string()
+                } else {
+                    app.dialogs.db.database.trim().to_string()
+                };
                 let mut p = json!({
                     "host": app.dialogs.db.host.trim(),
                     "port": app.dialogs.db.port.trim(),
                     "user": app.dialogs.db.user.trim(),
                     "password": app.dialogs.db.password,
-                    "dbname": db_target,
+                    "dbname": &db_target,
                 });
                 if !app.dialogs.db.schema.trim().is_empty() {
                     p["schema"] = json!(app.dialogs.db.schema.trim());
@@ -1013,6 +1025,9 @@ fn add_database(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
                                         geometry_column: t.get("geometry_column").and_then(Value::as_str).map(str::to_string),
                                         geometry_type: t.get("geometry_type").and_then(Value::as_str).map(str::to_string),
                                         is_sde: t.get("is_sde").and_then(Value::as_bool).unwrap_or(false),
+                                        feature_dataset: t.get("feature_dataset").and_then(Value::as_str).map(str::to_string),
+                                        srid: t.get("srid").and_then(Value::as_i64).and_then(|v| i32::try_from(v).ok()),
+                                        crs: t.get("crs").and_then(Value::as_str).map(str::to_string),
                                     })
                                 })
                                 .collect();
@@ -1028,9 +1043,29 @@ fn add_database(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
                                     geometry_column: None,
                                     geometry_type: None,
                                     is_sde: false,
+                                    feature_dataset: None,
+                                    srid: None,
+                                    crs: None,
                                 })
                                 .collect();
                         }
+                        let port_str = if app.dialogs.db.port.trim().is_empty() { "5432" } else { app.dialogs.db.port.trim() };
+                        let addr = format!(
+                            "postgres:host={} port={} dbname={} user={}",
+                            app.dialogs.db.host.trim(),
+                            port_str,
+                            db_target,
+                            app.dialogs.db.user.trim()
+                        );
+                        let conn_label = format!("{db_target} ({}:{})", app.dialogs.db.host.trim(), port_str);
+                        let _ = app.run(
+                            "sources.save",
+                            json!({
+                                "kind": "database",
+                                "address": addr,
+                                "name": conn_label,
+                            }),
+                        );
                         if let Some(schemas_arr) = v.get("schemas").and_then(Value::as_array) {
                             let fetched_schemas: Vec<String> = schemas_arr.iter().filter_map(|s| s.as_str().map(str::to_string)).collect();
                             if !fetched_schemas.is_empty() {
@@ -1104,22 +1139,26 @@ fn add_database(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
         } else {
             for t in &filtered_tables {
                 let is_sel = app.dialogs.db.selected_table.as_deref() == Some(&t.label);
+                let crs_info = if let Some(ref c) = t.crs { format!(" | {c}") } else { String::new() };
                 let badge = if t.is_sde {
-                    format!(" [Esri SDE: {}]", t.geometry_column.as_deref().unwrap_or("shape"))
+                    format!(" [Esri SDE: {}{crs_info}]", t.geometry_column.as_deref().unwrap_or("shape"))
                 } else if let Some(ref col) = t.geometry_column {
-                    format!(" [PostGIS: {col}]")
+                    format!(" [PostGIS: {col}{crs_info}]")
                 } else {
                     String::new()
                 };
                 let row_text = format!("{}{badge}", t.label);
                 if ui.selectable_label(is_sel, row_text).clicked() {
-                    clicked_table = Some(t.label.clone());
+                    clicked_table = Some(t.clone());
                 }
             }
         }
     });
     if let Some(t) = clicked_table {
-        app.dialogs.db.selected_table = Some(t);
+        app.dialogs.db.selected_table = Some(t.label);
+        if let Some(c) = t.crs {
+            app.dialogs.db.crs = c;
+        }
     }
 
     // Action buttons row: Cancel and Add to Map
@@ -1130,40 +1169,40 @@ fn add_database(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
         ui.add_enabled_ui(can_add, |ui| {
             let add_btn = crate::widgets::dialog_button(ui, tl!("Add to Map"), Some(t.accent), vec2(100.0, 28.0));
-            if add_btn.clicked() {
-                if let Some(ref sel_label) = app.dialogs.db.selected_table.clone() {
-                    let res = if !is_pg {
-                        let mut p = json!({
-                            "database": app.dialogs.db.duckdb_path.trim(),
-                            "layer": sel_label,
-                        });
-                        if !app.dialogs.db.crs.trim().is_empty() {
-                            p["crs"] = json!(app.dialogs.db.crs.trim());
-                        }
-                        app.run("layer.addDatabase", p)
-                    } else {
-                        let mut p = json!({
-                            "host": app.dialogs.db.host.trim(),
-                            "port": app.dialogs.db.port.trim(),
-                            "user": app.dialogs.db.user.trim(),
-                            "dbname": if app.dialogs.db.database.trim().is_empty() { "postgres" } else { app.dialogs.db.database.trim() },
-                            "password": app.dialogs.db.password,
-                            "layer": sel_label,
-                        });
-                        if !app.dialogs.db.crs.trim().is_empty() {
-                            p["crs"] = json!(app.dialogs.db.crs.trim());
-                        }
-                        app.run("layer.addDatabase", p)
-                    };
+            if add_btn.clicked()
+                && let Some(ref sel_label) = app.dialogs.db.selected_table.clone()
+            {
+                let res = if !is_pg {
+                    let mut p = json!({
+                        "database": app.dialogs.db.duckdb_path.trim(),
+                        "layer": sel_label,
+                    });
+                    if !app.dialogs.db.crs.trim().is_empty() {
+                        p["crs"] = json!(app.dialogs.db.crs.trim());
+                    }
+                    app.run("layer.addDatabase", p)
+                } else {
+                    let mut p = json!({
+                        "host": app.dialogs.db.host.trim(),
+                        "port": app.dialogs.db.port.trim(),
+                        "user": app.dialogs.db.user.trim(),
+                        "dbname": if app.dialogs.db.database.trim().is_empty() { "postgres" } else { app.dialogs.db.database.trim() },
+                        "password": app.dialogs.db.password,
+                        "layer": sel_label,
+                    });
+                    if !app.dialogs.db.crs.trim().is_empty() {
+                        p["crs"] = json!(app.dialogs.db.crs.trim());
+                    }
+                    app.run("layer.addDatabase", p)
+                };
 
-                    match res {
-                        Ok(_) => {
-                            app.dialogs.db.password.clear();
-                            close = true;
-                        }
-                        Err(e) => {
-                            app.dialogs.db.status_msg = Some((true, e));
-                        }
+                match res {
+                    Ok(_) => {
+                        app.dialogs.db.password.clear();
+                        close = true;
+                    }
+                    Err(e) => {
+                        app.dialogs.db.status_msg = Some((true, e));
                     }
                 }
             }

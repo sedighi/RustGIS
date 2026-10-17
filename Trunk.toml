@@ -1,0 +1,10 @@
+# RustGIS Web - Trunk configuration for root workspace
+[build]
+target = "apps/rustgis-web/index.html"
+dist = "dist/web"
+public_url = "./"
+filehash = true
+
+[serve]
+addresses = ["127.0.0.1"]
+port = 8772

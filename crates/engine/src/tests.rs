@@ -3003,6 +3003,8 @@ fn database_connection_and_sde_support() {
         name: "parcels".into(),
         geom_col: Some("shape".into()),
         geom_type: Some("sde.st_geometry".into()),
+        feature_dataset: None,
+        srid: None,
     };
     assert!(t.is_sde());
     let sql = t.sql();
@@ -3016,6 +3018,8 @@ fn database_connection_and_sde_support() {
         name: "cables".into(),
         geom_col: None,
         geom_type: None,
+        feature_dataset: None,
+        srid: None,
     };
     assert!(t_sde_schema.is_sde());
 
@@ -4918,7 +4922,23 @@ fn literal_keys(body: &str, prefix: &str) -> Vec<String> {
 #[test]
 fn params_name_every_key_a_command_reads() {
     // Read by a shared helper but of no use to the command.
-    let unused = [("profile.alongSelected", "row"), ("sources.remove", "name"), ("sources.remove", "extra")];
+    let unused = [
+        ("profile.alongSelected", "row"),
+        ("sources.remove", "name"),
+        ("sources.remove", "extra"),
+        ("layer.addSql", "host"),
+        ("layer.addSql", "port"),
+        ("layer.addSql", "user"),
+        ("layer.addSql", "dbname"),
+        ("sql.query", "host"),
+        ("sql.query", "port"),
+        ("sql.query", "user"),
+        ("sql.query", "dbname"),
+        ("sql.schema", "host"),
+        ("sql.schema", "port"),
+        ("sql.schema", "user"),
+        ("sql.schema", "dbname"),
+    ];
     let s = Session::new(Project::default());
     let mut missing = Vec::new();
     let found = keys_read_by_commands();

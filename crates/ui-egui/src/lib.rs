@@ -11,6 +11,7 @@ pub mod i18n;
 mod analysispane;
 mod assistantpane;
 mod backstage;
+pub mod catalogpane;
 mod catalogsui;
 mod chrome;
 mod cswui;
@@ -203,6 +204,7 @@ pub enum LeftPane {
 /// Panes on the right of the map.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RightPane {
+    Catalog,
     Geoprocessing,
     Symbology,
     History,
@@ -382,6 +384,7 @@ pub struct RustGisApp {
     pub forms: editpanes::Forms,
     pub workflow: analysispane::Workflow,
     pub ws: workspacepanes::WorkspaceState,
+    pub catalog: catalogpane::CatalogState,
     /// The Plugin Manager and plugin downloads.
     pub plugins: pluginsui::PluginsState,
     /// Help › Check for Updates.
@@ -430,6 +433,7 @@ impl RustGisApp {
             forms: editpanes::Forms::default(),
             workflow: analysispane::Workflow::default(),
             ws: workspacepanes::WorkspaceState::default(),
+            catalog: catalogpane::CatalogState::default(),
             plugins: pluginsui::PluginsState::default(),
             update: update::UpdateState::default(),
             reports: reportpane::ReportState::default(),
@@ -878,7 +882,8 @@ impl RustGisApp {
         let toggle_right = |ui: &mut UiState, pane: RightPane| ui.right = if ui.right == Some(pane) { None } else { Some(pane) };
         match id {
             "ui.pane.contents" => self.ui.left = if self.ui.left == Some(LeftPane::Contents) { None } else { Some(LeftPane::Contents) },
-            "ui.pane.catalog" => self.ui.left = if self.ui.left == Some(LeftPane::Catalog) { None } else { Some(LeftPane::Catalog) },
+            "ui.pane.browser" => self.ui.left = if self.ui.left == Some(LeftPane::Catalog) { None } else { Some(LeftPane::Catalog) },
+            "ui.pane.catalog" | "ui.pane.catalogPane" => toggle_right(&mut self.ui, RightPane::Catalog),
             "ui.pane.sources" => self.ui.left = if self.ui.left == Some(LeftPane::Sources) { None } else { Some(LeftPane::Sources) },
             "ui.pane.geoprocessing" => toggle_right(&mut self.ui, RightPane::Geoprocessing),
             "ui.pane.symbology" => {

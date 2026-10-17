@@ -194,11 +194,18 @@ pub struct Table {
     pub name: String,
     pub geom_col: Option<String>,
     pub geom_type: Option<String>,
+    pub feature_dataset: Option<String>,
+    pub srid: Option<i32>,
 }
 
 impl Table {
     pub fn new(schema: impl Into<String>, name: impl Into<String>) -> Self {
-        Self { schema: schema.into(), name: name.into(), geom_col: None, geom_type: None }
+        Self { schema: schema.into(), name: name.into(), geom_col: None, geom_type: None, feature_dataset: None, srid: None }
+    }
+
+    /// The detected coordinate system as an EPSG string (e.g. "EPSG:32639").
+    pub fn crs(&self) -> Option<String> {
+        self.srid.filter(|&s| s > 0).map(|s| format!("EPSG:{s}"))
     }
 
     /// Its name, with its schema unless that is `main`.
@@ -257,15 +264,9 @@ pub fn wrap_sde_query_if_needed(sql: &str) -> String {
             "geometry"
         };
         if is_binary {
-            format!(
-                "SELECT * EXCLUDE ({geom_col}), ST_GeomFromWKB({geom_col}) AS geometry FROM postgres_query('src', {})",
-                literal(sql)
-            )
+            format!("SELECT * EXCLUDE ({geom_col}), ST_GeomFromWKB({geom_col}) AS geometry FROM postgres_query('src', {})", literal(sql))
         } else {
-            format!(
-                "SELECT * EXCLUDE ({geom_col}), ST_GeomFromText({geom_col}) AS geometry FROM postgres_query('src', {})",
-                literal(sql)
-            )
+            format!("SELECT * EXCLUDE ({geom_col}), ST_GeomFromText({geom_col}) AS geometry FROM postgres_query('src', {})", literal(sql))
         }
     } else {
         sql.to_string()
@@ -707,11 +708,17 @@ fn tables_in(dir: &Path, database: &Database) -> Result<Vec<Table>> {
                 .into_iter()
                 .flatten()
                 .filter_map(|r| {
+                    let name = r.get("table_name")?.as_str()?.to_string();
+                    if is_delta_or_internal_table(&name) {
+                        return None;
+                    }
                     Some(Table {
                         schema: r.get("schema_name")?.as_str()?.to_string(),
-                        name: r.get("table_name")?.as_str()?.to_string(),
+                        name,
                         geom_col: None,
                         geom_type: Some("GEOMETRY".into()),
+                        feature_dataset: None,
+                        srid: None,
                     })
                 })
                 .collect())
@@ -720,26 +727,148 @@ fn tables_in(dir: &Path, database: &Database) -> Result<Vec<Table>> {
     }
 }
 
+/// Whether a table name is an internal Esri delta table (`a<id>`, `d<id>`), index table (`s<id>`,
+/// `i<id>`, `f<id>`), or SDE/GDB bookkeeping table.
+fn is_delta_or_internal_table(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    if lower.starts_with("sde_") || lower.starts_with("gdb_") {
+        return true;
+    }
+    if let Some(_first) = lower.chars().next().filter(|c| matches!(c, 'a' | 'd' | 'i' | 'f' | 's')) {
+        let rest = &lower[1..];
+        if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()) {
+            return true;
+        }
+        if rest.contains('_') && rest.chars().all(|c| c.is_ascii_digit() || c == '_') {
+            return true;
+        }
+    }
+    false
+}
+
 /// Introspects tables of a PostgreSQL database with a geometry column (PostGIS or Esri SDE).
 fn postgres_tables_in(dir: &Path, database: &Database) -> Result<Vec<Table>> {
     let prelude = prelude(dir, Some(database), false)?;
 
-    // Check if SDE catalog tables exist in PostgreSQL without failing
+    // Check if SDE / PostGIS catalog tables exist in PostgreSQL without failing
     let check_sde_sql = "SELECT \
         EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'sde' AND c.relname = 'sde_geometry_columns') AS sde_geom, \
-        EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'sde' AND c.relname = 'sde_layers') AS sde_layers";
+        EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'sde' AND c.relname = 'sde_layers') AS sde_layers, \
+        EXISTS (SELECT 1 FROM pg_catalog.pg_class c WHERE c.relname = 'gdb_items') AS gdb_items, \
+        EXISTS (SELECT 1 FROM pg_catalog.pg_class c WHERE c.relname = 'geometry_columns') AS postgis_geom";
 
-    let sde_check_query = format!("SELECT sde_geom, sde_layers FROM postgres_query('src', {})", literal(check_sde_sql));
+    let sde_check_query =
+        format!("SELECT sde_geom, sde_layers, gdb_items, postgis_geom FROM postgres_query('src', {})", literal(check_sde_sql));
 
-    let (has_sde_geom, has_sde_layers) = match fetch(dir, &prelude, Some(database), &sde_check_query, LIST_TIMEOUT) {
-        Ok(v) => {
-            let row = v.as_array().and_then(|a| a.first());
-            let g = row.and_then(|r| r.get("sde_geom")).and_then(|b| b.as_bool()).unwrap_or(false);
-            let l = row.and_then(|r| r.get("sde_layers")).and_then(|b| b.as_bool()).unwrap_or(false);
-            (g, l)
+    let (has_sde_geom, has_sde_layers, has_gdb_items, has_postgis_geom) =
+        match fetch(dir, &prelude, Some(database), &sde_check_query, LIST_TIMEOUT) {
+            Ok(v) => {
+                let row = v.as_array().and_then(|a| a.first());
+                let g = row.and_then(|r| r.get("sde_geom")).and_then(|b| b.as_bool()).unwrap_or(false);
+                let l = row.and_then(|r| r.get("sde_layers")).and_then(|b| b.as_bool()).unwrap_or(false);
+                let gi = row.and_then(|r| r.get("gdb_items")).and_then(|b| b.as_bool()).unwrap_or(false);
+                let pg = row.and_then(|r| r.get("postgis_geom")).and_then(|b| b.as_bool()).unwrap_or(false);
+                (g, l, gi, pg)
+            }
+            Err(_) => (false, false, false, false),
+        };
+
+    let mut gdb_dataset_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    if has_gdb_items {
+        let gdb_rel_sql = "SELECT \
+            COALESCE(fd.name, NULLIF(split_part(trim(both '\\/' from fc.path), '\\', 1), ''))::text AS feature_dataset, \
+            fc.name::text AS feature_class, \
+            fc.path::text AS item_path \
+        FROM sde.gdb_items fc \
+        LEFT JOIN sde.gdb_itemrelationships r ON (r.destid = fc.uuid OR r.originid = fc.uuid) \
+        LEFT JOIN sde.gdb_items fd ON (fd.uuid = r.originid OR fd.uuid = r.destid) AND fd.uuid <> fc.uuid \
+            AND ( \
+                UPPER(REPLACE(REPLACE(fd.type::text, '{', ''), '}', '')) = '70737809-B030-489D-AE50-2A6A24762C7D' \
+                OR fd.type::text ILIKE '%70737809-B030-489D-AE50-2A6A24762C7D%' \
+            ) \
+        WHERE ( \
+            UPPER(REPLACE(REPLACE(fc.type::text, '{', ''), '}', '')) IN ( \
+                'CD365147-3802-427E-AE63-8F4A7E4834A1', \
+                'B719E022-77FA-48EB-84EE-47D87E4FA57A', \
+                '70737809-B030-489D-AE50-2A6A24762C7D' \
+            ) \
+            OR fc.path LIKE '\\%\\%' \
+            OR fd.name IS NOT NULL \
+        );";
+        let gdb_rel_query =
+            format!("SELECT feature_dataset, feature_class, item_path FROM postgres_query('src', {})", literal(gdb_rel_sql));
+        if let Ok(rows) = fetch(dir, &prelude, Some(database), &gdb_rel_query, LIST_TIMEOUT) {
+            for r in rows.as_array().into_iter().flatten() {
+                let fd_opt = r.get("feature_dataset").and_then(|v| v.as_str());
+                let fc_opt = r.get("feature_class").and_then(|v| v.as_str());
+                let path_opt = r.get("item_path").and_then(|v| v.as_str());
+                if let (Some(fd), Some(fc)) = (fd_opt, fc_opt) {
+                    let clean_fd = fd.rsplit('.').next().unwrap_or(fd).trim_matches('"').trim().to_string();
+                    let clean_fc = fc.rsplit('.').next().unwrap_or(fc).trim_matches('"').trim().to_string();
+                    if !clean_fd.is_empty() {
+                        gdb_dataset_map.insert(fc.to_ascii_lowercase(), clean_fd.clone());
+                        gdb_dataset_map.insert(clean_fc.to_ascii_lowercase(), clean_fd.clone());
+                        if fc.contains('.') {
+                            let parts: Vec<&str> = fc.split('.').collect();
+                            if parts.len() >= 2 {
+                                let suffix = format!("{}.{}", parts[parts.len() - 2], parts[parts.len() - 1]);
+                                gdb_dataset_map.insert(suffix.to_ascii_lowercase(), clean_fd.clone());
+                            }
+                        }
+                    }
+                }
+                if let Some(p) = path_opt {
+                    let segments: Vec<&str> = p.trim_matches('\\').split('\\').filter(|s| !s.is_empty()).collect();
+                    if segments.len() >= 2 {
+                        let ds = segments[0].trim_matches('"').trim().to_string();
+                        let fc = segments[segments.len() - 1].trim_matches('"').trim().to_string();
+                        if !ds.is_empty() && !fc.is_empty() {
+                            gdb_dataset_map.entry(fc.to_ascii_lowercase()).or_insert(ds);
+                        }
+                    }
+                }
+            }
         }
-        Err(_) => (false, false),
-    };
+    }
+
+    let mut srid_map: std::collections::HashMap<(String, String), i32> = std::collections::HashMap::new();
+    let mut srid_parts = Vec::new();
+    if has_sde_layers {
+        srid_parts.push(
+            "SELECT l.owner::text AS table_schema, l.table_name::text AS table_name, COALESCE(NULLIF(sr.auth_srid, 0), l.srid)::integer AS srid \
+             FROM sde.sde_layers l \
+             LEFT JOIN sde.sde_spatial_references sr ON sr.srid = l.srid",
+        );
+    }
+    if has_sde_geom {
+        srid_parts.push(
+            "SELECT g.f_table_schema::text AS table_schema, g.f_table_name::text AS table_name, COALESCE(NULLIF(sr.auth_srid, 0), g.srid)::integer AS srid \
+             FROM sde.sde_geometry_columns g \
+             LEFT JOIN sde.sde_spatial_references sr ON sr.srid = g.srid",
+        );
+    }
+    if has_postgis_geom {
+        srid_parts.push(
+            "SELECT f_table_schema::text AS table_schema, f_table_name::text AS table_name, srid::integer AS srid \
+             FROM geometry_columns WHERE srid > 0",
+        );
+    }
+    if !srid_parts.is_empty() {
+        let srid_sql = format!("SELECT * FROM ({}) AS u WHERE srid > 0", srid_parts.join(" UNION ALL "));
+        let srid_select = format!("SELECT table_schema, table_name, srid FROM postgres_query('src', {})", literal(&srid_sql));
+        if let Ok(rows) = fetch(dir, &prelude, Some(database), &srid_select, LIST_TIMEOUT) {
+            for r in rows.as_array().into_iter().flatten() {
+                if let (Some(s), Some(n), Some(srid)) = (
+                    r.get("table_schema").and_then(|v| v.as_str()),
+                    r.get("table_name").and_then(|v| v.as_str()),
+                    r.get("srid").and_then(|v| v.as_i64()),
+                ) {
+                    srid_map.insert((s.to_ascii_lowercase(), n.to_ascii_lowercase()), srid as i32);
+                    srid_map.insert(("".to_string(), n.to_ascii_lowercase()), srid as i32);
+                }
+            }
+        }
+    }
 
     let mut pg_scan_parts = Vec::new();
 
@@ -760,6 +889,10 @@ fn postgres_tables_in(dir: &Path, database: &Database) -> Result<Vec<Table>> {
           AND a.attnum > 0 \
           AND NOT a.attisdropped \
           AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast') \
+          AND c.relname !~ '^[adfi][0-9]+$' \
+          AND c.relname !~ '^s[0-9]+$' \
+          AND c.relname NOT LIKE 'sde_%' \
+          AND c.relname NOT LIKE 'gdb_%' \
           AND ( \
               t.typname IN ('geometry', 'geography', 'st_geometry') \
               OR tn.nspname = 'sde' \
@@ -781,7 +914,11 @@ fn postgres_tables_in(dir: &Path, database: &Database) -> Result<Vec<Table>> {
             JOIN pg_catalog.pg_class c ON lower(c.relname) = lower(g.f_table_name) \
             JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace AND lower(n.nspname) = lower(g.f_table_schema) \
             WHERE c.relkind IN ('r', 'v', 'm', 'p', 'f') \
-              AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')",
+              AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast') \
+              AND c.relname !~ '^[adfi][0-9]+$' \
+              AND c.relname !~ '^s[0-9]+$' \
+              AND c.relname NOT LIKE 'sde_%' \
+              AND c.relname NOT LIKE 'gdb_%'",
         );
     }
 
@@ -797,12 +934,18 @@ fn postgres_tables_in(dir: &Path, database: &Database) -> Result<Vec<Table>> {
             JOIN pg_catalog.pg_class c ON lower(c.relname) = lower(l.table_name) \
             JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace AND lower(n.nspname) = lower(l.owner) \
             WHERE c.relkind IN ('r', 'v', 'm', 'p', 'f') \
-              AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')",
+              AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast') \
+              AND c.relname !~ '^[adfi][0-9]+$' \
+              AND c.relname !~ '^s[0-9]+$' \
+              AND c.relname NOT LIKE 'sde_%' \
+              AND c.relname NOT LIKE 'gdb_%'",
         );
     }
 
-    let full_pg_sql =
-        format!("SELECT * FROM ({}) AS t ORDER BY table_schema, table_name LIMIT {LIST_LIMIT}", pg_scan_parts.join(" UNION "));
+    let full_pg_sql = format!(
+        "SELECT * FROM ({}) AS t WHERE table_name !~ '^[adfi][0-9]+$' AND table_name !~ '^s[0-9]+$' AND table_name NOT LIKE 'sde_%' AND table_name NOT LIKE 'gdb_%' ORDER BY table_schema, table_name LIMIT {LIST_LIMIT}",
+        pg_scan_parts.join(" UNION ")
+    );
     let duckdb_select = format!(
         "SELECT table_schema, table_name, column_name, data_type, type_schema FROM postgres_query('src', {})",
         literal(&full_pg_sql)
@@ -821,6 +964,9 @@ fn postgres_tables_in(dir: &Path, database: &Database) -> Result<Vec<Table>> {
                     Some(n) => n.to_string(),
                     None => continue,
                 };
+                if is_delta_or_internal_table(&name) {
+                    continue;
+                }
                 let col = r.get("column_name").and_then(|v| v.as_str()).map(str::to_string);
                 let ty = r.get("data_type").and_then(|v| v.as_str()).unwrap_or("geometry").to_string();
                 let type_schema = r.get("type_schema").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -828,7 +974,15 @@ fn postgres_tables_in(dir: &Path, database: &Database) -> Result<Vec<Table>> {
 
                 let key = (schema.clone(), name.clone());
                 if seen.insert(key) {
-                    out.push(Table { schema, name, geom_col: col, geom_type: Some(full_ty) });
+                    let dataset = gdb_dataset_map
+                        .get(&name.to_ascii_lowercase())
+                        .or_else(|| gdb_dataset_map.get(&format!("{schema}.{name}").to_ascii_lowercase()))
+                        .cloned();
+                    let table_srid = srid_map
+                        .get(&(schema.to_ascii_lowercase(), name.to_ascii_lowercase()))
+                        .or_else(|| srid_map.get(&("".to_string(), name.to_ascii_lowercase())))
+                        .copied();
+                    out.push(Table { schema, name, geom_col: col, geom_type: Some(full_ty), feature_dataset: dataset, srid: table_srid });
                 }
             }
             Ok(out)
@@ -844,11 +998,17 @@ fn postgres_tables_in(dir: &Path, database: &Database) -> Result<Vec<Table>> {
                 .into_iter()
                 .flatten()
                 .filter_map(|r| {
+                    let name = r.get("table_name")?.as_str()?.to_string();
+                    if is_delta_or_internal_table(&name) {
+                        return None;
+                    }
                     Some(Table {
                         schema: r.get("schema_name")?.as_str()?.to_string(),
-                        name: r.get("table_name")?.as_str()?.to_string(),
+                        name,
                         geom_col: None,
                         geom_type: Some("GEOMETRY".into()),
+                        feature_dataset: None,
+                        srid: None,
                     })
                 })
                 .collect())
@@ -888,14 +1048,12 @@ pub fn schemas_of(database: &Database) -> Result<Vec<String>> {
             let prelude = prelude(&dir, Some(database), false)?;
             let pg_sql = "SELECT nspname::text AS schema_name FROM pg_catalog.pg_namespace WHERE nspname NOT LIKE 'pg_%' AND nspname NOT IN ('information_schema', 'pg_toast') ORDER BY nspname;";
             let select = format!("SELECT schema_name FROM postgres_query('src', {})", literal(pg_sql));
-            match fetch(&dir, &prelude, Some(database), &select, LIST_TIMEOUT) {
-                Ok(rows) => {
-                    let list: Vec<String> = rows.as_array().into_iter().flatten().filter_map(|r| r.get("schema_name")?.as_str().map(str::to_string)).collect();
-                    if !list.is_empty() {
-                        return Ok(list);
-                    }
+            if let Ok(rows) = fetch(&dir, &prelude, Some(database), &select, LIST_TIMEOUT) {
+                let list: Vec<String> =
+                    rows.as_array().into_iter().flatten().filter_map(|r| r.get("schema_name")?.as_str().map(str::to_string)).collect();
+                if !list.is_empty() {
+                    return Ok(list);
                 }
-                Err(_) => {}
             }
             let duckdb_sql = "SELECT DISTINCT schema_name FROM duckdb_schemas() WHERE database_name = 'src' AND schema_name NOT LIKE 'pg_%' AND schema_name NOT IN ('information_schema') ORDER BY schema_name;";
             let rows = fetch(&dir, &prelude, Some(database), duckdb_sql, LIST_TIMEOUT)?;
@@ -959,15 +1117,17 @@ pub fn convert_table(database: &Path, table: &Table, crs: Option<&str>) -> Resul
 /// time (its data may change at any time).
 pub fn convert_table_of(database: &Database, table: &Table, crs: Option<&str>) -> Result<Output> {
     let dir = cache_dir().ok_or_else(|| DataError::Format("no cache folder for DuckDB results".into()))?;
+    let table_crs = table.crs();
+    let effective_crs = crs.or(table_crs.as_deref());
     match database {
-        Database::File(p) => convert_table_in(&dir, p, table, crs),
+        Database::File(p) => convert_table_in(&dir, p, table, effective_crs),
         Database::Postgres(_) => {
             if !available() {
                 return Err(missing());
             }
             std::fs::create_dir_all(&dir)?;
             let query_sql = table_query_sql(&dir, database, table)?;
-            run_in(&dir, &Query { sql: &query_sql, database: Some(database), crs }, true)
+            run_in(&dir, &Query { sql: &query_sql, database: Some(database), crs: effective_crs }, true)
         }
     }
 }
@@ -997,13 +1157,7 @@ fn table_query_sql(dir: &Path, database: &Database, table: &Table) -> Result<Str
     let pg_sql = if !cols.is_empty() {
         let select_items: Vec<String> = cols
             .iter()
-            .map(|c| {
-                if c.eq_ignore_ascii_case(col) {
-                    format!("sde.st_astext({}) AS geometry", ident(c))
-                } else {
-                    ident(c)
-                }
-            })
+            .map(|c| if c.eq_ignore_ascii_case(col) { format!("sde.st_astext({}) AS geometry", ident(c)) } else { ident(c) })
             .collect();
         format!("SELECT {} FROM {}.{}", select_items.join(", "), ident(&table.schema), ident(&table.name))
     } else if col.eq_ignore_ascii_case("geometry") {
@@ -1151,7 +1305,17 @@ mod tests {
             name: "boundaries".into(),
             geom_col: Some("shape".into()),
             geom_type: Some("sde.st_geometry".into()),
+            feature_dataset: None,
+            srid: None,
         };
+        assert!(is_delta_or_internal_table("a1"));
+        assert!(is_delta_or_internal_table("d402"));
+        assert!(is_delta_or_internal_table("s12"));
+        assert!(is_delta_or_internal_table("i15"));
+        assert!(is_delta_or_internal_table("sde_layers"));
+        assert!(is_delta_or_internal_table("gdb_items"));
+        assert!(!is_delta_or_internal_table("lyr_distrb_box_evw"));
+        assert!(!is_delta_or_internal_table("parcels"));
         assert!(sde_table.is_sde());
         assert!(sde_table.sql().contains("sde.st_astext(\"shape\") AS geometry"));
         assert!(sde_table.sql().contains("ST_GeomFromText(geometry) AS geometry"));
