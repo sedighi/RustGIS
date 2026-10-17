@@ -4,6 +4,7 @@ pub mod catalogs;
 pub mod clipboard;
 pub mod deeplearning;
 pub mod design;
+pub mod directions;
 pub mod edit;
 pub mod effects;
 pub mod geocode;
@@ -23,6 +24,7 @@ pub mod project;
 pub mod raster;
 pub mod report;
 pub mod s3;
+pub mod search;
 pub mod select;
 pub mod service;
 pub mod share;
@@ -45,6 +47,8 @@ pub fn all() -> Vec<CommandSpec> {
     v.extend(project::commands());
     v.extend(navigate::commands());
     v.extend(geocode::commands());
+    v.extend(directions::commands());
+    v.extend(search::commands());
     v.extend(tiles::commands());
     v.extend(service::commands());
     v.extend(s3::commands());
@@ -92,6 +96,39 @@ pub(crate) fn f(p: &Value, k: &str) -> Option<f64> {
 /// numbers as floats).
 pub(crate) fn uint(p: &Value, k: &str) -> Option<u64> {
     f(p, k).filter(|x| *x >= 0.0 && x.fract() == 0.0 && *x <= u64::MAX as f64).map(|x| x as u64)
+}
+
+/// The longest name a map or a layout keeps.
+pub(crate) const MAX_NAME: usize = 200;
+
+/// `base` (cut to [`MAX_NAME`] characters), or the first of `base 2`, `base 3`… that `taken`
+/// doesn't claim; the number fits in the [`MAX_NAME`] characters.
+pub(crate) fn numbered(base: &str, taken: impl Fn(&str) -> bool) -> String {
+    numbered_within(base, MAX_NAME, taken)
+}
+
+/// [`numbered`] for names kept to `max` characters.
+pub(crate) fn numbered_within(base: &str, max: usize, taken: impl Fn(&str) -> bool) -> String {
+    let base: String = base.chars().take(max).collect();
+    let mut name = base.clone();
+    let mut k = 1u64;
+    while taken(&name) {
+        k += 1;
+        let suffix = format!(" {k}");
+        name = base.chars().take(max.saturating_sub(suffix.len())).chain(suffix.chars()).collect();
+    }
+    name
+}
+
+/// A copy's name: the one `given` (trimmed), else `<original> copy` with the original cut so
+/// " copy" fits; then [`numbered`] by `taken`.
+pub(crate) fn copy_name(given: Option<&str>, original: &str, taken: impl Fn(&str) -> bool) -> String {
+    const COPY: &str = " copy";
+    let base = match given.map(str::trim).filter(|n| !n.is_empty()) {
+        Some(n) => n.to_string(),
+        None => original.chars().take(MAX_NAME - COPY.len()).chain(COPY.chars()).collect(),
+    };
+    numbered(&base, taken)
 }
 
 pub(crate) fn b(p: &Value, k: &str) -> Option<bool> {

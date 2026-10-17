@@ -27,7 +27,7 @@ cargo run --release -p rustgis -- atlas.rgis   # a saved project
 5. **Change the view.** **View › Globe** turns the map into a 3D globe; **View › Projection**
    offers Equal Earth, Robinson and other projections. **Home › Add › Basemap** switches the basemap or
    adds a web tile layer.
-6. **Share.** **Publish › Export Map** saves a PNG with labels and a scale bar. **Data › New
+6. **Share.** **Publish › Export Map** saves a PNG with labels and a scale bar. **Home › New
    Layout** makes a printable page with a legend and north arrow. **Project › Save As** writes a
    `.rgis` project.
 
@@ -44,7 +44,7 @@ See [Data](user-guide/data.md) for the details of each format.
 ## Ask the AI Assistant
 
 **Analyze › AI Assistant** opens a chat pane. Choose a model provider (Anthropic, OpenAI,
-Gemini, OpenRouter, a local Ollama, or any OpenAI-compatible server) and ask, for example,
+your ChatGPT account, Gemini, OpenRouter, a local Ollama, or any OpenAI-compatible server) and ask, for example,
 "Which 5 countries have the largest GDP?" or "Label the cities and zoom to Tokyo". See
 [AI Assistant](user-guide/assistant.md).
 

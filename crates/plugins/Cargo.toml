@@ -13,6 +13,8 @@ rustgis-data = { workspace = true }
 rustgis-analysis = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# A tool's files travel in its request as base64.
+base64 = { workspace = true }
 log = { workspace = true }
 # A pure-Rust WebAssembly interpreter: the same sandbox on the desktop, the command line and in
 # the browser, with fuel and memory limits so a plugin can't hang or exhaust the app.
@@ -23,6 +25,10 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 # The test plugin (feature `testing`, used by the engine's tests too) is written in the
 # WebAssembly text format.
 wat = { version = "1", optional = true }
+
+# Stopping a process plugin with everything it started: its process group.
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1", features = ["process"] }
 
 # Downloading packages from the plugin registry. Native only: the browser fetches them itself.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

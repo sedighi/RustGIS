@@ -104,6 +104,7 @@ fn waker() -> &'static Mutex<Option<Arc<dyn Fn() + Send + Sync>>> {
 }
 
 /// Replaces how addresses are fetched (the browser's `fetch`). `done` must be called once.
+/// Decode download markers with [`split_download_limit`] and enforce their budget while reading.
 pub fn set_fetcher(f: impl Fn(String, Done) + Send + Sync + 'static) {
     *fetcher().lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(Box::new(f)));
 }
@@ -167,6 +168,7 @@ pub fn clear() {
     drop(c);
     // Styles, TileJSON documents and PMTiles archives are read again too.
     crate::source::forget();
+    crate::sprite::forget();
     crate::pmtiles::forget();
     crate::mbtiles::forget();
     crate::cog::forget();
@@ -262,16 +264,34 @@ pub fn split_tail(url: &str) -> (&str, Option<u64>) {
 /// it, and [`MAX_BYTES`] (a tile) for any other. No tile, style or archive address can start with
 /// it: those pass `address::check`, which takes only `http(s)://` ones.
 pub const DOWNLOAD: &str = "rustgis-download:";
+const LIMITED_DOWNLOAD: &str = "rustgis-download-limit:";
 
 /// The most bytes a data download may have.
 pub const MAX_DOWNLOAD: usize = if cfg!(target_arch = "wasm32") { 256 << 20 } else { 512 << 20 };
 
 /// Splits an address into the address to fetch and whether it is a download ([`DOWNLOAD`]).
 pub fn split_download(url: &str) -> (&str, bool) {
-    match url.strip_prefix(DOWNLOAD) {
-        Some(u) => (u, true),
-        None => (url, false),
+    let (url, limit) = split_download_limit(url);
+    (url, limit.is_some())
+}
+
+/// Splits a download marker, including a caller's smaller byte budget. Fetchers must enforce
+/// this limit while reading, before allocating the whole response.
+pub fn split_download_limit(url: &str) -> (&str, Option<usize>) {
+    if let Some(marked) = url.strip_prefix(LIMITED_DOWNLOAD)
+        && let Some((limit, url)) = marked.split_once(':')
+        && let Ok(limit) = limit.parse::<usize>()
+    {
+        return (url, Some(limit.min(MAX_DOWNLOAD)));
     }
+    match url.strip_prefix(DOWNLOAD) {
+        Some(u) => (u, Some(MAX_DOWNLOAD)),
+        None => (url, None),
+    }
+}
+
+fn download_address(url: &str, max: usize) -> String {
+    if max >= MAX_DOWNLOAD { format!("{DOWNLOAD}{url}") } else { format!("{LIMITED_DOWNLOAD}{max}:{url}") }
 }
 
 /// The HTTP status a fetch's error is, if it is one: the whole message, as the native fetcher
@@ -287,11 +307,16 @@ pub fn http_status(error: &str) -> Option<u16> {
 /// bytes, uncached, off the frame (a thread natively, the browser's fetch on the web), counted as
 /// a fetch under way.
 pub fn download(url: &str, done: Done) {
+    download_limited(url, MAX_DOWNLOAD, done);
+}
+
+/// Like [`download`], with a smaller budget enforced by the native and browser fetchers.
+pub fn download_limited(url: &str, max: usize, done: Done) {
     if let Err(e) = crate::address::check(url, None) {
         done(Err(e));
         return;
     }
-    let marked = format!("{DOWNLOAD}{url}");
+    let marked = download_address(url, max);
     IN_FLIGHT.fetch_add(1, Ordering::Relaxed);
     let done: Done = Box::new(move |r| {
         done(r);
@@ -313,8 +338,14 @@ pub const BLOCKING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 /// Downloads a file the user named, waiting for it (at most [`BLOCKING_TIMEOUT`]).
 #[cfg(not(target_arch = "wasm32"))]
 pub fn download_blocking(url: &str) -> Result<Vec<u8>, String> {
+    download_blocking_limited(url, MAX_DOWNLOAD)
+}
+
+/// Like [`download_blocking`], but reads at most `max` bytes plus one overflow sentinel.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn download_blocking_limited(url: &str, max: usize) -> Result<Vec<u8>, String> {
     crate::address::check(url, None)?;
-    native::get(&native::download_agent(BLOCKING_TIMEOUT), &format!("{DOWNLOAD}{url}")).map_err(|e| {
+    native::get(&native::download_agent(BLOCKING_TIMEOUT), &download_address(url, max)).map_err(|e| {
         if e.contains("timeout") || e.contains("timed out") {
             format!("{e} (a large file: add it with Add Data › From URL, which downloads in the background)")
         } else {
@@ -598,8 +629,8 @@ mod native {
             let (a, b) = range.ok_or("a local read without a range")?;
             return crate::pmtiles::read_file(path, a, b - a + 1);
         }
-        let (url, whole) = super::split_download(url);
-        let max = if whole { super::MAX_DOWNLOAD } else { MAX_BYTES };
+        let (url, limit) = super::split_download_limit(url);
+        let max = limit.unwrap_or(MAX_BYTES);
         let (url, tail) = super::split_tail(url);
         let (url, range) = super::split_range(url);
         // An `s3://` address becomes its web address, and a request to an S3 connection's
@@ -669,7 +700,7 @@ mod native {
         if let Some(n) = tail.filter(|_| resp.status().as_u16() != 206) {
             // Read one byte past `n` (no more, and no error at the limit): a longer file is
             // reported as a server without ranges, so the file is downloaded whole instead.
-            let limit = n.saturating_add(1);
+            let limit = n.min(max as u64).saturating_add(1);
             resp.body_mut()
                 .with_config()
                 .limit(limit.saturating_add(1))
@@ -680,11 +711,21 @@ mod native {
             if buf.len() as u64 > n {
                 return Err(format!("{url}: {}", super::NO_RANGES));
             }
+            if buf.len() > max {
+                return Err(format!("larger than {max} bytes"));
+            }
             return Ok(buf);
         }
-        resp.body_mut().with_config().limit(max as u64 + 1).reader().read_to_end(&mut buf).map_err(|e| e.to_string())?;
+        // ureq limits the wire bytes; `take` also caps the decoded bytes when gzip expands them.
+        resp.body_mut()
+            .with_config()
+            .limit(max as u64 + 2)
+            .reader()
+            .take(max as u64 + 1)
+            .read_to_end(&mut buf)
+            .map_err(|e| e.to_string())?;
         if buf.len() > max {
-            return Err(format!("larger than {} MB", max >> 20));
+            return Err(format!("larger than {max} bytes"));
         }
         if let Some((a, b)) = range.filter(|_| whole) {
             if buf.len() as u64 > b - a + 1 {
@@ -719,6 +760,62 @@ mod tests {
     use super::*;
 
     #[test]
+    fn download_markers_preserve_addresses_and_budgets() {
+        let url = "https://example.org/items?token=a%2Fb&key=x:x";
+        assert_eq!(split_download_limit(url), (url, None));
+        assert_eq!(split_download_limit(&format!("{DOWNLOAD}{url}")), (url, Some(MAX_DOWNLOAD)));
+        assert_eq!(split_download_limit(&format!("{LIMITED_DOWNLOAD}17:{url}")), (url, Some(17)));
+        assert_eq!(split_download_limit(&format!("{LIMITED_DOWNLOAD}0:{url}")), (url, Some(0)));
+        assert_eq!(split_download_limit(&format!("{LIMITED_DOWNLOAD}{}:{url}", usize::MAX)), (url, Some(MAX_DOWNLOAD)));
+        assert_eq!(split_download(&format!("{LIMITED_DOWNLOAD}17:{url}")), (url, true));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn downloads_stop_at_the_callers_budget() {
+        for framing in ["Content-Length: 4\r\n", "", "Transfer-Encoding: chunked\r\n"] {
+            let body = if framing.starts_with("Transfer") { "4\r\ntile\r\n0\r\n\r\n" } else { "tile" };
+            for (limit, ok) in [(0, false), (3, false), (4, true), (5, true)] {
+                let base = serve(vec![format!("HTTP/1.1 200 OK\r\n{framing}Connection: close\r\n\r\n{body}")]);
+                let result = download_blocking_limited(&base, limit);
+                assert_eq!(result.is_ok(), ok, "{framing}, {limit}: {result:?}");
+                if ok {
+                    assert_eq!(result.unwrap(), b"tile");
+                }
+            }
+        }
+        // A server promising a huge body but sending only budget + 1 bytes must fail now,
+        // not try to read the promised body (which would yield an unexpected EOF).
+        let base = serve(vec!["HTTP/1.1 200 OK\r\nContent-Length: 999999999\r\nConnection: close\r\n\r\ntile".into()]);
+        assert!(download_blocking_limited(&base, 3).unwrap_err().contains("larger than"));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn download_budget_also_bounds_decompressed_bytes() {
+        let data = vec![b'x'; 4096];
+        // The ZIP writer supplies the CRC-32 for a valid, generated gzip trailer.
+        let zip = rustgis_data::zip::write(&[("body".into(), data.clone())]).unwrap();
+        let mut gzip = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 255];
+        gzip.extend(miniz_oxide::deflate::compress_to_vec(&data, 6));
+        gzip.extend_from_slice(&zip[14..18]);
+        gzip.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        assert!(gzip.len() < 64);
+        for limit in [64, data.len()] {
+            let mut response =
+                format!("HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", gzip.len())
+                    .into_bytes();
+            response.extend_from_slice(&gzip);
+            let result = download_blocking_limited(&serve_bytes(vec![response]), limit);
+            if limit == data.len() {
+                assert_eq!(result.unwrap(), data);
+            } else {
+                assert_eq!(result.unwrap_err(), "larger than 64 bytes");
+            }
+        }
+    }
+
+    #[test]
     fn http_statuses_from_whole_messages() {
         assert_eq!(http_status("http status: 404"), Some(404));
         assert_eq!(http_status("HTTP 403"), Some(403));
@@ -745,6 +842,11 @@ mod tests {
     /// A server on this computer answering each request with the next of `answers`.
     #[cfg(not(target_arch = "wasm32"))]
     fn serve(answers: Vec<String>) -> String {
+        serve_bytes(answers.into_iter().map(String::into_bytes).collect())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn serve_bytes(answers: Vec<Vec<u8>>) -> String {
         use std::io::{Read, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
@@ -753,7 +855,7 @@ mod tests {
                 let Ok((mut stream, _)) = listener.accept() else { return };
                 let mut buf = [0u8; 2048];
                 let _ = stream.read(&mut buf);
-                let _ = stream.write_all(answer.as_bytes());
+                let _ = stream.write_all(&answer);
             }
         });
         format!("http://{addr}")

@@ -20,8 +20,10 @@ pub struct WorkspaceState {
     pub catalog_view: bool,
     pub item_popups: bool,
     pub link_cursors: bool,
-    /// A second map shown beside the active one, by index.
-    pub split: Option<usize>,
+    /// A second map shown beside the active one, by name: deleting or renaming it (by any
+    /// command) turns the split off, undoing that brings it back, and deleting other maps
+    /// doesn't move it. Read it through `mapview::split_map`.
+    pub split: Option<String>,
     pub playing: Option<(f64, usize)>,
     /// Diagnostics (refreshed every second) and infographics (when the view or data change),
     /// with what they were worked out for.

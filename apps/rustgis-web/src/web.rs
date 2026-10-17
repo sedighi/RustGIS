@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use rustgis_ui_egui::{Inbox, RustGisApp, Services};
+
+use crate::parts::Notes;
 use wasm_bindgen::JsCast as _;
 
 const DATA_EXTS: &[&str] = &[
@@ -80,16 +82,24 @@ pub fn start() {
                 Box::new(move |cc| {
                     let inbox: Inbox = Inbox::default();
                     let font_inbox: Inbox = Inbox::default();
+                    let notes = Notes::default();
                     let q = query();
-                    let mut app =
-                        RustGisApp::with_sample().with_services(services(inbox.clone(), font_inbox, cc.egui_ctx.clone(), embedded));
+                    let project = params(&q, "project", 1).into_iter().next();
+                    let mut app = RustGisApp::with_sample().with_services(services(
+                        inbox.clone(),
+                        font_inbox,
+                        notes.clone(),
+                        cc.egui_ctx.clone(),
+                        embedded,
+                    ));
                     // Settings › Start-up, unless `?blank`, `?projection=EPSG:3010` (a preset id,
                     // `mercator`, `globe`) or `?extent=minLon,minLat,maxLon,maxLat` says otherwise
                     // for this visit.
                     let start = rustgis_ui_egui::Start {
-                        blank: (embedded || flag(&q, "blank")).then_some(true),
+                        blank: (embedded || project.is_some() || flag(&q, "blank")).then_some(true),
                         projection: param(&q, "projection").filter(|c| !c.is_empty()),
                         extent: param(&q, "extent").filter(|c| !c.is_empty()),
+                        ..Default::default()
                     };
                     if let Err(e) = app.start(&start) {
                         log::warn!("start-up: {e}");
@@ -101,11 +111,26 @@ pub fn start() {
                             None => log::warn!("?lang={code}: no such interface language; following the browser's"),
                         }
                     }
+                    // `?project=<url>` opens a project (`.rgis`) by its web address: a whole map,
+                    // its layers, symbology and view, shared as one link. It replaces the project
+                    // when it lands, so the links that add to a project are left out beside it.
+                    if let Some(url) = &project {
+                        if let Err(e) = app.run("ui.openUrl", serde_json::json!({"url": url})) {
+                            app.session.notify(format!("?project={url}: {e}"), true);
+                        }
+                        let skipped: Vec<&str> =
+                            ["data", "stac", "style", "tiles", "zarr"].into_iter().filter(|k| !params(&q, k, 1).is_empty()).collect();
+                        if !skipped.is_empty() {
+                            let list = skipped.iter().map(|k| format!("?{k}=")).collect::<Vec<_>>().join(", ");
+                            app.session.notify(format!("?project= opens a whole project, so {list} links were left out"), false);
+                        }
+                    }
+                    let links = if project.is_some() { "" } else { q.as_str() };
                     // `?data=<url>` (repeatable) adds data by web address, downloaded in the
                     // background, the map zoomed to the first file that lands with something to
                     // show; `?style=<url>` adds a MapLibre style; `?tiles=<template>` a tile
                     // layer. Links that share a map. What fails is said in a notice.
-                    for url in params(&q, "data", 16) {
+                    for url in params(links, "data", 16) {
                         if let Err(e) = app.run("ui.addUrl", serde_json::json!({"url": url, "zoom": true})) {
                             app.session.notify(format!("?data={url}: {e}"), true);
                         }
@@ -114,7 +139,7 @@ pub fn start() {
                     // Planetary Computer one) or a collection (STAC Search opens on it).
                     // One link: the dialog follows one document at a time, so others are said to
                     // be skipped rather than lost.
-                    let stac = params(&q, "stac", 4);
+                    let stac = params(links, "stac", 4);
                     if let Some(url) = stac.first()
                         && let Err(e) = app.run("ui.stacLink", serde_json::json!({"url": url}))
                     {
@@ -124,7 +149,7 @@ pub fn start() {
                         app.session.notify(format!("only the first ?stac= link is opened ({} more were left out)", stac.len() - 1), false);
                     }
                     for (key, kind) in [("style", Some("style")), ("tiles", None)] {
-                        for url in params(&q, key, 8) {
+                        for url in params(links, key, 8) {
                             let mut p = serde_json::json!({"url": url});
                             if let Some(kind) = kind {
                                 p["kind"] = serde_json::json!(kind);
@@ -136,7 +161,7 @@ pub fn start() {
                     }
                     // `?zarr=<url>` opens Add Zarr Variable on a store, its variables listed.
                     // Read as `?data=` is, so a `+` in the address stays a `+`.
-                    if let Some(url) = params(&q, "zarr", 1).into_iter().next()
+                    if let Some(url) = params(links, "zarr", 1).into_iter().next()
                         && let Err(e) = app.run("ui.addZarr", serde_json::json!({"address": url}))
                     {
                         app.session.notify(format!("?zarr={url}: {e}"), true);
@@ -159,7 +184,7 @@ pub fn start() {
                     } else {
                         None
                     };
-                    Ok(Box::new(WebShell { app, inbox, dirty, embed }))
+                    Ok(Box::new(WebShell { app, inbox, notes, dirty, embed }))
                 }),
             )
             .await;
@@ -208,6 +233,8 @@ fn query() -> String {
 struct WebShell {
     app: RustGisApp,
     inbox: Inbox,
+    /// Notices from files read off the frame.
+    notes: Notes,
     dirty: Rc<Cell<bool>>,
     embed: Option<Embed>,
 }
@@ -309,21 +336,28 @@ impl Embed {
 }
 
 impl eframe::App for WebShell {
-    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        // The GPU map backend draws inside egui's wgpu pass; hand over the render state.
+        self.app.set_render_state(frame.wgpu_render_state().cloned());
         let dropped = ctx.input_mut(|i| std::mem::take(&mut i.raw.dropped_files));
         for f in dropped {
-            let inbox = self.inbox.clone();
+            let (inbox, notes) = (self.inbox.clone(), self.notes.clone());
             let ctx = ctx.clone();
+            let Some(file) = f.web_file().cloned() else {
+                log::error!("a dropped file without its browser file");
+                continue;
+            };
             wasm_bindgen_futures::spawn_local(async move {
-                let name = f.path().file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "dropped.geojson".into());
-                match f.bytes_async().await {
-                    Ok(bytes) => {
-                        inbox.lock().unwrap_or_else(|e| e.into_inner()).push((name, bytes));
-                        ctx.request_repaint();
-                    }
-                    Err(e) => log::error!("couldn't read dropped file {name}: {e}"),
+                let name = file.name();
+                if let Some(bytes) = crate::parts::read_file(file, notes).await {
+                    inbox.lock().unwrap_or_else(|e| e.into_inner()).push((name, bytes));
                 }
+                ctx.request_repaint();
             });
+        }
+        let notes = std::mem::take(&mut *self.notes.lock().unwrap_or_else(|e| e.into_inner()));
+        for (text, error) in notes {
+            self.app.session.notify(text, error);
         }
         if let Some(embed) = &mut self.embed {
             embed.exchange(&mut self.app, ctx);
@@ -347,9 +381,9 @@ async fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
     let err = |e: wasm_bindgen::JsValue| format!("{e:?}");
     let window = web_sys::window().ok_or("no window")?;
     use rustgis_ui_egui::rustgis_engine::render::rustgis_tiles::cache;
-    // A data download may be up to MAX_DOWNLOAD; anything else is at most 64 MB.
-    let (url, download) = cache::split_download(url);
-    let max = if download { cache::MAX_DOWNLOAD as u64 } else { 64 << 20 };
+    // A data download carries its caller's budget (at most MAX_DOWNLOAD); other fetches use 64 MB.
+    let (url, limit) = cache::split_download_limit(url);
+    let max = limit.map(|n| n as u64).unwrap_or(64 << 20);
     let (url, tail) = cache::split_tail(url);
     let (url, range) = cache::split_range(url);
     // An `s3://` address becomes its web address, and a request to an S3 connection's endpoint
@@ -397,7 +431,7 @@ async fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
     // The last bytes asked for and the whole file answered: fine when it is no longer.
     let whole_tail = tail.filter(|_| resp.status() != 206);
     let max = match whole_tail {
-        Some(n) => n.saturating_add(1),
+        Some(n) => n.saturating_add(1).min(max),
         None => max,
     };
     // A range asked for and the whole file answered (200): fine for a range from the start that
@@ -437,7 +471,7 @@ async fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
                 if whole_tail.is_some() {
                     return Err(format!("{url}: {}", cache::NO_RANGES));
                 }
-                return Err(format!("larger than {} MB", max >> 20));
+                return Err(format!("larger than {max} bytes"));
             }
             let at = bytes.len();
             bytes.resize(at + n, 0);
@@ -457,11 +491,15 @@ async fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
 
 /// Makes an HTTP request (the AI assistant's calls to its model), returning the response of any
 /// status.
-async fn http(req: rustgis_ui_egui::rustgis_assistant::HttpRequest) -> Result<rustgis_ui_egui::rustgis_assistant::HttpResponse, String> {
-    use rustgis_ui_egui::rustgis_assistant::provider::{MAX_RESPONSE, allowed_url};
+async fn http(
+    req: rustgis_ui_egui::rustgis_assistant::HttpRequest,
+) -> Result<rustgis_ui_egui::rustgis_assistant::HttpResponse, rustgis_ui_egui::rustgis_assistant::Error> {
+    use rustgis_ui_egui::rustgis_assistant::provider::{allowed_url, reply_limit};
+    use rustgis_ui_egui::rustgis_assistant::{Error, error::TransportFailure};
+    let limit = reply_limit(&req);
     let err = |e: wasm_bindgen::JsValue| format!("{e:?}");
     if !allowed_url(&req.url) {
-        return Err(format!("{}: only HTTPS addresses, or plain HTTP on this computer or network, are allowed", req.url));
+        return Err(format!("{}: only HTTPS addresses, or plain HTTP on this computer or network, are allowed", req.url).into());
     }
     let window = web_sys::window().ok_or("no window")?;
     let init = web_sys::RequestInit::new();
@@ -479,27 +517,37 @@ async fn http(req: rustgis_ui_egui::rustgis_assistant::HttpRequest) -> Result<ru
     // A failed fetch here is usually the provider refusing browser requests (CORS) or no network.
     let resp: web_sys::Response = wasm_bindgen_futures::JsFuture::from(window.fetch_with_str_and_init(&req.url, &init))
         .await
-        .map_err(|_| "couldn't reach the provider (offline, or it doesn't accept requests from web pages)".to_string())?
+        .map_err(|_| {
+            Error::transport(
+                TransportFailure::Unavailable,
+                "couldn't reach the provider (offline, or it doesn't accept requests from web pages)",
+            )
+        })?
         .dyn_into()
         .map_err(err)?;
     let status = resp.status();
+    // The headers the assistant reads (a browser shows only those the provider exposes).
+    let headers: Vec<(String, String)> = rustgis_ui_egui::rustgis_assistant::provider::KEPT_HEADERS
+        .into_iter()
+        .filter_map(|h| Some((h.to_string(), resp.headers().get(h).ok().flatten()?)))
+        .collect();
     // Too large by its header: refused before it is read.
     if let Ok(Some(len)) = resp.headers().get("content-length").map(|v| v.and_then(|s| s.parse::<u64>().ok()))
-        && len > MAX_RESPONSE as u64
+        && len > limit as u64
     {
-        return Err(format!("{len} bytes is too large"));
+        return Err(format!("{len} bytes is too large").into());
     }
     let buf = wasm_bindgen_futures::JsFuture::from(resp.array_buffer().map_err(err)?).await.map_err(err)?;
     let bytes = js_sys::Uint8Array::new(&buf);
-    if bytes.length() as usize > MAX_RESPONSE {
-        return Err(format!("{} bytes is too large", bytes.length()));
+    if bytes.length() as usize > limit {
+        return Err(format!("{} bytes is too large", bytes.length()).into());
     }
-    Ok(rustgis_ui_egui::rustgis_assistant::HttpResponse { status, body: bytes.to_vec() })
+    Ok(rustgis_ui_egui::rustgis_assistant::HttpResponse { status, body: bytes.to_vec(), headers })
 }
 
 /// The browser's services. Embedded, settings live in memory for the visit: the page that embeds
 /// the app must not read what the user saved on the site.
-fn services(inbox: Inbox, font_inbox: Inbox, ctx: egui::Context, embedded: bool) -> Services {
+fn services(inbox: Inbox, font_inbox: Inbox, notes: Notes, ctx: egui::Context, embedded: bool) -> Services {
     // Map tiles come through the browser's fetch (the app repaints when they arrive).
     rustgis_ui_egui::rustgis_engine::render::rustgis_tiles::cache::set_fetcher(|url, done| {
         wasm_bindgen_futures::spawn_local(async move { done(fetch_bytes(&url).await) });
@@ -556,15 +604,37 @@ fn services(inbox: Inbox, font_inbox: Inbox, ctx: egui::Context, embedded: bool)
         font_inbox: Some(font_inbox),
         open_async: Some(Box::new(move |purpose: &str| {
             let inbox = open_inbox.clone();
+            let notes = notes.clone();
             let ctx = ctx.clone();
             // A file picked for Add Delimited Text carries its dialog's options.
-            let mark = if purpose == "text" { rustgis_ui_egui::DELIMITED_PICK } else { "" };
-            let dialog = if purpose == "project" {
+            // So does a file picked for a tool's file parameter, which goes to the Tools pane.
+            let tool_exts = purpose.strip_prefix(rustgis_ui_egui::TOOL_FILE_PURPOSE);
+            let mark = match (purpose, tool_exts) {
+                ("text", _) => rustgis_ui_egui::DELIMITED_PICK,
+                (_, Some(_)) => rustgis_ui_egui::TOOL_FILE_PICK,
+                _ => "",
+            };
+            let dialog = if let Some(exts) = tool_exts {
+                let exts: Vec<&str> = exts.split(',').filter(|e| !e.is_empty()).collect();
+                if exts.is_empty() { rfd::AsyncFileDialog::new() } else { rfd::AsyncFileDialog::new().add_filter(exts.join(", "), &exts) }
+            } else if purpose == "project" {
                 rfd::AsyncFileDialog::new().add_filter("RustGIS project", &["rgis", "rgisx"])
             } else if purpose == "item" {
                 rfd::AsyncFileDialog::new().add_filter(
                     "RustGIS items",
-                    &["rgismap", "rgismpk", "rgispkg", "rgislyr", "rgisstyle", "rgisramp", "rgistemplate", "rgistask", "rgis", "rgisx"],
+                    &[
+                        "rgismap",
+                        "rgismpk",
+                        "rgispkg",
+                        "rgislyr",
+                        "rgisstyle",
+                        "rgisramp",
+                        "rgistemplate",
+                        "rgistask",
+                        "rgisbookmarks",
+                        "rgis",
+                        "rgisx",
+                    ],
                 )
             } else if purpose == "ramp" {
                 rfd::AsyncFileDialog::new().add_filter("Colour ramps", &["rgisramp", "xml", "qml", "txt", "clr", "cpt"])
@@ -586,8 +656,10 @@ fn services(inbox: Inbox, font_inbox: Inbox, ctx: egui::Context, embedded: bool)
                 let files: Vec<rfd::FileHandle> =
                     if many { dialog.pick_files().await.unwrap_or_default() } else { dialog.pick_file().await.into_iter().collect() };
                 for file in files {
-                    let bytes = file.read().await;
-                    inbox.lock().unwrap_or_else(|e| e.into_inner()).push((format!("{mark}{}", file.file_name()), bytes));
+                    let name = file.file_name();
+                    if let Some(bytes) = crate::parts::read_file(file.inner().clone(), notes.clone()).await {
+                        inbox.lock().unwrap_or_else(|e| e.into_inner()).push((format!("{mark}{name}"), bytes));
+                    }
                 }
                 ctx.request_repaint();
             });

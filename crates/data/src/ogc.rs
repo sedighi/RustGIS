@@ -46,6 +46,11 @@ pub struct Service {
     pub title: String,
     pub layers: Vec<ServiceLayer>,
     pub notes: Vec<String>,
+    /// An OGC API landing page's advertised JSON collections document, resolved against it.
+    pub collections_url: Option<String>,
+    /// Some advertised collections were left out (past the listing limit, or with an items
+    /// address RustGIS doesn't fetch): the listing isn't the whole service.
+    pub incomplete: bool,
 }
 
 /// Most layers listed from one service.
@@ -80,17 +85,80 @@ pub fn capabilities_url(url: &str, kind: Option<&str>) -> String {
         Some("wmts") => "WMTS",
         Some("wfs") => "WFS",
         Some("wcs") => "WCS",
-        Some("ogcapi") | Some("features") => return with_query(url, "f=json"),
+        Some("ogcapi") | Some("features") => return json_url(url),
         _ if rest.contains("wmts") => "WMTS",
         _ if rest.contains("wfs") => "WFS",
         _ if rest.contains("wcs") => "WCS",
         _ if rest.contains("wms") => "WMS",
         // An OGC API (`…/collections`, `…/ogc/features`, `…/api/…`): asked as JSON.
-        _ if segments.iter().any(|s| matches!(*s, "collections" | "api" | "ogcapi" | "ogc")) => return with_query(url, "f=json"),
+        _ if segments.iter().any(|s| matches!(*s, "collections" | "api" | "ogcapi" | "ogc")) => return json_url(url),
         // Anything else is taken as a WMS (the commonest service).
         _ => "WMS",
     };
     with_query(url, &format!("SERVICE={service}&REQUEST=GetCapabilities"))
+}
+
+/// Requests JSON once, retaining the address's other query parameters.
+pub fn json_url(address: &str) -> String {
+    let Ok(mut url) = url::Url::parse(address) else { return with_query(address, "f=json") };
+    // Authentication and signed query values can depend on their original byte encoding.
+    let mut format_seen = false;
+    let mut pairs: Vec<&str> = url
+        .query()
+        .filter(|q| !q.is_empty())
+        .into_iter()
+        .flat_map(|q| q.split('&'))
+        .filter_map(|pair| {
+            if url::form_urlencoded::parse(pair.as_bytes()).next().is_some_and(|(key, _)| key.eq_ignore_ascii_case("f")) {
+                let first = !format_seen;
+                format_seen = true;
+                first.then_some("f=json")
+            } else {
+                Some(pair)
+            }
+        })
+        .collect();
+    if !format_seen {
+        pairs.push("f=json");
+    }
+    let query = pairs.join("&");
+    url.set_fragment(None);
+    url.set_query(Some(&query));
+    url.into()
+}
+
+/// A collections link uses either the short or full OGC data relation.
+fn is_data_link(link: &serde_json::Value) -> bool {
+    matches!(link.get("rel").and_then(|rel| rel.as_str()), Some("data" | "http://www.opengis.net/def/rel/ogc/1.0/data"))
+}
+
+/// Chooses JSON before an untyped data link, without guessing an endpoint or copying credentials.
+fn collections_link(address: &str, links: &[serde_json::Value]) -> Option<String> {
+    let base = url::Url::parse(address).ok()?;
+    links
+        .iter()
+        .filter(|l| is_data_link(l))
+        .filter_map(|l| {
+            let priority = match l.get("type").and_then(|v| v.as_str()) {
+                Some(t) if t.split(';').next().is_some_and(|t| t.trim().eq_ignore_ascii_case("application/json")) => 0,
+                None => 1,
+                _ => return None,
+            };
+            let href = l.get("href")?.as_str()?.trim();
+            if href.is_empty() || href.len() > 8192 {
+                return None;
+            }
+            let mut next = base.join(href).ok()?;
+            if !matches!(next.scheme(), "http" | "https") {
+                return None;
+            }
+            next.set_fragment(None);
+            // A typed JSON link already selects its representation; its query is authoritative.
+            let next = if priority == 0 { next.into() } else { json_url(next.as_str()) };
+            Some((priority, next))
+        })
+        .min_by_key(|(priority, _)| *priority)
+        .map(|(_, url)| url)
 }
 
 /// Whether an address is an ArcGIS REST service (or its directory), not one of its OGC endpoints
@@ -1126,10 +1194,11 @@ fn arcgis(url: &str, v: &serde_json::Value) -> Result<Service, String> {
 fn ogc_api(url: &str, v: &serde_json::Value) -> Result<Service, String> {
     let collections = v.get("collections").and_then(|c| c.as_array());
     let Some(collections) = collections else {
-        // A landing page: its dataset's tiles, if it has any; else say where the collections are.
+        // A landing page can offer both dataset tiles and a collections document to discover.
         let title = v.get("title").and_then(|t| t.as_str()).unwrap_or_default().to_string();
         let mut service = Service { kind: "OGC API Tiles".into(), title: title.clone(), ..Service::default() };
         let links = v.get("links").and_then(|l| l.as_array()).cloned().unwrap_or_default();
+        service.collections_url = collections_link(url, &links);
         let name = if title.is_empty() { "tiles".to_string() } else { title };
         // The dataset's layers aren't listed here, so its vector tiles can't be styled: map tiles only.
         if let Some((t, list)) = tileset(url, &links, TileRel::Map) {
@@ -1141,16 +1210,14 @@ fn ogc_api(url: &str, v: &serde_json::Value) -> Result<Service, String> {
                 tilesets: Some(list),
             });
         }
-        if !service.layers.is_empty() {
-            service.notes.push("the dataset's map tiles; add its /collections address for each collection's tiles and features".into());
+        if !service.layers.is_empty() || service.collections_url.is_some() {
+            if service.layers.is_empty() {
+                service.kind = "OGC API Features".into();
+            }
             return Ok(service);
         }
-        let has = v
-            .get("links")
-            .and_then(|l| l.as_array())
-            .is_some_and(|l| l.iter().any(|l| l.get("rel").and_then(|r| r.as_str()) == Some("data")));
-        return Err(if has {
-            format!("{url} is an OGC API landing page: add its /collections address")
+        return Err(if links.iter().any(is_data_link) {
+            "the OGC API landing page has no usable JSON collections link".into()
         } else {
             "not an OGC API collections document (no \"collections\")".into()
         });
@@ -1222,6 +1289,10 @@ fn ogc_api(url: &str, v: &serde_json::Value) -> Result<Service, String> {
     if unreadable > 0 {
         service.notes.push(format!("{unreadable} collections link to their items with an address RustGIS doesn't fetch and are left out"));
     }
+    if collections.len() > MAX_LAYERS {
+        service.notes.push(format!("only the first {MAX_LAYERS} collections are listed"));
+    }
+    service.incomplete = unreadable > 0 || collections.len() > MAX_LAYERS;
     if service.layers.iter().any(|l| matches!(l.offer, Offer::Features { .. })) {
         service.notes.push(format!("a collection is read up to {OGC_API_LIMIT} features (one page of the server's)"));
     }
@@ -1489,6 +1560,10 @@ pub fn fix_axes(bytes: &[u8]) -> Option<Vec<u8>> {
     }
     serde_json::to_vec(&v).ok()
 }
+
+#[cfg(test)]
+#[path = "../../../tests/support/ogc.rs"]
+mod fixtures;
 
 #[cfg(test)]
 mod tests {
@@ -1776,6 +1851,83 @@ mod tests {
     }
 
     #[test]
+    fn ogc_landing_fixture_discovers_json_and_resolves_items() {
+        let address = "https://example.org/ogc/user/test-token?f=json";
+        let service = parse(address, super::fixtures::fixture_landing().as_bytes()).unwrap();
+        let catalog = service.collections_url.unwrap();
+        assert_eq!(catalog, "https://example.org/ogc/user/test-token/catalog?f=json&key=fixture-key");
+        let collections = parse(&catalog, super::fixtures::fixture_collections().as_bytes()).unwrap();
+        assert_eq!(collections.layers.len(), 1);
+        assert_eq!(collections.layers[0].title, "Places");
+        assert_eq!(
+            collections.layers[0].offer,
+            Offer::Features { url: "https://example.org/ogc/user/test-token/collections/places/items?key=fixture-key&limit=10000".into() }
+        );
+        // The existing parser omits a point's zero-area bounds as a map-view extent.
+        assert_eq!(collections.layers[0].bbox, None);
+    }
+
+    #[test]
+    fn ogc_landing_links_are_resolved_without_inventing_paths_or_credentials() {
+        let data_uri = "http://www.opengis.net/def/rel/ogc/1.0/data";
+        for (href, expected) in [
+            ("https://other.example/catalog?key=other", "https://other.example/catalog?key=other&f=json"),
+            ("/catalog", "https://example.org/catalog?f=json"),
+            ("catalog", "https://example.org/api/catalog?f=json"),
+            ("./catalog", "https://example.org/api/catalog?f=json"),
+            ("../catalog", "https://example.org/catalog?f=json"),
+            ("?catalog=1", "https://example.org/api/root?catalog=1&f=json"),
+        ] {
+            let body = serde_json::json!({"links": [{"rel": "data", "href": href}]}).to_string();
+            let result = parse("https://example.org/api/root?token=private&f=json", body.as_bytes()).unwrap();
+            assert_eq!(result.collections_url.as_deref(), Some(expected));
+        }
+        let body = serde_json::json!({"links": [{"rel": data_uri, "href": "/catalog"}]}).to_string();
+        let result = parse("https://example.org/api", body.as_bytes()).unwrap();
+        assert_eq!(result.collections_url.as_deref(), Some("https://example.org/catalog?f=json"));
+        for link in [
+            serde_json::json!({"rel":"data", "href":"javascript:alert(1)"}),
+            serde_json::json!({"rel":"data", "href":"file:///etc/passwd"}),
+            serde_json::json!({"rel":"data", "href":"/catalog", "type":"text/html"}),
+            serde_json::json!({"rel":"data", "href":""}),
+            serde_json::json!({"rel":data_uri, "href":"/catalog", "type":"text/html"}),
+        ] {
+            let doc = serde_json::json!({"links":[link]}).to_string();
+            assert!(parse("https://example.org/api", doc.as_bytes()).unwrap_err().contains("no usable JSON collections link"));
+        }
+        assert!(parse("https://example.org/api", br#"{"links":[]}"#).is_err());
+        assert!(parse("https://example.org/api", br#"{"collections":[]}"#).unwrap().layers.is_empty());
+        let chosen = parse(
+            "https://example.org/api",
+            br#"{"links":[
+            {"rel":"data","href":"/untyped"},
+            {"rel":"data","href":"/json","type":"application/json; charset=utf-8"}
+        ]}"#,
+        )
+        .unwrap();
+        assert_eq!(chosen.collections_url.as_deref(), Some("https://example.org/json"));
+    }
+
+    #[test]
+    fn ogc_json_format_is_idempotent() {
+        let url = capabilities_url("https://example.org/api?f=html&key=a%2Fb&f=json#fragment", Some("ogcapi"));
+        assert_eq!(url, "https://example.org/api?f=json&key=a%2Fb");
+        assert_eq!(capabilities_url(&url, Some("ogcapi")), url);
+    }
+
+    #[test]
+    fn ogc_format_preserves_opaque_query_bytes_and_typed_links() {
+        let raw = "https://example.org/api?token=%FF%2f%20&f=json&signature=a~b&flag";
+        assert_eq!(json_url(raw), raw);
+        assert_eq!(json_url("https://example.org/api?token=%FF%2f%20&%66=html&signature=a~b&F=json&flag"), raw);
+        for href in ["/catalog?token=%FF%2f%20&signature=a~b&flag", "/catalog?f=application%2Fjson&token=%FF%2f%20"] {
+            let body = serde_json::json!({"links":[{"rel":"data","type":"application/json","href":href}]}).to_string();
+            let service = parse("https://example.org/api", body.as_bytes()).unwrap();
+            assert_eq!(service.collections_url, Some(format!("https://example.org{href}")));
+        }
+    }
+
+    #[test]
     fn ogc_api_tiles() {
         // A collection with features and vector tiles, one with map tiles only, and one whose
         // tiles link is no web address.
@@ -1812,11 +1964,13 @@ mod tests {
         let s = parse("https://x.org/night/", landing).unwrap();
         assert_eq!(s.kind, "OGC API Tiles");
         assert_eq!(s.layers[0].offer, Offer::Tiles { template: "https://x.org/night/map/tiles/WebMercatorQuad/{z}/{y}/{x}".into() });
-        // A landing page with neither tiles nor collections still says where to look.
-        assert!(
+        // A landing page advertises the collections document instead of rejecting it.
+        assert_eq!(
             parse("https://x.org/a/", br#"{"links": [{"rel": "data", "href": "https://x.org/a/collections"}]}"#)
-                .unwrap_err()
-                .contains("/collections")
+                .unwrap()
+                .collections_url
+                .as_deref(),
+            Some("https://x.org/a/collections?f=json")
         );
         // The tileset list to read the advertised template from, with the link's query kept (but
         // its `f`), on the list and the usual-path template alike.

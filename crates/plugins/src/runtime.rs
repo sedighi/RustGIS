@@ -40,6 +40,15 @@ pub trait Host {
     fn log(&mut self, text: &str) {
         log::info!("plugin: {text}");
     }
+    /// What the plugin is doing now: a tool's progress, shown while it runs and then forgotten.
+    fn progress(&mut self, text: &str) {
+        log::debug!("plugin progress: {text}");
+    }
+    /// Whether the run was cancelled. A process plugin is then stopped; a WebAssembly one runs
+    /// on to its end (its fuel bounds it), and the caller discards what it returns.
+    fn cancelled(&self) -> bool {
+        false
+    }
 }
 
 /// A host that only logs (tools run without access to the session).
@@ -179,9 +188,10 @@ pub fn call(module: &Module, host: &mut dyn Host, request: &Value, fuel: u64) ->
     let entry: TypedFunc<(i32, i32), i64> = instance.get_typed_func(&store, "rustgis_call").map_err(|e| format!("rustgis_call: {e}"))?;
     let bytes = request.to_string().into_bytes();
     let len = i32::try_from(bytes.len()).map_err(|_| "the request is too large")?;
-    let ptr = alloc.call(&mut store, len).map_err(trap)?;
-    mem.write(&mut store, usize::try_from(ptr).map_err(|_| "bad allocation")?, &bytes)
-        .map_err(|_| "the module's allocation is out of bounds")?;
+    // A request too large for the module's memory (large layers or files) fails here: say so.
+    let too_large = || format!("the request ({} MB of layers and files) doesn't fit in the plugin's memory", bytes.len() / (1024 * 1024));
+    let ptr = alloc.call(&mut store, len).map_err(|e| if e.as_trap_code().is_some() { too_large() } else { trap(e) })?;
+    mem.write(&mut store, usize::try_from(ptr).map_err(|_| "bad allocation")?, &bytes).map_err(|_| too_large())?;
     let packed = entry.call(&mut store, (ptr, len)).map_err(trap)?;
     let (out_ptr, out_len) = ((packed as u64 >> 32) as u32, packed as u64 as u32);
     let out = read(&mem, &store, out_ptr as i32, out_len as i32).ok_or("the module's reply is out of bounds")?;

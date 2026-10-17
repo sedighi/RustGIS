@@ -70,8 +70,11 @@ impl ColorVision {
 }
 
 /// Effects applied to the drawn map.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ViewEffects {
+    /// Stars in the space around the globe.
+    #[serde(default = "yes")]
+    pub stars: bool,
     /// Daylight and night shading for this time (seconds since 1970, UTC), when set.
     #[serde(default)]
     pub sun_time: Option<f64>,
@@ -101,9 +104,32 @@ pub struct ViewEffects {
     pub sepia: f64,
 }
 
+fn yes() -> bool {
+    true
+}
+
+impl Default for ViewEffects {
+    fn default() -> Self {
+        ViewEffects {
+            stars: true,
+            sun_time: None,
+            weather: Weather::None,
+            vignette: false,
+            edges: false,
+            tilt_shift: false,
+            grain: false,
+            brightness: 0.0,
+            contrast: 0.0,
+            saturation: 0.0,
+            sepia: 0.0,
+        }
+    }
+}
+
 impl ViewEffects {
+    /// No effect to apply after drawing the map (the stars are part of drawing it).
     pub fn is_none(&self) -> bool {
-        *self == ViewEffects::default()
+        ViewEffects { stars: true, ..self.clone() } == ViewEffects::default()
     }
 }
 

@@ -11,7 +11,7 @@ KMZ or GPX (see [Writing](data-formats.md#writing)), **Data › Export** a raste
 **Data Interop** converts layers to KML, GPX or CSV with WKT. Layouts, reports and presentations
 export to PDF from their own tabs and panes (see [Layouts and Reports](layouts.md)).
 
-Packages and project item files are described under [Data › Project items](data.md#project-items).
+Packages and project item files are described under [Project items](data.md#project-items).
 
 ## Sharing as open formats
 

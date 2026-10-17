@@ -102,6 +102,29 @@ fn manifests_become_tool_forms() {
 }
 
 #[test]
+fn inputs_of_several_layers_are_layer_lists() {
+    // A composite takes several rasters: the form picks layers, not a bare text box (#270).
+    let manifest = json!({"id": "composite", "params": [
+        {"name": "inputs", "io_role": "input", "data_kind": "raster", "schema": {"cardinality": "many"}},
+        {"name": "vectors", "io_role": "input", "data_kind": "vector", "schema": {"cardinality": "many"}},
+        {"name": "files", "io_role": "input", "data_kind": "lidar", "schema": {"cardinality": "many"}},
+        {"name": "dem", "io_role": "input", "data_kind": "raster"},
+        {"name": "output", "io_role": "output", "data_kind": "raster"}
+    ]});
+    let (spec, _) = spec_of(&manifest).unwrap();
+    let kinds: Vec<(&str, ParamKind)> = spec.params.iter().map(|p| (p.name, p.kind)).collect();
+    assert_eq!(
+        kinds,
+        [
+            ("inputs", ParamKind::RasterLayers),
+            ("vectors", ParamKind::VectorLayers),
+            ("files", ParamKind::Text),
+            ("dem", ParamKind::RasterLayer)
+        ]
+    );
+}
+
+#[test]
 fn slope_runs_on_a_raster_layer() {
     let Some(f) = setup() else { return };
     let r = rustgis_analysis::run("geolibre:slope", &f, &json!({"input": "dem", "units": "degrees"})).unwrap();
@@ -226,4 +249,50 @@ fn prepare_and_finish_without_a_runner() {
     // No files back: a message, not a crash.
     let empty = finish(&job, &[], &[], None);
     assert!(matches!(empty.output, Output::Layers(ref l) if l.is_empty()) && !empty.messages.is_empty());
+}
+
+/// Options left at the manifest's defaults aren't passed, so the runner uses its own defaults as
+/// when it runs alone (#237: an explicit `flat_increment` of 0.0001 stopped flow on flats).
+#[test]
+fn defaults_are_left_to_the_runner() {
+    let f = Fixture::new();
+    let manifest = json!({
+        "id": "fill_depressions", "display_name": "Fill Depressions", "category": "Raster", "summary": "",
+        "defaults": {"fix_flats": true, "flat_increment": 0.0001, "flat_resolution": "garbrecht_martz", "max_depth": null, "z": 2},
+        "params": [
+            {"name": "dem", "io_role": "input", "data_kind": "raster", "required": true, "schema": {"kind": "input"}},
+            {"name": "fix_flats", "data_kind": "bool", "required": false, "schema": {"kind": "bool"}},
+            {"name": "flat_increment", "data_kind": "number", "required": false, "schema": {"kind": "scalar"}},
+            {"name": "flat_resolution", "data_kind": "string", "required": false,
+             "schema": {"kind": "enum", "options": [{"value": "garbrecht_martz"}, {"value": "natural"}]}},
+            {"name": "max_depth", "data_kind": "number", "required": false, "schema": {"kind": "scalar"}},
+            {"name": "z", "data_kind": "number", "required": true, "schema": {"kind": "scalar"}},
+            {"name": "output", "io_role": "output", "data_kind": "raster", "required": false, "schema": {"kind": "output"}}
+        ]
+    });
+    let (spec, meta) = spec_of(&manifest).unwrap();
+    // The form fills in the defaults (as text, as it sends them): none of the optional ones go.
+    let params =
+        rustgis_analysis::resolve_params(&spec, &json!({"dem": "embedded", "fix_flats": "true", "flat_increment": "0.0001"})).unwrap();
+    let job = prepare_with(&spec, &meta, &f, &params).unwrap();
+    assert_eq!(job.argv("/work"), ["--dem=/work/in0-embedded.tif", "--z=2", "--output=/work/output.tif"]);
+    // Changed values go, a required one always does.
+    let params = rustgis_analysis::resolve_params(
+        &spec,
+        &json!({"dem": "embedded", "fix_flats": false, "flat_increment": 0.001, "flat_resolution": "natural", "max_depth": 5}),
+    )
+    .unwrap();
+    let job = prepare_with(&spec, &meta, &f, &params).unwrap();
+    assert_eq!(
+        job.argv("/work"),
+        [
+            "--dem=/work/in0-embedded.tif",
+            "--fix_flats=false",
+            "--flat_increment=0.001",
+            "--flat_resolution=natural",
+            "--max_depth=5",
+            "--z=2",
+            "--output=/work/output.tif"
+        ]
+    );
 }

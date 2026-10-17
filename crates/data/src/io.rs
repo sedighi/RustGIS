@@ -511,67 +511,228 @@ pub fn geometry_to_geojson(g: &Geometry) -> Json {
 }
 
 /// Reads a GeoJSON FeatureCollection, Feature or bare geometry.
+///
+/// A FeatureCollection is read a feature at a time: each one is parsed, turned into a feature and
+/// dropped before the next, so the whole document is never held as JSON values.
 pub fn read_geojson(text: &str, name: &str) -> Result<(Dataset, ReadReport)> {
-    let root: Json = serde_json::from_str(text).map_err(|e| DataError::Format(format!("GeoJSON: {e}")))?;
-    // Borrow the features rather than copying a document that may be very large.
-    let wrapped: Json;
-    let features: Vec<&Json> = match root.get("type").and_then(Json::as_str) {
-        Some("FeatureCollection") => root.get("features").and_then(Json::as_array).map(|a| a.iter().collect()).unwrap_or_default(),
-        Some("Feature") => vec![&root],
-        Some(_) => {
-            wrapped = json!({"type": "Feature", "geometry": &root, "properties": {}});
-            vec![&wrapped]
+    let mut features = Collector::default();
+    match stream_features(text, &mut features) {
+        Ok(rest) => match rest.get("type").and_then(Json::as_str) {
+            Some("FeatureCollection") => Ok(features.finish(name)),
+            Some(_) => read_geojson_value(Json::Object(rest), name),
+            None => Err(DataError::Format("GeoJSON: missing \"type\"".into())),
+        },
+        // Not an object, or "features" not an array: read whole, as before.
+        Err(_) => read_geojson_value(serde_json::from_str(text).map_err(|e| DataError::Format(format!("GeoJSON: {e}")))?, name),
+    }
+}
+
+/// What takes a FeatureCollection's features as they're read.
+pub(crate) trait FeatureSink {
+    /// The `"features"` member starts (again, when a document repeats it: the last one wins).
+    fn restart(&mut self);
+    /// One element of `"features"`, as its text.
+    fn feature(&mut self, raw: &str);
+}
+
+/// Reads a GeoJSON document's top level, handing each element of `"features"` to `sink` as it is
+/// read; returns the other members. Fails for a document that isn't an object, or whose
+/// `"features"` isn't an array.
+pub(crate) fn stream_features(text: &str, sink: &mut dyn FeatureSink) -> std::result::Result<Map<String, Json>, serde_json::Error> {
+    use serde::de::DeserializeSeed;
+    let mut de = serde_json::Deserializer::from_str(text);
+    let rest = Streamed { sink }.deserialize(&mut de)?;
+    // Only whitespace may follow, as when read whole.
+    de.end()?;
+    Ok(rest)
+}
+
+/// The top level of a GeoJSON document: its members, but for `"features"`, which go to a sink.
+struct Streamed<'a> {
+    sink: &'a mut dyn FeatureSink,
+}
+
+impl<'de> serde::de::DeserializeSeed<'de> for Streamed<'_> {
+    type Value = Map<String, Json>;
+
+    fn deserialize<D: serde::Deserializer<'de>>(self, d: D) -> std::result::Result<Self::Value, D::Error> {
+        d.deserialize_map(self)
+    }
+}
+
+impl<'de> serde::de::Visitor<'de> for Streamed<'_> {
+    type Value = Map<String, Json>;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("a GeoJSON object")
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> std::result::Result<Self::Value, A::Error> {
+        let mut rest = Map::new();
+        while let Some(key) = map.next_key::<String>()? {
+            if key == "features" {
+                self.sink.restart();
+                map.next_value_seed(Features { sink: &mut *self.sink })?;
+            } else {
+                rest.insert(key, map.next_value()?);
+            }
         }
-        None => return Err(DataError::Format("GeoJSON: missing \"type\"".into())),
-    };
-    // Schema: union of property keys in first-seen order. A type stays unknown until a non-null
-    // value is seen (so `[null, 1, 2]` is Integer), then widens; all-null columns become Text.
-    let mut order: Vec<(String, Option<FieldType>)> = Vec::new();
-    let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    for &f in &features {
-        if let Some(props) = f.get("properties").and_then(Json::as_object) {
-            for (k, v) in props {
-                let ty = json_type(v);
-                match index.get(k).and_then(|i| order.get_mut(*i)) {
-                    Some((_, cur)) => {
-                        *cur = match *cur {
-                            None => ty,
-                            Some(c) => Some(widen(c, ty)),
-                        }
-                    }
-                    None => {
-                        index.insert(k.clone(), order.len());
-                        order.push((k.clone(), ty));
-                    }
+        Ok(rest)
+    }
+}
+
+/// A FeatureCollection's `"features"` array, a feature at a time.
+struct Features<'a> {
+    sink: &'a mut dyn FeatureSink,
+}
+
+impl<'de> serde::de::DeserializeSeed<'de> for Features<'_> {
+    type Value = ();
+
+    fn deserialize<D: serde::Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
+        d.deserialize_seq(self)
+    }
+}
+
+impl<'de> serde::de::Visitor<'de> for Features<'_> {
+    type Value = ();
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("an array of features")
+    }
+
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> std::result::Result<(), A::Error> {
+        while let Some(raw) = seq.next_element::<&'de serde_json::value::RawValue>()? {
+            self.sink.feature(raw.get());
+        }
+        Ok(())
+    }
+}
+
+/// A GeoJSON layer's schema as features are read: the union of property keys in first-seen
+/// order. A type stays unknown until a non-null value is seen (so `[null, 1, 2]` is Integer),
+/// then widens; all-null columns become Text.
+#[derive(Default)]
+pub(crate) struct Schema {
+    order: Vec<(String, Option<FieldType>)>,
+    index: std::collections::HashMap<String, usize>,
+}
+
+impl Schema {
+    /// Counts a property; returns its field's index.
+    pub(crate) fn see(&mut self, k: &str, v: &Json) -> usize {
+        let ty = json_type(v);
+        match self.index.get(k) {
+            Some(&i) => {
+                if let Some((_, cur)) = self.order.get_mut(i) {
+                    *cur = match *cur {
+                        None => ty,
+                        Some(c) => Some(widen(c, ty)),
+                    };
                 }
+                i
+            }
+            None => {
+                self.index.insert(k.to_string(), self.order.len());
+                self.order.push((k.to_string(), ty));
+                self.order.len() - 1
             }
         }
     }
-    let fields: Vec<Field> = order.into_iter().map(|(k, ty)| Field::new(k, ty.unwrap_or(FieldType::Text))).collect();
-    let mut report = ReadReport::default();
-    let mut ds = Dataset::new(name, GeometryType::None, fields);
-    for &f in &features {
-        let geom = f.get("geometry").filter(|g| !g.is_null()).and_then(geometry_from_geojson);
-        if geom.is_none() && f.get("geometry").is_some_and(|g| !g.is_null()) {
-            report.skipped += 1;
-            continue;
+
+    /// The fields, typed by every value seen.
+    pub(crate) fn fields(&self) -> Vec<Field> {
+        self.order.iter().map(|(k, ty)| Field::new(k.clone(), ty.unwrap_or(FieldType::Text))).collect()
+    }
+}
+
+/// A feature's attributes from its properties, for `fields` (see [`Schema::fields`]).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn geojson_attrs(f: &Json, fields: &[Field]) -> Vec<Value> {
+    let props = f.get("properties").and_then(Json::as_object);
+    fields
+        .iter()
+        .map(|field| coerce(props.and_then(|p| p.get(&field.name)).map(Value::from_json).unwrap_or(Value::Null), field.ty))
+        .collect()
+}
+
+/// A feature's geometry: `Ok(None)` for none, `Err` for one that can't be read.
+pub(crate) fn geojson_geometry(f: &Json) -> std::result::Result<Option<Geometry>, ()> {
+    match f.get("geometry").filter(|g| !g.is_null()) {
+        None => Ok(None),
+        Some(g) => geometry_from_geojson(g).map(Some).ok_or(()),
+    }
+}
+
+/// Features as they're read, and the schema so far.
+#[derive(Default)]
+struct Collector {
+    schema: Schema,
+    /// Each feature's geometry and its values by field, typed once every feature is in.
+    features: Vec<(Option<Geometry>, Vec<(usize, Value)>)>,
+    skipped: usize,
+}
+
+impl FeatureSink for Collector {
+    fn restart(&mut self) {
+        *self = Collector::default();
+    }
+
+    fn feature(&mut self, raw: &str) {
+        // Valid JSON, but its numbers may not fit (1e400): such a feature is skipped and counted.
+        match serde_json::from_str::<Json>(raw) {
+            Ok(f) => self.add(&f),
+            Err(_) => self.skipped += 1,
         }
+    }
+}
+
+impl Collector {
+    fn add(&mut self, f: &Json) {
         let props = f.get("properties").and_then(Json::as_object);
-        let attrs = ds
-            .fields
-            .iter()
-            .map(|field| {
-                let v = props.and_then(|p| p.get(&field.name)).map(Value::from_json).unwrap_or(Value::Null);
-                coerce(v, field.ty)
-            })
-            .collect();
-        ds.push_next(geom, attrs);
+        // Every feature's properties count in the schema, those with unreadable geometry too.
+        let attrs: Vec<(usize, Value)> = props.into_iter().flatten().map(|(k, v)| (self.schema.see(k, v), Value::from_json(v))).collect();
+        match geojson_geometry(f) {
+            Ok(geom) => self.features.push((geom, attrs)),
+            Err(()) => self.skipped += 1,
+        }
     }
-    ds.geometry_type = dominant_type(&ds);
-    if report.skipped > 0 {
-        report.messages.push(format!("{} features had unreadable geometry", report.skipped));
+
+    fn finish(self, name: &str) -> (Dataset, ReadReport) {
+        let mut report = ReadReport { skipped: self.skipped, ..ReadReport::default() };
+        let mut ds = Dataset::new(name, GeometryType::None, self.schema.fields());
+        ds.features.reserve(self.features.len());
+        for (geom, values) in self.features {
+            let mut attrs = vec![Value::Null; ds.fields.len()];
+            for (i, v) in values {
+                if let (Some(slot), Some(field)) = (attrs.get_mut(i), ds.fields.get(i)) {
+                    *slot = coerce(v, field.ty);
+                }
+            }
+            ds.push_next(geom, attrs);
+        }
+        ds.geometry_type = dominant_type(&ds);
+        if report.skipped > 0 {
+            report.messages.push(format!("{} features had unreadable geometry", report.skipped));
+        }
+        (ds, report)
     }
-    Ok((ds, report))
+}
+
+/// Reads a GeoJSON document already parsed: a FeatureCollection, Feature or bare geometry.
+fn read_geojson_value(root: Json, name: &str) -> Result<(Dataset, ReadReport)> {
+    let mut features = Collector::default();
+    match root.get("type").and_then(Json::as_str) {
+        Some("FeatureCollection") => {
+            for f in root.get("features").and_then(Json::as_array).into_iter().flatten() {
+                features.add(f);
+            }
+        }
+        Some("Feature") => features.add(&root),
+        Some(_) => features.add(&json!({"type": "Feature", "geometry": &root, "properties": {}})),
+        None => return Err(DataError::Format("GeoJSON: missing \"type\"".into())),
+    }
+    Ok(features.finish(name))
 }
 
 fn json_type(v: &Json) -> Option<FieldType> {
@@ -1424,8 +1585,8 @@ pub fn shapefile_parts(ds: &Dataset) -> Result<(Vec<(&'static str, Vec<u8>)>, us
                         // rounded (it goes through f64).
                         let d = decimals.get(k).copied().unwrap_or(0);
                         // Likewise a number too small for the field's decimals, which would read 0.
-                        let exact = !matches!(v, Value::Int(i) if i.unsigned_abs() > 1 << 53)
-                            && !(f.ty == FieldType::Double && *x != 0.0 && x.abs() < 0.5 * 10f64.powi(-(d as i32)));
+                        let exact = !(matches!(v, Value::Int(i) if i.unsigned_abs() > 1 << 53)
+                            || f.ty == FieldType::Double && *x != 0.0 && x.abs() < 0.5 * 10f64.powi(-(d as i32)));
                         exact && format!("{x:.d$}").len() <= if f.ty == FieldType::Integer { 18 } else { 24 }
                     });
                     FieldValue::Numeric(if f.ty == FieldType::Integer { x.map(f64::round) } else { x })
@@ -1526,7 +1687,7 @@ fn is_outer<P>(r: &shapefile::PolygonRing<P>) -> bool {
 }
 
 /// Groups a flat list of rings (outer flag) into polygons: each hole joins the preceding outer ring.
-fn group_rings(rings: Vec<(Vec<Coord>, bool)>) -> Geometry {
+pub(crate) fn group_rings(rings: Vec<(Vec<Coord>, bool)>) -> Geometry {
     let mut polys: Vec<Vec<Vec<Coord>>> = Vec::new();
     for (ring, outer) in rings {
         match polys.last_mut() {

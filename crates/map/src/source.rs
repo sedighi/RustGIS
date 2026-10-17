@@ -68,6 +68,25 @@ pub struct SourceLayer {
     /// result in the cache is gone (desktop only); a query is not run again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duckdb: Option<DuckdbOrigin>,
+    /// For a layer read live from a PostGIS table (desktop only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub postgis: Option<PostgisOrigin>,
+}
+
+/// A PostGIS table a layer reads live.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PostgisOrigin {
+    /// The connection (`postgres:host=… dbname=…` or a `postgresql://` address), never with its
+    /// password.
+    pub database: String,
+    /// The table, as `table`, `schema.table`, with `:column` when it has several.
+    pub table: String,
+    /// The geometry family read, for a column of mixed types.
+    #[serde(default)]
+    pub family: Option<rustgis_data::source::Family>,
+    /// The coordinate system given for a geometry that doesn't say.
+    #[serde(default)]
+    pub crs: Option<String>,
 }
 
 /// Where a layer from DuckDB came from: a query, or a table of a database.
@@ -141,6 +160,30 @@ fn rerun(d: &DuckdbOrigin) -> rustgis_data::Result<std::path::PathBuf> {
         .ok_or_else(|| rustgis_data::DataError::Format(format!("the query returns no {} any more", d.family.label())))
 }
 
+/// Connects to a PostGIS layer's table again (a project opening). Only a password given this
+/// session is sent: a project file names its server, which must never get the user's own
+/// credentials (`PGPASSWORD`, the password file) just for being opened.
+fn open_postgis(pg: &PostgisOrigin) -> rustgis_data::Result<Box<dyn FeatureSource>> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = pg;
+        Err(rustgis_data::DataError::Format("PostGIS databases are read in the desktop app".into()))
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use rustgis_data::source::{duckdb::Database, postgis};
+        let Database::Postgres(dsn) = Database::parse(&pg.database) else {
+            return Err(rustgis_data::DataError::Format(format!("{}: not a PostgreSQL connection", pg.database)));
+        };
+        let again = |e: rustgis_data::DataError| {
+            rustgis_data::DataError::Format(format!("{e} (connect again with Add Data › Database…, giving its password)"))
+        };
+        let conn = postgis::connect(&dsn, false).map_err(again)?;
+        let table = postgis::find_table(&conn, &pg.table)?;
+        Ok(Box::new(postgis::PostgisSource::open(conn, table, pg.family, pg.crs.as_deref())?))
+    }
+}
+
 /// What the layer's features hold.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Window {
@@ -189,6 +232,11 @@ impl SourceLayer {
         SourceLayer { path: Some(path.into()), table, handle: Some(Arc::from(handle)), ..SourceLayer::default() }
     }
 
+    /// A PostGIS table read live.
+    pub fn from_postgis(origin: PostgisOrigin, handle: Box<dyn FeatureSource>) -> Self {
+        SourceLayer { postgis: Some(origin), handle: Some(Arc::from(handle)), ..SourceLayer::default() }
+    }
+
     /// A source read from a file's bytes, kept in the project.
     pub fn from_bytes(file_name: impl Into<String>, bytes: Arc<Vec<u8>>, table: Option<String>, handle: Box<dyn FeatureSource>) -> Self {
         SourceLayer {
@@ -206,7 +254,9 @@ impl SourceLayer {
         if let Some(url) = self.path.clone().filter(|p| rustgis_data::source::is_remote_name(p)) {
             return self.open_remote(&url);
         }
-        let src = if let Some(bytes) = &self.embedded {
+        let src = if let Some(pg) = &self.postgis {
+            open_postgis(pg)
+        } else if let Some(bytes) = &self.embedded {
             let name = self.file_name.as_deref().unwrap_or("layer.parquet");
             rustgis_data::source::open_shared(name, bytes.clone(), self.table.as_deref())
         } else if let Some(p) = &self.path {
@@ -265,6 +315,18 @@ impl SourceLayer {
     /// (or footer) off the frame, taken by a later call when it has landed.
     fn open_remote(&mut self, url: &str) -> Result<(), String> {
         if let Some(slot) = self.opening.clone() {
+            // A file that can't be read in place is downloaded whole into the same slot, by the
+            // first copy to see it; the others wait on that download rather than start their own.
+            let claimed = slot.lock().ok().is_some_and(|mut s| {
+                let whole = matches!(&*s, Some(Err(e)) if e.contains(rustgis_data::source::remote::READ_WHOLE));
+                if whole {
+                    *s = None;
+                }
+                whole
+            });
+            if claimed {
+                return self.open_whole(url, slot);
+            }
             // Read, not taken: copies of the layer (undo, Load All Features) share the slot.
             let done = slot.lock().ok().and_then(|s| s.clone());
             return match done {
@@ -277,6 +339,7 @@ impl SourceLayer {
         }
         match rustgis_data::source::open_url_now(url) {
             Ok(s) => self.opened(Ok(Arc::from(s))),
+            Err(e) if e.to_string().contains(rustgis_data::source::remote::READ_WHOLE) => self.open_whole(url, Arc::new(Mutex::new(None))),
             Err(e) if e.to_string().contains(rustgis_data::source::remote::NEED) => {
                 let slot: Opening = Arc::new(Mutex::new(None));
                 let land = slot.clone();
@@ -294,6 +357,36 @@ impl SourceLayer {
             }
             Err(e) => self.opened(Err(e.to_string())),
         }
+    }
+
+    /// A file by its web address that can't be read in place (a GeoParquet without a bounding-box
+    /// covering, a FlatGeobuf without a spatial index, a server without byte ranges): downloaded
+    /// whole off the frame and read from memory, as Add Data From URL does, so a project's layer
+    /// keeps its symbology instead of staying empty. The project keeps the address, not the bytes.
+    /// The download lands in `slot`, which copies of the layer may share.
+    fn open_whole(&mut self, url: &str, slot: Opening) -> Result<(), String> {
+        let land = slot.clone();
+        self.opening = Some(slot);
+        let name = url.split(['?', '#']).next().unwrap_or(url).rsplit('/').next().unwrap_or("layer").to_string();
+        let table = self.table.clone();
+        let url = url.to_string();
+        rustgis_data::source::remote::fetch_whole(
+            &url.clone(),
+            Box::new(move |r| {
+                let r = match r {
+                    Ok(bytes) => rustgis_data::source::open_shared(&name, Arc::new(bytes), table.as_deref())
+                        .map(Arc::from)
+                        .map_err(|e| format!("{url}: {e}")),
+                    Err(rustgis_data::source::remote::Failed::Other(e)) => Err(format!("{url}: {e}")),
+                    Err(e) => Err(format!("{url}: couldn't be downloaded ({e:?})")),
+                };
+                if let Ok(mut s) = land.lock() {
+                    *s = Some(r);
+                }
+                landed();
+            }),
+        );
+        Ok(())
     }
 
     fn opened(&mut self, r: Result<Arc<dyn FeatureSource>, String>) -> Result<(), String> {

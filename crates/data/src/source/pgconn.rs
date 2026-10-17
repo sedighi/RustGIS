@@ -84,17 +84,58 @@ pub(crate) fn split_secrets(dsn: &str, secrets: &[&str]) -> (String, Option<Stri
         if let Some(at) = at
             && let (Some(userinfo), Some(after)) = (rest.get(..at), rest.get(at + 1..))
         {
-            let after = no_fragment(after);
+            let (after, in_query) = query_secrets(&no_fragment(after), secrets);
             return match userinfo.split_once(':') {
-                Some((user, password)) => (format!("{scheme}://{user}@{after}"), Some(password.to_string())),
-                None => (format!("{scheme}://{userinfo}@{after}"), None),
+                // A URI's password is percent-encoded (`%40` for `@`); the one returned is the
+                // password itself.
+                Some((user, password)) => (format!("{scheme}://{user}@{after}"), Some(percent_decode(password))),
+                None => (format!("{scheme}://{userinfo}@{after}"), in_query),
             };
         }
-        return (format!("{scheme}://{}", no_fragment(rest)), None);
+        let (rest, in_query) = query_secrets(&no_fragment(rest), secrets);
+        return (format!("{scheme}://{rest}"), in_query);
     }
-    // libpq's keyword = value pairs; a value is a word, or quoted with \' and \\ inside.
-    let mut pairs: Vec<(String, String)> = Vec::new();
+    let mut pairs = Vec::new();
     let mut password = None;
+    for (key, value) in keyword_pairs(dsn) {
+        if key.eq_ignore_ascii_case("password") {
+            password = Some(value);
+        } else if !secrets.iter().any(|s| key.eq_ignore_ascii_case(s)) {
+            pairs.push((key, value));
+        }
+    }
+    let quote = |v: &str| {
+        if !v.is_empty() && !v.contains([' ', '\t', '\'', '\\']) {
+            v.to_string()
+        } else {
+            format!("'{}'", v.replace('\\', "\\\\").replace('\'', "\\'"))
+        }
+    };
+    (pairs.iter().map(|(k, v)| format!("{k}={}", quote(v))).collect::<Vec<_>>().join(" "), password)
+}
+
+/// A URI's text after its credentials without the query's `password` and `secrets`
+/// (`?password=…`), and that password, decoded.
+fn query_secrets(s: &str, secrets: &[&str]) -> (String, Option<String>) {
+    let Some((base, query)) = s.split_once('?') else { return (s.to_string(), None) };
+    let mut password = None;
+    let mut kept = Vec::new();
+    for kv in query.split('&').filter(|kv| !kv.is_empty()) {
+        let (k, v) = kv.split_once('=').unwrap_or((kv, ""));
+        if k.eq_ignore_ascii_case("password") {
+            password = Some(percent_decode(v));
+        } else if !secrets.iter().any(|s| k.eq_ignore_ascii_case(s)) {
+            kept.push(kv);
+        }
+    }
+    (if kept.is_empty() { base.to_string() } else { format!("{base}?{}", kept.join("&")) }, password)
+}
+
+/// A libpq keyword/value connection string's pairs (password included), in order; a value is a
+/// word, or quoted with `\'` and `\\` inside. Stops at anything malformed (an unterminated quote
+/// drops the rest, which could be a password).
+pub(crate) fn keyword_pairs(dsn: &str) -> Vec<(String, String)> {
+    let mut pairs: Vec<(String, String)> = Vec::new();
     let mut chars = dsn.chars().peekable();
     loop {
         while chars.next_if(|c| c.is_whitespace()).is_some() {}
@@ -138,18 +179,47 @@ pub(crate) fn split_secrets(dsn: &str, secrets: &[&str]) -> (String, Option<Stri
         if key.is_empty() {
             break;
         }
-        if key.eq_ignore_ascii_case("password") {
-            password = Some(value);
-        } else if !secrets.iter().any(|s| key.eq_ignore_ascii_case(s)) {
-            pairs.push((key, value));
+        pairs.push((key, value));
+    }
+    pairs
+}
+
+/// Text with its `%XX` escapes decoded (a malformed escape is kept as it is).
+pub(crate) fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while let Some(&c) = b.get(i) {
+        let hex = |j: usize| b.get(j).and_then(|h| (*h as char).to_digit(16));
+        match (c, hex(i + 1), hex(i + 2)) {
+            (b'%', Some(h), Some(l)) => {
+                out.push((h * 16 + l) as u8);
+                i += 3;
+            }
+            _ => {
+                out.push(c);
+                i += 1;
+            }
         }
     }
-    let quote = |v: &str| {
-        if !v.is_empty() && !v.contains([' ', '\t', '\'', '\\']) {
-            v.to_string()
-        } else {
-            format!("'{}'", v.replace('\\', "\\\\").replace('\'', "\\'"))
-        }
-    };
-    (pairs.iter().map(|(k, v)| format!("{k}={}", quote(v))).collect::<Vec<_>>().join(" "), password)
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn uri_passwords_are_decoded() {
+        let (public, pw) = super::split_secrets("postgresql://u:r3ad%20p%40ss@h:5432/g", &["password"]);
+        assert_eq!(public, "postgresql://u@h:5432/g");
+        assert_eq!(pw.as_deref(), Some("r3ad p@ss"));
+        assert_eq!(super::percent_decode("a%zz%4"), "a%zz%4");
+        assert_eq!(super::percent_decode("%C3%A9"), "é");
+        // A password in the query goes too (never into a project), and is returned.
+        let (public, pw) =
+            super::split_secrets("postgresql://u@h/g?sslmode=require&password=s%40c&sslpassword=k", &["password", "sslpassword"]);
+        assert_eq!(public, "postgresql://u@h/g?sslmode=require");
+        assert_eq!(pw.as_deref(), Some("s@c"));
+        let (public, pw) = super::split_secrets("postgresql://h/g?password=x", &["password"]);
+        assert_eq!((public.as_str(), pw.as_deref()), ("postgresql://h/g", Some("x")));
+    }
 }

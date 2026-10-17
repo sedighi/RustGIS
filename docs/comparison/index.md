@@ -68,7 +68,7 @@ engine, choose RustGIS. Both keep your data on your machine. See
 | **Coordinate systems** | Rasters in any EPSG code, reprojected on the fly; the map in presets or projected EPSG codes | Reprojects on import, EPSG catalog | Full PROJ support | Full support | Web Mercator focus |
 | **Geocoding** | Find Place and address tables through Nominatim or Photon (OSM's public servers or your own) | Geocoding search and batch geocoding | Through plugins | ArcGIS World Geocoder (credits) | Yes |
 | **Open-data portals** | OpenStreetMap by area (Overpass), administrative boundaries (geoBoundaries), and datasets searched by text on data.gov and CKAN sites, Socrata and ArcGIS Hub | ArcGIS Hub, Socrata, CKAN, US portals, geoBoundaries, Overpass, Natural Earth | Through plugins (QuickOSM) | Living Atlas | Living Atlas |
-| **STAC, databases, Esri services** | STAC search (Earth Search, Planetary Computer or any STAC API, and `?stac=` links) with footprints and assets by address; Overture Maps (a theme's features in view, read in place, or the whole world as tiles) and Source Cooperative products; PostgreSQL/PostGIS and DuckDB databases (desktop, through DuckDB); WMS, WMTS, WFS, WCS, OGC API Features and Tiles, and ArcGIS REST services; CSW catalogue search; Planetary Computer assets signed; a Data Sources pane with favourites, recent sources, saved services, databases and STAC APIs, and a library of public services | STAC browser, PostGIS, DuckDB, Iceberg, ArcGIS services, File Geodatabase (desktop) | STAC, PostGIS, SpatiaLite, Oracle, SQL Server, ArcGIS services | Enterprise geodatabases, Esri services | Hosted only |
+| **STAC, databases, Esri services** | STAC search (Earth Search, Planetary Computer or any STAC API, and `?stac=` links) with footprints and assets by address; Overture Maps (a theme's features in view, read in place, or the whole world as tiles) and Source Cooperative products; PostgreSQL/PostGIS databases read live, and DuckDB databases (desktop, through DuckDB); WMS, WMTS, WFS, WCS, OGC API Features and Tiles, and ArcGIS REST services; CSW catalogue search; Planetary Computer assets signed; a Data Sources pane with favourites, recent sources, saved services, databases and STAC APIs, and a library of public services | STAC browser, PostGIS, DuckDB, Iceberg, ArcGIS services, File Geodatabase (desktop) | STAC, PostGIS, SpatiaLite, Oracle, SQL Server, ArcGIS services | Enterprise geodatabases, Esri services | Hosted only |
 | **3D** | A 3D globe; 2.5D extrusion with lighting and shadows; glTF scene export; LiDAR (LAS/LAZ/COPC) as point layers; geotagged photos as points with thumbnails | Cesium globe, 3D Tiles, I3S, LiDAR, Gaussian splats | Point clouds, 3D map view | **Deepest 3D**: scenes, I3S, mesh, LAS | Scene Viewer |
 
 ## Analysis and processing
@@ -102,7 +102,7 @@ engine, choose RustGIS. Both keep your data on your machine. See
 | **Scripting** | Every action is a command: `rustgis-cli` and the `rustgis` Python package run any of them headlessly; a Script pane | Python console, `geolibre` Python package | PyQGIS, `qgis_process` | `arcpy` | ArcGIS API for Python / JavaScript |
 | **Notebooks** | Built-in notebooks of text and command cells; Jupyter `.ipynb` in and out | The whole app as a Jupyter widget | Bindings, not the UI | Notebooks drive `arcpy` | Hosted notebooks |
 | **Plugins** | Sandboxed WebAssembly plugins with declared permissions; a registry; the same file runs on desktop, CLI and web | TypeScript plugin API, a registry | **Largest**: thousands of Python plugins | .NET add-ins, Python toolboxes | App templates |
-| **AI assistant** | Acts through undoable commands; Anthropic, OpenAI, Gemini, OpenRouter, Ollama or any OpenAI-compatible model; bring your own key; also on the command line | Natural-language assistant with undoable operations; bring your own key | Via plugins | Copilot features | AI assistants |
+| **AI assistant** | Acts through undoable commands; Anthropic, OpenAI, Gemini, OpenRouter, Ollama or any OpenAI-compatible model; bring your own key or sign in with ChatGPT; also on the command line | Natural-language assistant with undoable operations; bring your own key | Via plugins | Copilot features | AI assistants |
 | **Collaboration** | — | Real-time (MVP), review comments | No | No | Shared hosted layers |
 | **Self-hosting** | Serve the static web build anywhere | Docker image or static build | QGIS Server | ArcGIS Enterprise (paid) | — |
 
@@ -133,8 +133,8 @@ opens, and writes MapLibre styles and OGC API Features collections for the web.
 
 Stated plainly, so the tables above are worth trusting:
 
-- **Format breadth.** Databases are DuckDB files and PostgreSQL/PostGIS (through DuckDB, on the
-  desktop), and the web app doesn't write GeoPackages. Other vector formats (File Geodatabase,
+- **Format breadth.** Databases are PostgreSQL/PostGIS (read only) and DuckDB files (through
+  DuckDB), on the desktop, and the web app doesn't write GeoPackages. Other vector formats (File Geodatabase,
   DWG…) and rasters (JPEG 2000, NetCDF, HDF…) need GDAL installed, and SQL queries need
   DuckDB, which RustGIS calls rather than links.
 - **Coordinate systems.** Vector data is stored in longitude/latitude; there is no full PROJ.

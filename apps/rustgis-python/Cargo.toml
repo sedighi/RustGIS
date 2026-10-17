@@ -3,9 +3,6 @@ name = "rustgis-python"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-# The license file, which maturin carries into the sdist (pyproject.toml's license-files
-# can't reach outside the package directory) and the wheels.
-license-file = "../../LICENSE"
 publish = false
 description = "Python bindings to the RustGIS engine (the `rustgis` package on PyPI)"
 

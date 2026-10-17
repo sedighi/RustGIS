@@ -109,17 +109,19 @@ impl P<'_> {
             stroke: Stroke::new(self.w(1.2), self.ink).into(),
         }));
     }
+    /// Paper: a page or a table's white, dark grey in the dark theme. Asked of the theme, not
+    /// guessed from the ink, which may be a mid grey (the light theme's disabled text).
+    fn paper(&self) -> Color32 {
+        if self.p.ctx().global_style().visuals.dark_mode { Color32::from_gray(40) } else { Color32::WHITE }
+    }
     fn page(&self, x: f32, y: f32, w: f32, h: f32) {
         let f = 4.0;
-        self.fill(
-            &[(x, y), (x + w - f, y), (x + w, y + f), (x + w, y + h), (x, y + h)],
-            if self.ink.r() > 128 { Color32::from_gray(40) } else { Color32::WHITE },
-        );
+        self.fill(&[(x, y), (x + w - f, y), (x + w, y + f), (x + w, y + h), (x, y + h)], self.paper());
         self.closed(&[(x, y), (x + w - f, y), (x + w, y + f), (x + w, y + h), (x, y + h)], 1.3, self.ink);
         self.line(&[(x + w - f, y), (x + w - f, y + f), (x + w, y + f)], 1.1, self.ink);
     }
     fn table(&self, x: f32, y: f32, w: f32, h: f32) {
-        self.rect(x, y, w, h, Some(if self.ink.r() > 128 { Color32::from_gray(40) } else { Color32::WHITE }), None, 1.0);
+        self.rect(x, y, w, h, Some(self.paper()), None, 1.0);
         self.rect(x, y, w, 3.5, Some(self.acc), None, 1.0);
         self.rect(x, y, w, h, None, Some((1.3, self.ink)), 1.0);
         let rows = 3;
@@ -128,6 +130,14 @@ impl P<'_> {
             self.line(&[(x, yy), (x + w, yy)], 0.9, self.ink);
         }
         self.line(&[(x + w * 0.4, y + 3.5), (x + w * 0.4, y + h)], 0.9, self.ink);
+    }
+    /// A bookmark ribbon in the box `x, y, w, h` (the tab's notch and accent band scale with it).
+    fn bookmark(&self, x: f32, y: f32, w: f32, h: f32) {
+        let k = h / 18.0;
+        let outline = [(x, y), (x + w, y), (x + w, y + h), (x + w / 2.0, y + h - 5.0 * k), (x, y + h)];
+        self.fill(&outline, self.tint(60));
+        self.fill(&[(x, y), (x + w, y), (x + w, y + 5.0 * k), (x, y + 5.0 * k)], self.acc);
+        self.closed(&outline, 1.5, self.ink);
     }
     fn plus_badge(&self, x: f32, y: f32) {
         self.circle(x, y, 4.2, Some(Color32::from_rgb(0x16, 0x9A, 0x5A)), None);
@@ -154,6 +164,66 @@ impl P<'_> {
     }
 }
 
+/// The arrow for a route's maneuver (ink only): `straight`, `slight_right`, `right`,
+/// `sharp_right`, `uturn` and their left twins, `depart`, `arrive`, `roundabout`, `merge`.
+fn maneuver(p: &P, kind: &str) {
+    let ink = p.ink;
+    // An arrow head at `(x, y)` pointing along `a` (degrees clockwise from up).
+    let head = |x: f32, y: f32, a: f32| {
+        let (s, c) = (a.to_radians().sin(), a.to_radians().cos());
+        let at = |f: f32, side: f32| (x + s * f + c * side, y - c * f + s * side);
+        p.fill(&[at(2.2, 0.0), at(-3.0, 3.6), at(-3.0, -3.6)], ink);
+    };
+    match kind {
+        "depart" => {
+            p.fill(&[(12.0, 3.0), (19.0, 20.0), (12.0, 16.0)], ink);
+            p.fill(&[(12.0, 3.0), (12.0, 16.0), (5.0, 20.0)], ink);
+        }
+        "arrive" => {
+            p.line(&[(7.0, 21.0), (7.0, 3.0)], 2.0, ink);
+            p.fill(&[(7.0, 3.5), (18.0, 6.5), (7.0, 10.5)], ink);
+        }
+        "roundabout" => {
+            p.arc(12.0, 11.0, 5.0, 30.0, 300.0, 2.2, ink);
+            p.line(&[(12.0, 21.0), (12.0, 16.0)], 2.2, ink);
+            head(16.6, 6.6, 50.0);
+        }
+        "merge" => {
+            p.line(&[(7.0, 21.0), (7.0, 16.0), (12.0, 10.0), (12.0, 5.0)], 2.2, ink);
+            p.line(&[(17.0, 21.0), (17.0, 16.0), (12.0, 10.0)], 2.2, ink);
+            head(12.0, 4.5, 0.0);
+        }
+        "uturn_left" | "uturn" | "uturn_right" => {
+            // Up, around, and back down on the left (or the right).
+            let d = if kind == "uturn_right" { 1.0 } else { -1.0 };
+            p.line(&[(12.0 - 3.5 * d, 21.0), (12.0 - 3.5 * d, 10.0)], 2.2, ink);
+            let (a0, a1) = if d < 0.0 { (0.0, -180.0) } else { (180.0, 360.0) };
+            p.arc(12.0, 10.0, 3.5, a0, a1, 2.2, ink);
+            p.line(&[(12.0 + 3.5 * d, 10.0), (12.0 + 3.5 * d, 15.0)], 2.2, ink);
+            head(12.0 + 3.5 * d, 16.5, 180.0);
+        }
+        _ => {
+            let a: f32 = match kind {
+                "slight_right" => 40.0,
+                "right" => 90.0,
+                "sharp_right" => 135.0,
+                "slight_left" => -40.0,
+                "left" => -90.0,
+                "sharp_left" => -135.0,
+                _ => 0.0,
+            };
+            // A stem up from the bottom, then off in the new direction.
+            // Off-centre away from the turn (`signum` of 0 is 1: straight stays centred).
+            let side = if a == 0.0 { 0.0 } else { a.signum() * 2.5 };
+            let (x0, y0) = (12.0 - side, 12.5);
+            let len = if a.abs() > 100.0 { 6.0 } else { 7.5 };
+            let (x1, y1) = (x0 + a.to_radians().sin() * len, y0 - a.to_radians().cos() * len);
+            p.line(&[(x0, 21.0), (x0, y0), (x1, y1)], 2.2, ink);
+            head(x1, y1, a);
+        }
+    }
+}
+
 /// Paints icon `name` into `r`. `ink` draws outlines, `accent` the colour parts.
 pub fn paint(painter: &Painter, r: Rect, name: &str, ink: Color32, accent: Color32) {
     let p = P { p: painter, r, ink, acc: accent };
@@ -162,6 +232,15 @@ pub fn paint(painter: &Painter, r: Rect, name: &str, ink: Color32, accent: Color
     let amber = Color32::from_rgb(0xE5, 0x9E, 0x1A);
     let teal = Color32::from_rgb(0x0E, 0x93, 0x84);
     match name {
+        "directions" => {
+            // A road sign: a diamond with a turning arrow.
+            p.fill(&[(12.0, 2.0), (22.0, 12.0), (12.0, 22.0), (2.0, 12.0)], accent);
+            p.closed(&[(12.0, 2.0), (22.0, 12.0), (12.0, 22.0), (2.0, 12.0)], 1.4, ink);
+            let w = Color32::WHITE;
+            p.line(&[(9.0, 17.0), (9.0, 12.5), (10.0, 11.0), (15.0, 11.0)], 1.8, w);
+            p.fill(&[(14.0, 8.0), (17.5, 11.0), (14.0, 14.0)], w);
+        }
+        n if n.starts_with("maneuver_") => maneuver(&p, &n["maneuver_".len()..]),
         "explore" => {
             p.globe(10.0, 10.0, 7.5);
             p.cursor(12.5, 10.5, 0.85);
@@ -190,10 +269,40 @@ pub fn paint(painter: &Painter, r: Rect, name: &str, ink: Color32, accent: Color
             p.line(&[(12.0 - 4.5 * d, 12.0), (12.0 + 4.5 * d, 12.0)], 1.8, ink);
             p.line(&[(12.0 + 1.0 * d, 8.5), (12.0 + 4.5 * d, 12.0), (12.0 + 1.0 * d, 15.5)], 1.8, ink);
         }
-        "bookmark" => {
-            p.fill(&[(6.0, 3.0), (18.0, 3.0), (18.0, 21.0), (12.0, 16.0), (6.0, 21.0)], p.tint(60));
-            p.fill(&[(6.0, 3.0), (18.0, 3.0), (18.0, 8.0), (6.0, 8.0)], accent);
-            p.closed(&[(6.0, 3.0), (18.0, 3.0), (18.0, 21.0), (12.0, 16.0), (6.0, 21.0)], 1.5, ink);
+        "bookmark" => p.bookmark(6.0, 3.0, 12.0, 18.0),
+        // Export and Import Bookmarks (#351): the export arrow of Export Map and Export Layer,
+        // leaving the bookmark over its corner, or turned round, coming into it. A halo of paper
+        // keeps the arrow off the bookmark's outline.
+        "bookmark_export" | "bookmark_import" => {
+            p.bookmark(3.0, 2.0, 13.0, 18.0);
+            let (shaft, head) = if name == "bookmark_export" {
+                ([(14.0, 20.0), (21.5, 12.5)], [(17.0, 12.5), (21.5, 12.5), (21.5, 17.0)])
+            } else {
+                ([(21.5, 12.5), (14.0, 20.0)], [(14.0, 15.5), (14.0, 20.0), (18.5, 20.0)])
+            };
+            for (w, c) in [(3.6, p.paper()), (2.0, green)] {
+                p.line(&shaft, w, c);
+                p.line(&head, w, c);
+            }
+        }
+        // New and Update Bookmark (#351): the bookmark with a green badge on its corner, as New
+        // wears its plus: a plus, or an arrow turning.
+        "bookmark_new" | "bookmark_update" => {
+            p.bookmark(5.0, 2.0, 12.0, 18.0);
+            let (cx, cy, white) = (18.0, 18.0, Color32::WHITE);
+            p.circle(cx, cy, 5.0, Some(green), None);
+            if name == "bookmark_new" {
+                p.line(&[(cx - 2.8, cy), (cx + 2.8, cy)], 1.9, white);
+                p.line(&[(cx, cy - 2.8), (cx, cy + 2.8)], 1.9, white);
+            } else {
+                let r = 2.9;
+                p.arc(cx, cy, r, -150.0, 120.0, 1.6, white);
+                // The head at the arc's end, pointing on round the circle.
+                let a = 120.0f32.to_radians();
+                let (ex, ey) = (cx + r * a.cos(), cy + r * a.sin());
+                let (tx, ty, nx, ny) = (-a.sin(), a.cos(), a.cos(), a.sin());
+                p.fill(&[(ex + tx * 2.1, ey + ty * 2.1), (ex + nx * 1.8, ey + ny * 1.8), (ex - nx * 1.8, ey - ny * 1.8)], white);
+            }
         }
         "goto_xy" | "locate" => {
             p.circle(12.0, 9.0, 6.0, Some(if name == "locate" { red } else { accent }), Some((1.4, ink)));
@@ -949,6 +1058,19 @@ pub fn paint(painter: &Painter, r: Rect, name: &str, ink: Color32, accent: Color
 
 /// Every icon name, for the gallery test.
 pub const ALL: &[&str] = &[
+    "directions",
+    "maneuver_straight",
+    "maneuver_slight_right",
+    "maneuver_right",
+    "maneuver_sharp_right",
+    "maneuver_uturn",
+    "maneuver_slight_left",
+    "maneuver_left",
+    "maneuver_sharp_left",
+    "maneuver_depart",
+    "maneuver_arrive",
+    "maneuver_roundabout",
+    "maneuver_merge",
     "plugin",
     "plugin_add",
     "explore",
@@ -960,6 +1082,10 @@ pub const ALL: &[&str] = &[
     "prev_extent",
     "next_extent",
     "bookmark",
+    "bookmark_new",
+    "bookmark_export",
+    "bookmark_import",
+    "bookmark_update",
     "goto_xy",
     "locate",
     "basemap",

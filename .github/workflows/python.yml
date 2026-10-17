@@ -4,6 +4,10 @@ name: Python package
 # engine; wheels for every platform built on each published release, attached to it and
 # uploaded to PyPI with trusted publishing (the `pypi` environment, no token). The package's
 # version is the workspace's, so each release's wheels carry its tag's version.
+#
+# Pull requests test on Linux and Windows; macOS on main, by hand and for releases, and for a
+# pull request labelled `ci:macos` or `ci:full` (adding the label runs macOS straight away, in
+# ci-label.yml; later pushes include it here).
 
 on:
   push:
@@ -15,6 +19,8 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/python.yml"
+      - ".github/workflows/test-python.yml"
+      - ".github/scripts/platforms.sh"
   release:
     types: [published]
   workflow_dispatch:
@@ -29,33 +35,27 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
-    name: Test (${{ matrix.os }}, Python ${{ matrix.python }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: ubuntu-latest, python: "3.12" }
-          - { os: ubuntu-latest, python: "3.13" }
-          - { os: ubuntu-latest, python: "3.14" }
-          - { os: macos-latest, python: "3.14" }
-          - { os: windows-latest, python: "3.14" }
+  plan:
+    name: Platforms
+    runs-on: ubuntu-latest
+    outputs:
+      os: ${{ steps.os.outputs.os }}
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-python@v7
         with:
-          python-version: ${{ matrix.python }}
-      - name: Build and install
-        shell: bash
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install "./apps/rustgis-python[test,geopandas]"
-      - name: Test
-        working-directory: apps/rustgis-python
-        run: python -m pytest -q
+          sparse-checkout: .github/scripts
+      - id: os
+        env:
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: echo "os=$(.github/scripts/platforms.sh)" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: plan
+    uses: ./.github/workflows/test-python.yml
+    with:
+      os: ${{ needs.plan.outputs.os }}
 
   wheels:
     name: Wheels (${{ matrix.platform.name }})
@@ -101,6 +101,10 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # The Python package ships a copy of the license (pyproject.toml's license-files can't
+      # reach the repository root).
+      - name: The license copy matches LICENSE
+        run: cmp LICENSE apps/rustgis-python/LICENSE || { echo "::error::apps/rustgis-python/LICENSE differs from LICENSE."; exit 1; }
       - uses: PyO3/maturin-action@v1
         with:
           working-directory: apps/rustgis-python
@@ -116,7 +120,8 @@ jobs:
           cp apps/rustgis-python/dist/*.tar.gz apps/rustgis-python/tests/test_session.py /tmp/sdist-check/
           cd /tmp/sdist-check
           # conda-forge and other repackagers need the license in the sdist.
-          tar tzf ./*.tar.gz | grep '/apps/rustgis-python/LICENSE$' || { echo "::error::The sdist has no LICENSE file."; exit 1; }
+          # PyPI rejects an sdist whose PKG-INFO License-File isn't at its root.
+          tar tzf ./*.tar.gz | grep -E '^[^/]+/LICENSE$' || { echo "::error::The sdist has no LICENSE file at its root."; exit 1; }
           python -m pip install ./*.tar.gz pytest
           python -m pytest -q test_session.py
       - uses: actions/upload-artifact@v7

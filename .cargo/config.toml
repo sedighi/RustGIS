@@ -5,3 +5,9 @@ xtask = "run -q -p xtask --"
 # The `rustgis` Python module (apps/rustgis-python) is loaded by Python, which provides its
 # symbols: never link it against libpython, so workspace builds need no Python development files.
 PYO3_BUILD_EXTENSION_MODULE = "1"
+
+# Link the C runtime into the Windows programs, so they start on a bare Windows install without
+# the Visual C++ Redistributable (VCRUNTIME140.dll). A RUSTFLAGS environment variable replaces
+# this, so the Windows CI tests (.github/workflows/test-rust.yml) repeat the flag in theirs.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

@@ -7,6 +7,7 @@
 pub mod ascii;
 pub mod cog;
 pub mod crs;
+mod epsg_gap;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod gdal;
 pub mod geotiff;
@@ -373,8 +374,11 @@ pub fn read_path(path: &Path) -> Result<Raster> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     let mut r = match ext.as_str() {
         "tif" | "tiff" => {
-            let f = std::fs::File::open(path)?;
-            geotiff::read(std::io::BufReader::new(f), &name)?
+            #[cfg(not(target_arch = "wasm32"))]
+            let r = geotiff::read_file(path, &name)?;
+            #[cfg(target_arch = "wasm32")]
+            let r = geotiff::read(std::io::BufReader::new(std::fs::File::open(path)?), &name)?;
+            r
         }
         "asc" => {
             if meta.len() > MAX_ASCII_BYTES {
@@ -414,9 +418,8 @@ pub fn read_path_with(path: &Path, subdataset: Option<&str>, crs: Option<&str>) 
 /// Reads the GeoTIFF GDAL converted `path` to, named and sourced as `path` (and its subdataset).
 #[cfg(not(target_arch = "wasm32"))]
 pub fn read_converted(path: &Path, c: &gdal::Converted) -> Result<Raster> {
-    let f = std::fs::File::open(&c.path)?;
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("raster");
-    let mut r = geotiff::read(std::io::BufReader::new(f), stem)?;
+    let mut r = geotiff::read_file(&c.path, stem)?;
     if let Some(s) = &c.subdataset {
         r.name = format!("{stem} {}", gdal::short_name(s));
     }
@@ -511,6 +514,14 @@ pub fn read_bytes(file_name: &str, bytes: &[u8]) -> Result<Raster> {
     let name = p.file_stem().and_then(|s| s.to_str()).unwrap_or("raster").to_string();
     let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     match ext.as_str() {
+        // The parts of a large GeoTIFF the web app read (see `geotiff::read_sparse`).
+        "tif" | "tiff" if cog::Sparse::is_container(bytes) => {
+            let parts = cog::Sparse::from_container(bytes).ok_or_else(|| DataError::Format("a damaged GeoTIFF part file".into()))?;
+            match geotiff::read_sparse(&parts, &name)? {
+                geotiff::Partial::Done(r) => Ok(*r),
+                geotiff::Partial::Need(..) => Err(DataError::Format("the parts of the GeoTIFF kept don't hold the whole overview".into())),
+            }
+        }
         "tif" | "tiff" => geotiff::read(std::io::Cursor::new(bytes), &name),
         "asc" => {
             let text = std::str::from_utf8(bytes).map_err(|_| DataError::Format("not a text file".into()))?;

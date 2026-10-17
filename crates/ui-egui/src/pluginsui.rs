@@ -6,6 +6,8 @@
 //! app remembers registry installs (and small packages from files) in its preferences and
 //! loads them again on the next visit.
 
+use std::sync::{Arc, Mutex};
+
 use egui::{Align2, CornerRadius, Stroke, vec2};
 use rustgis_engine::plugins::{self as rp, Manifest, Package, registry::Entry};
 use serde::{Deserialize, Serialize};
@@ -78,6 +80,86 @@ pub struct PluginsState {
     pub confirm: Option<Confirm>,
     /// The outcome of the last action: (ok, text).
     pub message: Option<(bool, String)>,
+    /// Python environments being made for plugins (desktop), by plugin id.
+    envs: std::collections::HashMap<String, Arc<Mutex<EnvJob>>>,
+}
+
+/// A plugin's Python environment being made on a background thread.
+#[derive(Default)]
+struct EnvJob {
+    /// What it's doing now (uv's last line).
+    now: String,
+    /// When it's over: the interpreter, or why it failed.
+    done: Option<Result<String, String>>,
+}
+
+/// Starts making a plugin's Python environment on a background thread (desktop).
+#[cfg(not(target_arch = "wasm32"))]
+fn prepare_env(app: &mut RustGisApp, id: &str) {
+    if app.plugins.envs.get(id).is_some_and(|j| j.lock().is_ok_and(|j| j.done.is_none())) {
+        return;
+    }
+    let job = Arc::new(Mutex::new(EnvJob::default()));
+    app.plugins.envs.insert(id.to_string(), job.clone());
+    let id = id.to_string();
+    std::thread::spawn(move || {
+        let set = |f: &mut dyn FnMut(&mut EnvJob)| {
+            if let Ok(mut j) = job.lock() {
+                f(&mut j);
+            }
+        };
+        let r = rp::pyenv::prepare(&id, &mut |line| set(&mut |j| j.now = line.to_string()));
+        set(&mut |j| j.done = Some(r.clone().map(|p| p.display().to_string())));
+    });
+}
+
+#[cfg(target_arch = "wasm32")]
+fn prepare_env(_: &mut RustGisApp, _: &str) {}
+
+/// Whether a plugin uses a Python environment and it's ready (`None`: it doesn't use one).
+fn env_ready(id: &str) -> Option<bool> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        rp::pyenv::status(id)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = id;
+        None
+    }
+}
+
+/// A Python plugin's environment, on its card: being made, ready, or not (with Prepare).
+fn env_status(app: &mut RustGisApp, ui: &mut egui::Ui, t: &Tokens, id: &str) {
+    let Some(ready) = env_ready(id) else { return };
+    let job = app.plugins.envs.get(id).and_then(|j| j.lock().ok().map(|j| (j.now.clone(), j.done.clone())));
+    match job {
+        Some((now, None)) => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(egui::RichText::new(tl!("Preparing its Python environment…")).size(11.5));
+            });
+            if !now.is_empty() {
+                ui.label(egui::RichText::new(now).size(10.5).color(t.text_dim));
+            }
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+        }
+        _ if ready => {
+            ui.label(egui::RichText::new(tl!("Python environment ready")).size(11.5).color(t.green));
+        }
+        done => {
+            ui.horizontal(|ui| {
+                let text = match done {
+                    Some((_, Some(Err(e)))) => crate::i18n::fmt("Python environment failed: {error}", &[("error", &e)]),
+                    _ => tl!("Python environment not prepared").to_string(),
+                };
+                ui.label(egui::RichText::new(text).size(11.5).color(t.red));
+                if ui.small_button(tl!("Prepare")).clicked() {
+                    prepare_env(app, id);
+                }
+            });
+        }
+    }
 }
 
 /// What the Browse tab lists, worked out once per registry and filter rather than every frame:
@@ -261,6 +343,13 @@ pub fn received(app: &mut RustGisApp, bytes: Vec<u8>, from: Option<Box<Entry>>) 
             }
         }
         let pkg = Package::from_zip(&bytes)?;
+        // The browser can't start programs.
+        if cfg!(target_arch = "wasm32") && pkg.manifest.runtime == rp::Runtime::Process {
+            return Err(crate::i18n::fmt(
+                "{name} runs as a program on your computer: it needs the desktop app or rustgis-cli.",
+                &[("name", &pkg.manifest.name)],
+            ));
+        }
         if let Some(e) = &from
             && pkg.manifest.id != e.id
         {
@@ -317,6 +406,10 @@ fn install_confirmed(app: &mut RustGisApp) {
             }
             app.plugins.message = Some((true, text));
             app.plugins.tab = Tab::Installed;
+            // A Python plugin's environment is made now, in the background.
+            if env_ready(&p.manifest.id) == Some(false) {
+                prepare_env(app, &p.manifest.id);
+            }
             app.session.revision = app.session.revision.wrapping_add(1);
         }
         Err(e) => app.plugins.message = Some((false, e)),
@@ -452,8 +545,14 @@ fn chip(ui: &mut egui::Ui, t: &Tokens, text: &str, color: egui::Color32) {
         });
 }
 
-fn permissions(ui: &mut egui::Ui, t: &Tokens, perms: &[rp::Permission]) {
-    ui.horizontal_wrapped(|ui| permission_chips(ui, t, perms));
+fn permissions(ui: &mut egui::Ui, t: &Tokens, perms: &[rp::Permission], native: bool) {
+    ui.horizontal_wrapped(|ui| {
+        // A process plugin can do anything: said first, whatever its permissions.
+        if native {
+            chip(ui, t, tl!("Not sandboxed"), t.red);
+        }
+        permission_chips(ui, t, perms)
+    });
 }
 
 /// The permission chips, in the current layout (one line in a Browse row).
@@ -526,12 +625,18 @@ fn installed_tab(app: &mut RustGisApp, ui: &mut egui::Ui, t: &Tokens) {
                 ui.label(egui::RichText::new(m.translate(lang, &m.description)).size(12.0));
             }
             ui.add_space(4.0);
-            permissions(ui, t, &m.permissions);
+            permissions(ui, t, &m.permissions, m.runtime == rp::Runtime::Process);
+            env_status(app, ui, t, &m.id);
             let adds = crate::i18n::fmt(
                 "Commands on the Plugins tab: {commands} · Tools in the Tools pane: {tools}",
                 &[("commands", &m.commands.len().to_string()), ("tools", &m.tools.len().to_string())],
             );
             ui.label(egui::RichText::new(adds).size(11.0).color(t.text_dim));
+            if !m.skills.is_empty() {
+                let names: Vec<String> = m.skills.iter().map(|s| format!("{}:{s}", m.id)).collect();
+                let skills = crate::i18n::fmt("Skills for the AI Assistant: {names}", &[("names", &names.join(", "))]);
+                ui.label(egui::RichText::new(skills).size(11.0).color(t.text_dim));
+            }
             if !m.homepage.is_empty() {
                 ui.add(
                     egui::Hyperlink::from_label_and_url(egui::RichText::new(tl!("Homepage")).size(11.0), &m.homepage).open_in_new_tab(true),
@@ -731,6 +836,10 @@ fn settings_tab(app: &mut RustGisApp, ui: &mut egui::Ui, t: &Tokens) {
             ))
             .size(11.5),
         );
+        ui.label(
+            egui::RichText::new(tl!("Plugins marked Not sandboxed run as programs on your computer instead, and can do anything you can."))
+                .size(11.5),
+        );
         if let Some(f) = folder {
             ui.label(
                 egui::RichText::new(crate::i18n::fmt("Installed plugins are kept in {folder}", &[("folder", &f)]))
@@ -766,17 +875,62 @@ fn confirm(app: &mut RustGisApp, ctx: &egui::Context, t: &Tokens) {
             ui.label(&m.description);
         }
         ui.add_space(8.0);
-        ui.label(egui::RichText::new(tl!("This plugin can:")).font(semibold(12.5)));
-        ui.label(format!("• {}", tl!("Read the map's layers and features")));
-        for p in &m.permissions {
-            ui.label(format!("• {}", tl!(p.describe())));
+        let native = m.runtime == rp::Runtime::Process;
+        if native {
+            // Not sandboxed: said first and plainly, with what it will run.
+            egui::Frame::NONE
+                .fill(t.red.gamma_multiply(0.12))
+                .stroke(Stroke::new(1.0, t.red))
+                .corner_radius(CornerRadius::same(6))
+                .inner_margin(egui::Margin::same(8))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.label(egui::RichText::new(tl!("Not sandboxed")).font(semibold(12.5)).color(t.red));
+                    ui.label(tl!(
+                        "This plugin runs as a program on your computer, outside RustGIS's sandbox. It can do anything you can: read and change your files, use the network and run other programs. Install it only if you trust its author."
+                    ));
+                    if let Some(py) = &m.python {
+                        ui.label(crate::i18n::fmt(
+                            "Installing it downloads Python {version} and the packages it needs from the internet.",
+                            &[("version", &py.version)],
+                        ));
+                    }
+                    if let Some(argv) = m.run.as_ref().and_then(|r| r.for_this_platform()) {
+                        ui.label(egui::RichText::new(crate::i18n::fmt("It runs: {program}", &[("program", &argv.join(" "))])).monospace().size(11.5));
+                    }
+                });
+            ui.add_space(6.0);
         }
-        ui.add_space(4.0);
-        ui.label(
-            egui::RichText::new(tl!("It runs in a sandbox with no other access to your computer or the network."))
+        let skills_only = m.runtime == rp::Runtime::Skills;
+        if !m.skills.is_empty() {
+            let names: Vec<String> = m.skills.iter().map(|s| format!("{}:{s}", m.id)).collect();
+            ui.label(crate::i18n::fmt("Skills for the AI Assistant: {names}", &[("names", &names.join(", "))]));
+            ui.label(
+                egui::RichText::new(tl!(
+                    "The assistant follows a skill's instructions when it uses it. Whatever they say, its commands that need your approval still ask."
+                ))
                 .size(11.5)
                 .color(t.text_dim),
-        );
+            );
+            ui.add_space(4.0);
+        }
+        if skills_only {
+            ui.label(egui::RichText::new(tl!("It has no code: nothing in it runs.")).size(11.5).color(t.text_dim));
+        } else {
+            ui.label(egui::RichText::new(if native { tl!("In RustGIS, it can:") } else { tl!("This plugin can:") }).font(semibold(12.5)));
+            ui.label(format!("• {}", tl!("Read the map's layers and features")));
+            for p in &m.permissions {
+                ui.label(format!("• {}", tl!(p.describe())));
+            }
+        }
+        if !native && !skills_only {
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new(tl!("It runs in a sandbox with no other access to your computer or the network."))
+                    .size(11.5)
+                    .color(t.text_dim),
+            );
+        }
         ui.add_space(10.0);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
             if crate::widgets::primary_button(ui, tl!("Install"), true, vec2(88.0, 28.0)).clicked() {

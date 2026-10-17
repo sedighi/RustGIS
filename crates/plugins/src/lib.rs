@@ -7,12 +7,20 @@
 //! manifest declares and the user accepted. The same module runs on the desktop, on the
 //! command line and in the browser.
 //!
+//! A process plugin (`"runtime": "process"`, see [`process`]) is instead a program on the
+//! user's computer, not sandboxed, for the desktop and the command line: it speaks the same
+//! requests over its standard input and output, and the user is told it isn't sandboxed.
+//!
 //! Loaded plugins live for the whole process (like the geoprocessing tools they add), in a
 //! list shared by every session. See `docs/plugins.md` for the format and the ABI.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod manifest;
 pub mod package;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod process;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod pyenv;
 pub mod registry;
 pub mod runtime;
 #[cfg(not(target_arch = "wasm32"))]
@@ -28,7 +36,7 @@ use std::sync::{Arc, RwLock};
 
 use serde_json::{Value, json};
 
-pub use manifest::{CommandDecl, Entry, GroupDecl, ItemDecl, Manifest, MenuDecl, Permission, TabDecl, ToolDecl};
+pub use manifest::{CommandDecl, Entry, GroupDecl, ItemDecl, Manifest, MenuDecl, Permission, Runtime, TabDecl, ToolDecl};
 pub use package::Package;
 pub use runtime::{Host, NoHost};
 
@@ -42,9 +50,21 @@ pub struct Plugin {
     pub sha256: String,
     /// Where it came from: the installed package's path, a plugin folder, or a URL.
     pub source: String,
-    /// Whether its commands and tools are offered.
+    /// Whether its commands, tools and skills are offered.
     pub enabled: bool,
-    module: wasmi::Module,
+    /// Its skills for the assistant: name and `SKILL.md`.
+    pub skills: Vec<(String, String)>,
+    code: Code,
+}
+
+/// What runs a plugin's calls.
+#[derive(Clone)]
+enum Code {
+    Wasm(wasmi::Module),
+    #[cfg(not(target_arch = "wasm32"))]
+    Process(Box<process::Spec>),
+    /// A skills package: nothing to run.
+    None,
 }
 
 impl std::fmt::Debug for Plugin {
@@ -58,6 +78,24 @@ impl std::fmt::Debug for Plugin {
 }
 
 impl Plugin {
+    /// For a process plugin with a Python environment: the check that it's ready.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn env_check(&self) -> Option<&pyenv::EnvCheck> {
+        match &self.code {
+            Code::Process(spec) => spec.env_check.as_ref(),
+            Code::Wasm(_) | Code::None => None,
+        }
+    }
+
+    /// A process plugin's folder.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn dir(&self) -> Option<&std::path::Path> {
+        match &self.code {
+            Code::Process(spec) => Some(&spec.dir),
+            Code::Wasm(_) | Code::None => None,
+        }
+    }
+
     /// A summary for lists and the command line.
     pub fn info(&self) -> Value {
         let m = &self.manifest;
@@ -68,6 +106,8 @@ impl Plugin {
             "commands": m.commands.iter().map(|c| json!({"id": command_id(&m.id, &c.id), "label": c.label, "params": c.params})).collect::<Vec<_>>(),
             "tools": m.tools.iter().map(|t| json!({"id": command_id(&m.id, &t.id), "name": t.name})).collect::<Vec<_>>(),
             "tab": m.tab.as_ref().map(|t| t.label.clone()),
+            "skills": m.skills.iter().map(|s| format!("{}:{s}", m.id)).collect::<Vec<_>>(),
+            "runtime": match m.runtime { Runtime::Wasm => "wasm", Runtime::Process => "process", Runtime::Skills => "skills" },
             "enabled": self.enabled, "source": self.source, "sha256": self.sha256,
         })
     }
@@ -157,11 +197,40 @@ pub fn prepare(pkg: Package, source: &str) -> Result<Plugin, String> {
         let why = if b.reason.is_empty() { String::new() } else { format!(": {}", b.reason) };
         return Err(format!("{} was withdrawn from the plugin registry{why}", pkg.manifest.name));
     }
-    // A validator bug must not take the app down.
-    let module = std::panic::catch_unwind(|| runtime::compile(&pkg.wasm))
-        .unwrap_or_else(|_| Err("the module couldn't be read".into()))
-        .map_err(|e| format!("{}: {e}", pkg.manifest.name))?;
-    Ok(Plugin { manifest: pkg.manifest, sha256: pkg.sha256, source: source.to_string(), enabled: true, module })
+    let code = match pkg.manifest.runtime {
+        Runtime::Wasm => {
+            // A validator bug must not take the app down.
+            let module = std::panic::catch_unwind(|| runtime::compile(&pkg.wasm))
+                .unwrap_or_else(|_| Err("the module couldn't be read".into()))
+                .map_err(|e| format!("{}: {e}", pkg.manifest.name))?;
+            Code::Wasm(module)
+        }
+        Runtime::Process => process_code(&pkg)?,
+        Runtime::Skills => Code::None,
+    };
+    Ok(Plugin { manifest: pkg.manifest, sha256: pkg.sha256, source: source.to_string(), enabled: true, skills: pkg.skills, code })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn process_code(pkg: &Package) -> Result<Code, String> {
+    let name = &pkg.manifest.name;
+    let dir = pkg.dir.as_ref().ok_or_else(|| format!("{name}: a process plugin runs from a folder; install it first"))?;
+    let argv =
+        pkg.manifest.run.as_ref().and_then(|r| r.for_this_platform()).ok_or_else(|| format!("{name} doesn't run on this platform"))?;
+    let mut spec = process::Spec::new(argv, dir)?;
+    // With a Python environment, `python` is that environment's interpreter.
+    if let Some(check) = pyenv::EnvCheck::of(&pkg.manifest, &spec.dir).map_err(|e| format!("{name}: {e}"))? {
+        if matches!(spec.program.as_str(), "python" | "python3" | "python.exe") {
+            spec.program = pyenv::python_in(&check.env).display().to_string();
+        }
+        spec.env_check = Some(check);
+    }
+    Ok(Code::Process(Box::new(spec)))
+}
+
+#[cfg(target_arch = "wasm32")]
+fn process_code(pkg: &Package) -> Result<Code, String> {
+    Err(format!("{} runs as a program on your computer: it needs the desktop app or rustgis-cli", pkg.manifest.name))
 }
 
 /// Loads a prepared plugin, replacing a loaded one with the same id (and keeping whether it
@@ -196,8 +265,14 @@ pub fn set_enabled(id: &str, enabled: bool) -> Result<(), String> {
     let i = v.iter().position(|p| p.manifest.id == id).ok_or_else(|| format!("no plugin '{id}'"))?;
     let p = v.get(i).ok_or("no plugin")?;
     if p.enabled != enabled {
-        let new =
-            Plugin { manifest: p.manifest.clone(), sha256: p.sha256.clone(), source: p.source.clone(), enabled, module: p.module.clone() };
+        let new = Plugin {
+            manifest: p.manifest.clone(),
+            sha256: p.sha256.clone(),
+            source: p.source.clone(),
+            enabled,
+            skills: p.skills.clone(),
+            code: p.code.clone(),
+        };
         if let Some(slot) = v.get_mut(i) {
             *slot = Arc::new(new);
         }
@@ -292,10 +367,39 @@ pub fn command(id: &str) -> Option<PluginCommand> {
 /// Runs a plugin command, letting it reach the project through `host`.
 pub fn run_command(cmd: &PluginCommand, host: &mut dyn Host, params: &Value) -> Result<Value, String> {
     let request = json!({"abi": manifest::ABI, "kind": "command", "id": cmd.decl.id, "params": params, "lang": language()});
-    runtime::call(&cmd.plugin.module, host, &request, runtime::COMMAND_FUEL).map_err(|e| format!("{}: {e}", cmd.decl.label))
+    call(&cmd.plugin, host, &request, false).map_err(|e| format!("{}: {e}", cmd.decl.label))
 }
 
-/// Calls a plugin's module directly (tools, tests).
-pub(crate) fn call(plugin: &Plugin, host: &mut dyn Host, request: &Value, fuel: u64) -> Result<Value, String> {
-    runtime::call(&plugin.module, host, request, fuel)
+/// Calls a plugin directly (tools, tests): a command's limits, or a tool's.
+pub(crate) fn call(plugin: &Plugin, host: &mut dyn Host, request: &Value, tool: bool) -> Result<Value, String> {
+    match &plugin.code {
+        Code::Wasm(module) => runtime::call(module, host, request, if tool { runtime::TOOL_FUEL } else { runtime::COMMAND_FUEL }),
+        #[cfg(not(target_arch = "wasm32"))]
+        Code::Process(spec) => process::call(spec, host, request, (!tool).then_some(process::COMMAND_TIMEOUT)),
+        Code::None => Err(format!("{} has only skills, nothing to run", plugin.manifest.name)),
+    }
+}
+
+/// A skill an enabled plugin adds for the assistant.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PluginSkill {
+    pub plugin: String,
+    /// Its name in the manifest (the assistant knows it as `<plugin>:<name>`).
+    pub name: String,
+    /// Its `SKILL.md`.
+    pub text: String,
+}
+
+/// Every enabled plugin's skills, plugin by plugin.
+pub fn skills() -> Vec<PluginSkill> {
+    list()
+        .into_iter()
+        .filter(|p| p.enabled)
+        .flat_map(|p| {
+            p.skills
+                .iter()
+                .map(|(name, text)| PluginSkill { plugin: p.manifest.id.clone(), name: name.clone(), text: text.clone() })
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }

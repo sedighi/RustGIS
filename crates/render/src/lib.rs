@@ -8,8 +8,10 @@
 
 mod effects;
 pub mod fonts;
+pub mod gpu_scene;
 pub mod layout;
 pub mod logo;
+mod mesh;
 pub mod pdf;
 mod picture;
 pub mod post;
@@ -100,7 +102,7 @@ pub mod sample_data {
 use std::sync::OnceLock;
 
 use rustgis_data::{Dataset, Geometry, GeometryType};
-use rustgis_geom::{Coord, Extent, lonlat_to_merc};
+use rustgis_geom::{Coord, Extent, extent_to_merc, lonlat_to_merc};
 use rustgis_map::globe::{V3, densify};
 use rustgis_map::{Camera, Globe, Map, Marker, Rgba, Symbol};
 /// The image type pages and maps are drawn into.
@@ -124,8 +126,6 @@ pub struct View {
     /// Physical pixels per logical point.
     pub pixels_per_point: f64,
     pub camera: Camera,
-    /// The interface is dark: the space around the globe is dark too.
-    pub dark: bool,
 }
 
 impl View {
@@ -190,6 +190,30 @@ pub struct Rendered {
     pub tile_errors: Vec<String>,
 }
 
+/// Which rasteriser [`render_backend`] targets: the tiny-skia CPU pixmap (the default, and the
+/// only path for exports, the globe and effect-heavy frames) or a lyon-tessellated GPU scene
+/// drawn by the UI inside egui's wgpu pass.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Backend {
+    #[default]
+    Cpu,
+    Gpu,
+}
+
+/// A finished render in either backend.
+pub enum RenderOutput {
+    Cpu(Rendered),
+    Gpu(gpu_scene::GpuScene),
+}
+
+/// Renders the map for the screen in the chosen backend. `Backend::Cpu` is exactly
+/// [`render`]; `Backend::Gpu` draws what it can as tessellated meshes and everything else
+/// (basemap, tiles, rasters, masked/blended/transparent layers) as CPU-rasterized images in
+/// the same z-order.
+pub fn render_backend(map: &mut Map, view: &View, backend: Backend) -> Option<RenderOutput> {
+    render_with_backend(map, view, false, backend)
+}
+
 /// Decodes PNG bytes into a pixmap.
 pub fn decode_png(png: &[u8]) -> Option<Pixmap> {
     Pixmap::decode_png(png).ok()
@@ -242,10 +266,7 @@ fn world_in(flat: &rustgis_map::projection::Flat, key: &str) -> std::rc::Rc<Vec<
     WORLD_IN.with(|cell| {
         cell.borrow_mut()
             .entry(format!("{}:{key}", sample_data::worldview().code()))
-            .or_insert_with(|| {
-                let f = |c: Coord| flat.forward_checked(c).unwrap_or(Coord::new(f64::NAN, f64::NAN));
-                std::rc::Rc::new(world_lonlat().iter().map(|g| g.map_coords(&f)).collect())
-            })
+            .or_insert_with(|| std::rc::Rc::new(world_lonlat().iter().map(|g| flat.project(g)).collect()))
             .clone()
     })
 }
@@ -296,7 +317,12 @@ struct Ctx<'a> {
     cull: Extent,
     /// Set when drawing the globe; coordinates are then longitude/latitude, not Web Mercator.
     globe: Option<Globe>,
+    /// Point marker sprites drawn so far, by symbol and quarter-pixel offset.
+    sprites: std::cell::RefCell<std::collections::HashMap<SpriteKey, Option<Pixmap>>>,
 }
+
+/// A marker sprite's symbol and quarter-pixel offset.
+type SpriteKey = (Rgba, Rgba, u32, u32, Marker, u8, u8);
 
 impl Ctx<'_> {
     /// Logical screen position of a coordinate, `None` when it is behind the globe.
@@ -431,33 +457,49 @@ impl Ctx<'_> {
             }
             return;
         }
-        // Drop vertices closer than ~0.35 px to the previous one: big speed-up when zoomed out.
-        let mut last: Option<(f32, f32)> = None;
-        let n = ring.len();
-        for (i, c) in ring.iter().enumerate() {
-            let (x, y) = self.px(*c);
-            if !x.is_finite() || !y.is_finite() || x.abs() > 100_000.0 || y.abs() > 100_000.0 {
-                // A point the projection can't show breaks the line rather than being bridged.
-                if close && last.is_some() {
-                    pb.close();
-                }
-                last = None;
-                continue;
-            }
-            match last {
-                None => pb.move_to(x, y),
-                Some((lx, ly)) => {
-                    if (x - lx).abs() + (y - ly).abs() < 0.35 && i + 1 != n {
-                        continue;
-                    }
-                    pb.line_to(x, y)
+        let ppp = self.view.pixels_per_point;
+        let dev = |c: &Coord| {
+            let (x, y) = self.view.to_screen(*c);
+            (x * ppp, y * ppp)
+        };
+        // Each run of points the projection can show; a point it can't breaks the line rather
+        // than being bridged.
+        let clip = self.clip_box();
+        for run in ring.split(|c| !c.is_finite()) {
+            let mut b = Extent::EMPTY;
+            for c in run {
+                let (x, y) = dev(c);
+                if x.is_finite() && y.is_finite() {
+                    b.expand(Coord::new(x, y));
                 }
             }
-            last = Some((x, y));
+            if b.is_empty() || !b.intersects(&clip) {
+                continue; // wholly off the image
+            }
+            if clip.contains(Coord::new(b.min_x, b.min_y)) && clip.contains(Coord::new(b.max_x, b.max_y)) {
+                emit_run(pb, run.iter().map(dev), close);
+            } else if close {
+                // Zoomed in on a big polygon: its far vertices would be millions of pixels away,
+                // which the rasteriser can't take (and needn't walk). Clipping each ring to a box
+                // well beyond the image keeps the even-odd fill the same inside it.
+                let pts: Vec<(f64, f64)> = run.iter().map(dev).collect();
+                emit_run(pb, clip_ring(&pts, &clip).into_iter(), true);
+            } else {
+                let pts: Vec<(f64, f64)> = run.iter().map(dev).collect();
+                for part in clip_line(&pts, &clip) {
+                    emit_run(pb, part.into_iter(), false);
+                }
+            }
         }
-        if close && last.is_some() {
-            pb.close();
-        }
+    }
+
+    /// The box, in device pixels, paths are clipped to: the image with a wide margin, so a cut
+    /// edge and its stroke stay out of sight.
+    fn clip_box(&self) -> Extent {
+        let (w, h) = self.view.pixel_size();
+        let (w, h) = (w as f64, h as f64);
+        let m = w.max(h) / 2.0 + 64.0;
+        Extent { min_x: -m, min_y: -m, max_x: w + m, max_y: h + m }
     }
 
     fn polygon(&self, pm: &mut Pixmap, polys: &[Vec<Vec<Coord>>], fill: Option<Paint>, stroke: Option<(Paint, f32)>) {
@@ -494,60 +536,104 @@ impl Ctx<'_> {
         if !x.is_finite() || !y.is_finite() || x.abs() > 100_000.0 || y.abs() > 100_000.0 {
             return; // behind the globe or far outside render area
         }
-        let r = (s.size.max(1.0) * self.ppp) / 2.0;
-        let mut pb = PathBuilder::new();
-        match s.marker {
-            Marker::Circle => pb.push_circle(x, y, r),
-            Marker::Square => {
-                if let Some(rect) = tiny_skia::Rect::from_xywh(x - r * 0.9, y - r * 0.9, r * 1.8, r * 1.8) {
-                    pb.push_rect(rect)
-                }
-            }
-            Marker::Triangle => {
-                pb.move_to(x, y - r * 1.1);
-                pb.line_to(x + r, y + r * 0.75);
-                pb.line_to(x - r, y + r * 0.75);
-                pb.close();
-            }
-            Marker::Diamond => {
-                pb.move_to(x, y - r * 1.15);
-                pb.line_to(x + r * 0.9, y);
-                pb.line_to(x, y + r * 1.15);
-                pb.line_to(x - r * 0.9, y);
-                pb.close();
-            }
-            Marker::Star => {
-                for i in 0..10 {
-                    let a = std::f32::consts::PI * (i as f32) / 5.0 - std::f32::consts::FRAC_PI_2;
-                    let rr = if i % 2 == 0 { r * 1.2 } else { r * 0.5 };
-                    let (px, py) = (x + rr * a.cos(), y + rr * a.sin());
-                    if i == 0 { pb.move_to(px, py) } else { pb.line_to(px, py) }
-                }
-                pb.close();
-            }
+        // Off the image by more than any marker's reach: nothing to draw.
+        let reach = (s.size.max(1.0) * 0.6 + s.stroke_width.max(0.0) + 4.0) * self.ppp;
+        if x < -reach || y < -reach || x > pm.width() as f32 + reach || y > pm.height() as f32 + reach {
+            return;
         }
-        let Some(path) = pb.finish() else { return };
-        if let Some(h) = halo {
-            let st = Stroke { width: 3.5 * self.ppp, line_join: LineJoin::Round, ..Stroke::default() };
-            pm.stroke_path(&path, &paint(h, 1.0), &st, Transform::identity(), None);
+        draw_marker(pm, x, y, s, opacity, halo, self.ppp);
+    }
+
+    /// A layer's point marker, stamped from a sprite drawn once per symbol and quarter-pixel
+    /// offset: a dense point layer otherwise fills and strokes a path for every point.
+    fn stamp(&self, pm: &mut Pixmap, c: Coord, s: &Symbol) {
+        let (x, y) = self.px(c);
+        if !x.is_finite() || !y.is_finite() {
+            return; // behind the globe
         }
-        pm.fill_path(&path, &paint(s.fill, opacity), FillRule::Winding, Transform::identity(), None);
-        if s.stroke_width > 0.0 && s.stroke.a() > 0 {
-            let st = Stroke { width: s.stroke_width * self.ppp, line_join: LineJoin::Round, ..Stroke::default() };
-            pm.stroke_path(&path, &paint(s.stroke, opacity), &st, Transform::identity(), None);
+        let (fx, fy) = (x.floor(), y.floor());
+        let (qx, qy) = (((x - fx) * 4.0).round(), ((y - fy) * 4.0).round());
+        let (ix, iy) = (fx as i64 + (qx >= 4.0) as i64, fy as i64 + (qy >= 4.0) as i64);
+        let (qx, qy) = ((qx as u8) % 4, (qy as u8) % 4);
+        let reach = ((s.size.max(1.0) * 0.6 + s.stroke_width.max(0.0)) * self.ppp).ceil() as i64 + 3;
+        if ix < -reach || iy < -reach || ix > pm.width() as i64 + reach || iy > pm.height() as i64 + reach {
+            return;
+        }
+        let key = (s.fill, s.stroke, s.stroke_width.to_bits(), s.size.to_bits(), s.marker, qx, qy);
+        let mut sprites = self.sprites.borrow_mut();
+        if !sprites.contains_key(&key) {
+            // Many symbols (sizes by value, say) would each make a sprite used once: draw directly.
+            if sprites.len() >= MAX_SPRITES || reach > MAX_SPRITE_REACH {
+                drop(sprites);
+                draw_marker(pm, x, y, s, 1.0, None, self.ppp);
+                return;
+            }
+            let side = (2 * reach + 1) as u32;
+            let sprite = Pixmap::new(side, side).map(|mut sp| {
+                let c = reach as f32 + qx as f32 / 4.0;
+                let d = reach as f32 + qy as f32 / 4.0;
+                draw_marker(&mut sp, c, d, s, 1.0, None, self.ppp);
+                sp
+            });
+            sprites.insert(key, sprite);
+        }
+        if let Some(Some(sp)) = sprites.get(&key) {
+            blend_over(pm, sp, ix - reach, iy - reach);
         }
     }
 
     fn feature(&self, pm: &mut Pixmap, g: &Geometry, s: &Symbol) {
         match g {
-            Geometry::Point(c) => self.marker(pm, *c, s, 1.0, None),
-            Geometry::MultiPoint(v) => v.iter().for_each(|c| self.marker(pm, *c, s, 1.0, None)),
+            Geometry::Point(c) => self.stamp(pm, *c, s),
+            Geometry::MultiPoint(v) => v.iter().for_each(|c| self.stamp(pm, *c, s)),
             Geometry::Line(parts) => self.line(pm, parts, &paint(s.stroke, 1.0), s.stroke_width),
             Geometry::Polygon(polys) if self.wireframe => {
                 self.polygon(pm, polys, None, Some((paint(s.stroke.with_alpha(255), 1.0), s.stroke_width.max(1.0))))
             }
             Geometry::Polygon(polys) => self.polygon(pm, polys, Some(paint(s.fill, 1.0)), Some((paint(s.stroke, 1.0), s.stroke_width))),
         }
+    }
+
+    /// Draws a line or polygon smaller than a device pixel across as the coverage its fill and
+    /// outline would have, spread over the pixels around its centre. `false` (nothing drawn) for
+    /// a bigger feature or a point.
+    fn splat(&self, pm: &mut Pixmap, e: &Extent, g: &Geometry, s: &Symbol) -> bool {
+        let k = self.view.pixels_per_point / self.view.camera.res.max(1e-12);
+        let (sx, sy) = ((e.width() * k) as f32, (e.height() * k) as f32);
+        if !(sx.is_finite() && sy.is_finite()) || sx > 1.0 || sy > 1.0 || e.is_empty() {
+            return false;
+        }
+        let (stroke, width, fill) = match g {
+            Geometry::Point(_) | Geometry::MultiPoint(_) => return false,
+            Geometry::Line(_) => (s.stroke, (s.stroke_width * self.ppp).max(0.5), None),
+            Geometry::Polygon(_) if self.wireframe => (s.stroke.with_alpha(255), s.stroke_width.max(1.0) * self.ppp, None),
+            Geometry::Polygon(_) => (s.stroke, if s.stroke.a() > 0 { s.stroke_width.max(0.0) * self.ppp } else { 0.0 }, Some(s.fill)),
+        };
+        // With its outline, still about a pixel: a thick outline drawn as a dot would lose its ink.
+        if sx + width > 2.0 || sy + width > 2.0 {
+            return false;
+        }
+        let (cx, cy) = self.px(Coord::new((e.min_x + e.max_x) / 2.0, (e.min_y + e.max_y) / 2.0));
+        // The outline covers the shape grown by half its width all round (round joins); the
+        // fill shows inside it.
+        let inner = (sx - width).max(0.0) * (sy - width).max(0.0);
+        let outer = if width > 0.0 {
+            let hw = width / 2.0;
+            match g {
+                Geometry::Line(_) => (sx.hypot(sy) + width) * width,
+                _ => (sx + width) * (sy + width) - (4.0 - std::f32::consts::PI) * hw * hw,
+            }
+        } else {
+            0.0
+        };
+        if let Some(f) = fill {
+            let area = if width > 0.0 { inner } else { sx * sy };
+            splat_color(pm, cx, cy, f, area);
+        }
+        if width > 0.0 {
+            splat_color(pm, cx, cy, stroke, outer - inner);
+        }
+        true
     }
 
     fn highlight(&self, pm: &mut Pixmap, g: &Geometry, s: &Symbol) {
@@ -560,6 +646,239 @@ impl Ctx<'_> {
                 self.line(pm, parts, &paint(s.stroke, 1.0), s.stroke_width);
             }
             Geometry::Polygon(polys) => self.polygon(pm, polys, Some(paint(SELECTION.with_alpha(40), 1.0)), Some((cyan, 2.0))),
+        }
+    }
+}
+
+/// Adds one run of device-pixel points to a path, dropping points closer than ~0.35 px to the
+/// last one kept (a big speed-up zoomed out), but always the last.
+fn emit_run(pb: &mut PathBuilder, pts: impl ExactSizeIterator<Item = (f64, f64)>, close: bool) {
+    let n = pts.len();
+    let mut last: Option<(f32, f32)> = None;
+    for (i, (x, y)) in pts.enumerate() {
+        let (x, y) = (x as f32, y as f32);
+        if !x.is_finite() || !y.is_finite() {
+            continue;
+        }
+        match last {
+            None => pb.move_to(x, y),
+            Some((lx, ly)) => {
+                if (x - lx).abs() + (y - ly).abs() < 0.35 && i + 1 != n {
+                    continue;
+                }
+                pb.line_to(x, y)
+            }
+        }
+        last = Some((x, y));
+    }
+    if close && last.is_some() {
+        pb.close();
+    }
+}
+
+/// A ring clipped to a box (Sutherland–Hodgman): the part inside it, closed along its edges.
+fn clip_ring(pts: &[(f64, f64)], b: &Extent) -> Vec<(f64, f64)> {
+    let mut cur: Vec<(f64, f64)> = pts.to_vec();
+    // Each edge: is a point inside, and where a segment crosses it.
+    for edge in 0..4 {
+        if cur.is_empty() {
+            break;
+        }
+        let inside = |p: (f64, f64)| match edge {
+            0 => p.0 >= b.min_x,
+            1 => p.0 <= b.max_x,
+            2 => p.1 >= b.min_y,
+            _ => p.1 <= b.max_y,
+        };
+        let cross = |p: (f64, f64), q: (f64, f64)| {
+            let (v, t) = match edge {
+                0 => (b.min_x, (b.min_x - p.0) / (q.0 - p.0)),
+                1 => (b.max_x, (b.max_x - p.0) / (q.0 - p.0)),
+                2 => (b.min_y, (b.min_y - p.1) / (q.1 - p.1)),
+                _ => (b.max_y, (b.max_y - p.1) / (q.1 - p.1)),
+            };
+            if edge < 2 { (v, p.1 + (q.1 - p.1) * t) } else { (p.0 + (q.0 - p.0) * t, v) }
+        };
+        let mut out = Vec::with_capacity(cur.len() + 4);
+        let mut prev = cur.last().copied().unwrap_or((0.0, 0.0));
+        for &p in &cur {
+            match (inside(prev), inside(p)) {
+                (true, true) => out.push(p),
+                (true, false) => out.push(cross(prev, p)),
+                (false, true) => {
+                    out.push(cross(prev, p));
+                    out.push(p);
+                }
+                (false, false) => {}
+            }
+            prev = p;
+        }
+        cur = out;
+    }
+    if cur.len() < 3 { Vec::new() } else { cur }
+}
+
+/// The parts of a line inside a box (each segment clipped by Liang–Barsky).
+fn clip_line(pts: &[(f64, f64)], b: &Extent) -> Vec<Vec<(f64, f64)>> {
+    let mut parts: Vec<Vec<(f64, f64)>> = Vec::new();
+    let mut cur: Vec<(f64, f64)> = Vec::new();
+    for w in pts.windows(2) {
+        let (Some(&p), Some(&q)) = (w.first(), w.get(1)) else { continue };
+        let (dx, dy) = (q.0 - p.0, q.1 - p.1);
+        let (mut t0, mut t1) = (0.0f64, 1.0f64);
+        let mut keep = true;
+        for (num, den) in [(p.0 - b.min_x, -dx), (b.max_x - p.0, dx), (p.1 - b.min_y, -dy), (b.max_y - p.1, dy)] {
+            if den == 0.0 {
+                if num < 0.0 {
+                    keep = false;
+                    break;
+                }
+            } else {
+                let t = num / den;
+                if den < 0.0 {
+                    t0 = t0.max(t);
+                } else {
+                    t1 = t1.min(t);
+                }
+            }
+        }
+        if !keep || t0 > t1 {
+            if cur.len() > 1 {
+                parts.push(std::mem::take(&mut cur));
+            }
+            cur.clear();
+            continue;
+        }
+        let a = (p.0 + dx * t0, p.1 + dy * t0);
+        let z = (p.0 + dx * t1, p.1 + dy * t1);
+        if cur.is_empty() || t0 > 0.0 {
+            if cur.len() > 1 {
+                parts.push(std::mem::take(&mut cur));
+            }
+            cur = vec![a];
+        }
+        cur.push(z);
+        if t1 < 1.0 {
+            parts.push(std::mem::take(&mut cur));
+        }
+    }
+    if cur.len() > 1 {
+        parts.push(cur);
+    }
+    parts
+}
+
+/// Blends `color` at `coverage` (in pixels, spread bilinearly) around (`cx`, `cy`) device pixels.
+fn splat_color(pm: &mut Pixmap, cx: f32, cy: f32, color: Rgba, coverage: f32) {
+    if color.a() == 0 || coverage.is_nan() || coverage <= 0.0 || !cx.is_finite() || !cy.is_finite() {
+        return;
+    }
+    let (x, y) = (cx - 0.5, cy - 0.5);
+    let (fx, fy) = (x - x.floor(), y - y.floor());
+    let (ix, iy) = (x.floor() as i64, y.floor() as i64);
+    let (w, h) = (pm.width() as i64, pm.height() as i64);
+    let data = pm.data_mut();
+    for (dx, dy, wt) in [(0, 0, (1.0 - fx) * (1.0 - fy)), (1, 0, fx * (1.0 - fy)), (0, 1, (1.0 - fx) * fy), (1, 1, fx * fy)] {
+        let (px, py) = (ix + dx, iy + dy);
+        if px < 0 || py < 0 || px >= w || py >= h {
+            continue;
+        }
+        let a = (color.a() as f32 * (coverage * wt).min(1.0)).round() as u16;
+        if a == 0 {
+            continue;
+        }
+        let i = ((py * w + px) * 4) as usize;
+        let Some(d) = data.get_mut(i..i + 4) else { continue };
+        let inv = 255 - a;
+        let src = [color.r(), color.g(), color.b()];
+        for (dc, sc) in d.iter_mut().zip(src) {
+            *dc = ((sc as u16 * a + *dc as u16 * inv + 127) / 255) as u8;
+        }
+        d[3] = (a + (d[3] as u16 * inv + 127) / 255).min(255) as u8;
+    }
+}
+
+/// Most marker sprites one render keeps.
+const MAX_SPRITES: usize = 1024;
+
+/// Largest marker reach (device pixels from its centre) drawn from a sprite: a bigger marker
+/// gains little from one. With [`MAX_SPRITES`], the cache stays under about 10 MB.
+const MAX_SPRITE_REACH: i64 = 24;
+
+/// A marker centred at (`x`, `y`) device pixels.
+fn draw_marker(pm: &mut Pixmap, x: f32, y: f32, s: &Symbol, opacity: f32, halo: Option<Rgba>, ppp: f32) {
+    let r = (s.size.max(1.0) * ppp) / 2.0;
+    let mut pb = PathBuilder::new();
+    match s.marker {
+        Marker::Circle => pb.push_circle(x, y, r),
+        Marker::Square => {
+            if let Some(rect) = tiny_skia::Rect::from_xywh(x - r * 0.9, y - r * 0.9, r * 1.8, r * 1.8) {
+                pb.push_rect(rect)
+            }
+        }
+        Marker::Triangle => {
+            pb.move_to(x, y - r * 1.1);
+            pb.line_to(x + r, y + r * 0.75);
+            pb.line_to(x - r, y + r * 0.75);
+            pb.close();
+        }
+        Marker::Diamond => {
+            pb.move_to(x, y - r * 1.15);
+            pb.line_to(x + r * 0.9, y);
+            pb.line_to(x, y + r * 1.15);
+            pb.line_to(x - r * 0.9, y);
+            pb.close();
+        }
+        Marker::Star => {
+            for i in 0..10 {
+                let a = std::f32::consts::PI * (i as f32) / 5.0 - std::f32::consts::FRAC_PI_2;
+                let rr = if i % 2 == 0 { r * 1.2 } else { r * 0.5 };
+                let (px, py) = (x + rr * a.cos(), y + rr * a.sin());
+                if i == 0 { pb.move_to(px, py) } else { pb.line_to(px, py) }
+            }
+            pb.close();
+        }
+    }
+    let Some(path) = pb.finish() else { return };
+    if let Some(h) = halo {
+        let st = Stroke { width: 3.5 * ppp, line_join: LineJoin::Round, ..Stroke::default() };
+        pm.stroke_path(&path, &paint(h, 1.0), &st, Transform::identity(), None);
+    }
+    pm.fill_path(&path, &paint(s.fill, opacity), FillRule::Winding, Transform::identity(), None);
+    if s.stroke_width > 0.0 && s.stroke.a() > 0 {
+        let st = Stroke { width: s.stroke_width * ppp, line_join: LineJoin::Round, ..Stroke::default() };
+        pm.stroke_path(&path, &paint(s.stroke, opacity), &st, Transform::identity(), None);
+    }
+}
+
+/// Composites premultiplied `src` over `dst` with its top left corner at (`x`, `y`).
+fn blend_over(dst: &mut Pixmap, src: &Pixmap, x: i64, y: i64) {
+    let (dw, dh) = (dst.width() as i64, dst.height() as i64);
+    let (sw, sh) = (src.width() as i64, src.height() as i64);
+    let (x0, x1) = (x.max(0), (x + sw).min(dw));
+    let (y0, y1) = (y.max(0), (y + sh).min(dh));
+    if x0 >= x1 || y0 >= y1 {
+        return;
+    }
+    let (s, d) = (src.data(), dst.data_mut());
+    let n = ((x1 - x0) * 4) as usize;
+    for row in y0..y1 {
+        let si = (((row - y) * sw + (x0 - x)) * 4) as usize;
+        let di = ((row * dw + x0) * 4) as usize;
+        let (Some(sr), Some(dr)) = (s.get(si..si + n), d.get_mut(di..di + n)) else { continue };
+        for (sp, dp) in sr.as_chunks::<4>().0.iter().zip(dr.as_chunks_mut::<4>().0.iter_mut()) {
+            let sa = sp[3];
+            if sa == 0 {
+                continue;
+            }
+            if sa == 255 {
+                dp.copy_from_slice(sp);
+                continue;
+            }
+            let inv = 255 - sa as u16;
+            for (dc, sc) in dp.iter_mut().zip(sp) {
+                *dc = (*sc as u16 + (*dc as u16 * inv + 127) / 255).min(255) as u8;
+            }
         }
     }
 }
@@ -603,6 +922,31 @@ pub fn render(map: &mut Map, view: &View) -> Option<Rendered> {
 }
 
 fn render_with(map: &mut Map, view: &View, full_res_rasters: bool) -> Option<Rendered> {
+    match render_with_backend(map, view, full_res_rasters, Backend::Cpu) {
+        Some(RenderOutput::Cpu(r)) => Some(r),
+        // The Cpu backend never produces RenderOutput::Gpu.
+        Some(RenderOutput::Gpu(_)) | None => None,
+    }
+}
+
+/// Flushes the GPU pass's CPU accumulator pixmap as an Image draw command and resets it to
+/// transparent. Basemap, tiles, rasters and tiny-skia-only layers draw into the accumulator
+/// between GPU mesh commands, preserving the exact painter's-algorithm order.
+fn flush_acc(pm: &mut Pixmap, cmds: &mut Vec<gpu_scene::DrawCmd>, dirty: &mut bool) -> Option<()> {
+    if *dirty {
+        // Move the pixmap into the command (no full-screen copy) and start a fresh transparent
+        // accumulator.
+        let old = std::mem::replace(pm, Pixmap::new(pm.width(), pm.height())?);
+        cmds.push(gpu_scene::DrawCmd::Image { pixmap: old });
+        *dirty = false;
+    }
+    Some(())
+}
+
+/// The shared render body behind [`render`], [`render_backend`] and the export paths.
+/// `full_res_rasters` renders rasters at full resolution (exports); `backend` selects the CPU
+/// pixmap or a GPU scene (see [`Backend`]).
+fn render_with_backend(map: &mut Map, view: &View, full_res_rasters: bool, backend: Backend) -> Option<RenderOutput> {
     let (w, h) = view.pixel_size();
     let mut pm = Pixmap::new(w, h)?;
     // Streamed layers read the view: in the background for the screen, in place for an export
@@ -618,8 +962,22 @@ fn render_with(map: &mut Map, view: &View, full_res_rasters: bool) -> Option<Ren
         wireframe: map.view.wireframe,
         cull: view.camera.extent(view.width, view.height).padded(0.05, 0.0),
         globe,
+        sprites: Default::default(),
     };
     let scale = map.ground_res_at(&view.camera) / rustgis_geom::PIXEL_M;
+    // The Gpu backend draws flat, effect-free frames; anything else stays on the CPU pixmap.
+    let gpu = matches!(backend, Backend::Gpu)
+        && globe.is_none()
+        && map.view.effects.is_none()
+        && map.view.color_vision == rustgis_map::view::ColorVision::Normal;
+    // The effective backend: the Gpu arm at the end only runs when the frame is compatible.
+    let backend = if gpu { Backend::Gpu } else { Backend::Cpu };
+    // GPU draw commands; between them, tiny-skia-only content accumulates in `pm` and is
+    // flushed as ordered Image commands (`flush_acc`, gated by `cpu_dirty`).
+    let mut cmds: Vec<gpu_scene::DrawCmd> = Vec::new();
+    // Map units per physical pixel: the decimation threshold scale (`Ctx::ring_path`'s 0.35 px
+    // rule is applied in screen space) and the stroke shader's width scale.
+    let map_per_px = view.camera.res / view.pixels_per_point;
     // On the globe nothing is culled by the flat extent: the horizon clips instead.
     let visible = |e: &Extent| match &globe {
         Some(g) => g.may_see(e),
@@ -629,9 +987,15 @@ fn render_with(map: &mut Map, view: &View, full_res_rasters: bool) -> Option<Ren
     // Basemap.
     let (water, land, outline, grat) = map.basemap.palette();
     match &globe {
-        Some(g) => globe_backdrop(&mut pm, g, map.basemap, water, view.dark, view.pixels_per_point as f32),
-        None => pm.fill(tiny_skia::Color::from_rgba8(water.r(), water.g(), water.b(), 255)),
+        Some(g) => globe_backdrop(&mut pm, g, water, map.view.effects.stars, view.pixels_per_point as f32),
+        None if !gpu => pm.fill(tiny_skia::Color::from_rgba8(water.r(), water.g(), water.b(), 255)),
+        // The Gpu scene carries the water backdrop as its clear colour instead — an
+        // always-full-screen Image here would poison `has_images` and kill the camera
+        // fast path.
+        None => {}
     }
+    // Set when tiny-skia actually rasterizes into the accumulator.
+    let mut cpu_dirty = false;
     if land != water {
         let fill = paint(land, 1.0);
         let stroke = (outline.a() > 0).then(|| (paint(outline, 1.0), 0.6));
@@ -645,7 +1009,20 @@ fn render_with(map: &mut Map, view: &View, full_res_rasters: bool) -> Option<Ren
             if let Geometry::Polygon(polys) = g
                 && visible(&g.extent())
             {
-                ctx.polygon(&mut pm, polys, Some(fill.clone()), stroke.clone());
+                let mut tessellated = false;
+                if gpu {
+                    flush_acc(&mut pm, &mut cmds, &mut cpu_dirty)?;
+                    let e = g.extent();
+                    tessellated =
+                        mesh::collect_basemap(&mut cmds, polys, [e.center().x, e.center().y], land, outline, ctx.ppp, map_per_px).is_ok();
+                }
+                if gpu && !tessellated {
+                    // Lyon refused: tiny-skia still draws the outline.
+                    ctx.polygon(&mut pm, polys, Some(fill.clone()), stroke.clone());
+                    cpu_dirty = true;
+                } else if !gpu {
+                    ctx.polygon(&mut pm, polys, Some(fill.clone()), stroke.clone());
+                }
             }
         }
     }
@@ -660,28 +1037,46 @@ fn render_with(map: &mut Map, view: &View, full_res_rasters: bool) -> Option<Ren
         } else {
             1.0
         };
-        let to = |c: Coord| {
-            if globe.is_some() {
-                c
-            } else if custom {
-                flat.forward_checked(c).unwrap_or(Coord::new(f64::NAN, f64::NAN))
-            } else {
-                lonlat_to_merc(c)
-            }
-        };
         let (lat_max, lat_min) = if globe.is_some() { (90.0, -90.0) } else { (85.0, -85.0) };
         let mut lines = Vec::new();
         let mut lon = -180.0;
         while lon <= 180.0 {
-            lines.push((0..=36).map(|i| to(Coord::new(lon, lat_min + (lat_max - lat_min) * i as f64 / 36.0))).collect::<Vec<_>>());
+            lines.push((0..=36).map(|i| Coord::new(lon, lat_min + (lat_max - lat_min) * i as f64 / 36.0)).collect::<Vec<_>>());
             lon += step;
         }
         let mut lat = -90.0 + step;
         while lat < 90.0 {
-            lines.push((0..=72).map(|i| to(Coord::new(-180.0 + i as f64 * 5.0, lat))).collect::<Vec<_>>());
+            lines.push((0..=72).map(|i| Coord::new(-180.0 + i as f64 * 5.0, lat)).collect::<Vec<_>>());
             lat += step;
         }
-        ctx.line(&mut pm, &lines, &p, 0.6);
+        let lines = if globe.is_some() {
+            lines
+        } else if custom {
+            // Parallels are cut at the map's edge like any line (#209).
+            match flat.project(&Geometry::Line(lines)) {
+                Geometry::Line(parts) => parts,
+                _ => Vec::new(),
+            }
+        } else {
+            lines.into_iter().map(|l| l.into_iter().map(lonlat_to_merc).collect()).collect()
+        };
+        if gpu {
+            let mut e = Extent::EMPTY;
+            for l in &lines {
+                for c in l {
+                    e.expand(*c);
+                }
+            }
+            flush_acc(&mut pm, &mut cmds, &mut cpu_dirty)?;
+            let tessellated = !e.is_empty()
+                && mesh::collect_graticule(&mut cmds, &lines, [e.center().x, e.center().y], grat, ctx.ppp, map_per_px).is_ok();
+            if !tessellated {
+                ctx.line(&mut pm, &lines, &p, 0.6);
+                cpu_dirty = true;
+            }
+        } else {
+            ctx.line(&mut pm, &lines, &p, 0.6);
+        }
     }
 
     // Web tile layers, over the built-in basemap and its graticule.
@@ -690,6 +1085,9 @@ fn render_with(map: &mut Map, view: &View, full_res_rasters: bool) -> Option<Ren
         None => raster::Place::Flat(&flat, &key),
     };
     let tile_out = tiles::draw(&mut pm, map, view, tile_place, !map.label_display.paused && map.label_lock.is_none());
+    // Hidden tile layers draw nothing: marking dirty anyway would emit an empty full-screen
+    // Image command (a pointless upload, and it poisons the camera fast path's `has_images`).
+    cpu_dirty |= map.tiles.iter().any(|t| t.visible);
 
     // Layers, bottom first.
     let mut label_candidates: Vec<(PlacedLabel, f32, (u32, usize))> = Vec::new();
@@ -749,10 +1147,13 @@ fn render_with(map: &mut Map, view: &View, full_res_rasters: bool) -> Option<Ren
                 } else {
                     raster::draw(&mut pm, data, &rl.style, view, opacity, full_res_rasters, place);
                 }
+                cpu_dirty = true;
             }
             continue;
         }
-        let mut rows = layer.visible_rows();
+        // The definition query and the display filters that apply at this scale (a feature draws
+        // only if it matches all of them).
+        let mut rows = layer.drawn_rows(scale);
         // View clipping: features entirely beyond the distance from the view's centre are left
         // out; one reaching into it (its box's nearest point within the distance) still draws.
         if let Some((centre, d)) = clip {
@@ -766,18 +1167,11 @@ fn render_with(map: &mut Map, view: &View, full_res_rasters: bool) -> Option<Ren
                 }
             }
         }
-        // Display filters: at a scale where several apply, a feature draws only if it matches all
-        // of them. Expressions are checked when a filter is added; one that stops reading (a
-        // field removed since) is skipped. Parsing is cheap next to evaluating every row.
-        for f in layer.display_filters.iter().filter(|f| f.applies(scale)) {
-            if let Ok(e) = rustgis_data::query::parse(&f.where_, &layer.dataset) {
-                for (r, keep) in rows.iter_mut().enumerate() {
-                    *keep = *keep && rustgis_data::query::eval(&e, &layer.dataset, r);
-                }
-            }
-        }
+        // Drawn from a copy thinned to under a third of a pixel: a detailed layer seen whole
+        // otherwise walks many vertices per pixel on every frame.
+        let thin_tol = view.camera.res / view.pixels_per_point.max(0.01) * rustgis_map::lod::THIN_PX;
         if globe.is_none() {
-            layer.projected_in(&flat, &key); // refresh the projected cache
+            layer.thinned_in(&flat, &key, thin_tol); // refresh the projected cache and its thinned copy
         }
         // Everything below only reads the layer: borrow rather than copy its data each frame.
         let layer: &rustgis_map::Layer = layer;
@@ -788,9 +1182,26 @@ fn render_with(map: &mut Map, view: &View, full_res_rasters: bool) -> Option<Ren
         } else {
             layer.projected_cache().iter().map(Option::as_ref).collect()
         };
+        // What the features draw from, and their extents for culling (on the flat map, cached).
+        // Only the fills and strokes below draw thinned: the selection, labels, aggregation and
+        // extrusion keep `geoms`, the full geometry, for their exact positions.
+        let drawn: Vec<Option<&Geometry>> =
+            if globe.is_some() { geoms.clone() } else { layer.thinned_cache(thin_tol).iter().map(Option::as_ref).collect() };
+        let extents = if globe.is_some() { &[][..] } else { layer.projected_extents() };
         let mut target = if offscreen { Pixmap::new(w, h)? } else { Pixmap::new(1, 1)? };
         let direct = !offscreen;
-        {
+        // GPU-eligible: a plain vector layer drawn at full opacity with no mask, blend,
+        // aggregation, extrusion or per-row graphics (an inert aggregation/extrusion on the
+        // "wrong" geometry type still falls back — conservative and correct).
+        let gpu_layer = gpu && !offscreen && layer.aggregation.is_none() && layer.extrusion.is_none() && !layer.graphics;
+        // Lyon refuses degenerate geometry tiny-skia draws fine: collect_layer reports it,
+        // and the layer runs the CPU branch below like any ineligible one.
+        let mut gpu_done = false;
+        if gpu_layer {
+            flush_acc(&mut pm, &mut cmds, &mut cpu_dirty)?;
+            gpu_done = mesh::collect_layer(&mut cmds, layer, &geoms, &rows, &visible, ctx.wireframe, ctx.ppp, map_per_px).is_ok();
+        }
+        if !gpu_done {
             let dest = if direct { &mut pm } else { &mut target };
             let aggregate = layer.aggregation.filter(|_| layer.geometry_type() == GeometryType::Point);
             let extrude = layer.extrusion.as_ref().filter(|_| layer.geometry_type() == GeometryType::Polygon && globe.is_none());
@@ -800,9 +1211,9 @@ fn render_with(map: &mut Map, view: &View, full_res_rasters: bool) -> Option<Ren
                 let px_per_m = view.pixels_per_point / map_ground_res(view, &flat);
                 effects::extrude(dest, &ctx, ds_ptr, &geoms, &rows, x, px_per_m, |r| layer.symbol(r));
             } else {
-                for (row, g) in geoms.iter().enumerate() {
+                for (row, g) in drawn.iter().enumerate() {
                     let Some(g) = g else { continue };
-                    if rows.get(row) != Some(&true) || !visible(&g.extent()) {
+                    if rows.get(row) != Some(&true) || !visible(&extents.get(row).copied().unwrap_or_else(|| g.extent())) {
                         continue;
                     }
                     // A picture draws in its row's turn, so graphics keep their order. (On the globe
@@ -817,9 +1228,20 @@ fn render_with(map: &mut Map, view: &View, full_res_rasters: bool) -> Option<Ren
                         }
                         continue;
                     }
-                    ctx.feature(dest, g, &layer.symbol(row));
+                    let sym = layer.symbol(row);
+                    // A feature under a pixel across: blend its coverage into the pixels it touches
+                    // (a dense layer seen whole is mostly these, and a path each is slow).
+                    if globe.is_none()
+                        && !layer.graphics
+                        && let Some(e) = extents.get(row)
+                        && ctx.splat(dest, e, g, &sym)
+                    {
+                        continue;
+                    }
+                    ctx.feature(dest, g, &sym);
                 }
             }
+            cpu_dirty = true;
         }
         if !direct {
             composite(&mut pm, &target);
@@ -828,7 +1250,15 @@ fn render_with(map: &mut Map, view: &View, full_res_rasters: bool) -> Option<Ren
             if let Some(Some(g)) = geoms.get(*row)
                 && rows.get(*row) == Some(&true)
             {
-                ctx.highlight(&mut pm, g, &layer.symbol(*row));
+                // Follow the layer's own backend: when it fell back to the CPU pixmap, the
+                // highlight must too — tessellated here, the layer's later-flushed Image would
+                // draw over it (the CPU path draws highlights over the layer).
+                if gpu_done && mesh::collect_highlight(&mut cmds, g, &layer.symbol(*row), ctx.ppp, map_per_px).is_ok() {
+                    // highlight tessellated into the scene, right after its layer
+                } else {
+                    ctx.highlight(&mut pm, g, &layer.symbol(*row));
+                    cpu_dirty = true;
+                }
             }
         }
         if layer.graphics {
@@ -909,7 +1339,7 @@ fn render_with(map: &mut Map, view: &View, full_res_rasters: bool) -> Option<Ren
         }
     }
     if let Some(g) = &globe {
-        globe_shading(&mut pm, g, map.basemap, water, view.dark, view.pixels_per_point as f32);
+        globe_shading(&mut pm, g, water, map.view.effects.stars, view.pixels_per_point as f32);
     }
     // Tile labels, after every layer's own.
     if lock.is_none() {
@@ -926,6 +1356,7 @@ fn render_with(map: &mut Map, view: &View, full_res_rasters: bool) -> Option<Ren
     for l in &placed.labels {
         if let Some(icon) = &l.icon {
             draw_icon(&mut pm, icon, view.pixels_per_point as f32);
+            cpu_dirty = true;
         }
     }
     // Effects, and (on screen only) the colour vision simulation.
@@ -941,15 +1372,34 @@ fn render_with(map: &mut Map, view: &View, full_res_rasters: bool) -> Option<Ren
         };
         post::apply(&mut pm, &map.view.effects, vision, &lonlat);
     }
-    Some(Rendered {
-        pixmap: pm,
-        labels: placed.labels,
-        unplaced,
-        attribution: tile_out.attribution,
-        tiles_pending: tile_out.pending,
-        data_pending,
-        tile_errors: tile_out.errors,
-    })
+    let labels = placed.labels;
+    let attribution = tile_out.attribution;
+    let tiles_pending = tile_out.pending;
+    let tile_errors = tile_out.errors;
+    match backend {
+        Backend::Cpu => {
+            Some(RenderOutput::Cpu(Rendered { pixmap: pm, labels, unplaced, attribution, tiles_pending, data_pending, tile_errors }))
+        }
+        Backend::Gpu => {
+            flush_acc(&mut pm, &mut cmds, &mut cpu_dirty)?;
+            // Pathological CPU/GPU alternation (rasters, masks, blends between every vector
+            // layer) costs more full-screen uploads than a plain CPU rasterization.
+            let images = cmds.iter().filter(|c| matches!(c, gpu_scene::DrawCmd::Image { .. })).count();
+            if images > 4 {
+                return render_with_backend(map, view, full_res_rasters, Backend::Cpu);
+            }
+            Some(RenderOutput::Gpu(gpu_scene::GpuScene {
+                clear: mesh::premul(water),
+                cmds,
+                labels,
+                unplaced,
+                attribution,
+                tiles_pending,
+                data_pending,
+                tile_errors,
+            }))
+        }
+    }
 }
 
 /// Draws an icon, scaled to its size in logical points.
@@ -1039,14 +1489,79 @@ fn layer_masks(map: &mut Map, ctx: &Ctx, w: u32, h: u32, flat: &rustgis_map::pro
 }
 
 /// The colour of the space around the globe.
-pub fn globe_space(dark_ui: bool, basemap: rustgis_map::Basemap) -> Rgba {
-    if dark_ui || basemap == rustgis_map::Basemap::Midnight { Rgba::rgb(0x08, 0x0B, 0x10) } else { Rgba::rgb(0xEC, 0xEF, 0xF3) }
+pub fn globe_space() -> Rgba {
+    Rgba::rgb(0x08, 0x0B, 0x10)
 }
 
-/// The globe's backdrop and lighting depend only on the view size, zoom and basemap, not on the
-/// rotation, so they are drawn once and reused while the globe turns.
+/// Side of the starfield tile in logical points: the stars repeat this far apart.
+pub const STAR_TILE: f32 = 512.0;
+
+/// The stars of the space around the globe: a square `STAR_TILE` points a side at `ppp` pixels
+/// per point, transparent between the stars, to be laid edge to edge from the view's top left
+/// corner. The sky is the same every time, and the stars stay put while the globe turns.
+pub fn starfield(ppp: f32) -> Option<Pixmap> {
+    let ppp = if ppp.is_finite() { ppp.clamp(0.25, 4.0) } else { 1.0 };
+    let side = (STAR_TILE * ppp).round().max(1.0);
+    let mut pm = Pixmap::new(side as u32, side as u32)?;
+    let ppp = side / STAR_TILE;
+    // A small fixed-seed generator (SplitMix64), so every view gets the same sky.
+    let mut seed: u64 = 0x5EED_57A2_F1E1_D000;
+    let mut next = || {
+        seed = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = seed;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        ((z ^ (z >> 31)) >> 40) as f32 / (1u64 << 24) as f32
+    };
+    // Bluish, white and warm stars; most of them faint.
+    let tints = [(0xCF, 0xDD, 0xFF), (0xFF, 0xFF, 0xFF), (0xFF, 0xEA, 0xCC)];
+    for _ in 0..180 {
+        let (x, y) = (2.0 + next() * (STAR_TILE - 4.0), 2.0 + next() * (STAR_TILE - 4.0));
+        let bright = next().powi(3);
+        let tint = tints.get((next() * 3.0) as usize).copied().unwrap_or((0xFF, 0xFF, 0xFF));
+        let (cx, cy) = (x * ppp, y * ppp);
+        let r = (0.3 + 0.8 * bright) * ppp;
+        if bright > 0.6
+            && let Some(path) = PathBuilder::from_circle(cx, cy, r * 2.5)
+        {
+            // A faint halo around the brightest.
+            let halo = paint(Rgba::rgb(tint.0, tint.1, tint.2), 0.12);
+            pm.fill_path(&path, &halo, FillRule::Winding, Transform::identity(), None);
+        }
+        if let Some(path) = PathBuilder::from_circle(cx, cy, r.max(0.35)) {
+            let p = paint(Rgba::rgb(tint.0, tint.1, tint.2), 0.3 + 0.7 * bright);
+            pm.fill_path(&path, &p, FillRule::Winding, Transform::identity(), None);
+        }
+    }
+    Some(pm)
+}
+
+thread_local! {
+    /// The starfield tile last drawn, and its pixels per point.
+    static STARS: std::cell::RefCell<Option<(u32, Pixmap)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Fills `pm` with the starfield, laid edge to edge from its top left corner.
+fn draw_stars(pm: &mut Pixmap, ppp: f32) {
+    STARS.with(|cell| {
+        let mut cache = cell.borrow_mut();
+        if cache.as_ref().is_none_or(|c| c.0 != ppp.to_bits()) {
+            *cache = starfield(ppp).map(|t| (ppp.to_bits(), t));
+        }
+        let Some((_, tile)) = cache.as_ref() else { return };
+        let shader =
+            tiny_skia::Pattern::new(tile.as_ref(), SpreadMode::Repeat, tiny_skia::FilterQuality::Nearest, 1.0, Transform::identity());
+        let p = Paint { shader, ..Paint::default() };
+        if let Some(r) = tiny_skia::Rect::from_xywh(0.0, 0.0, pm.width() as f32, pm.height() as f32) {
+            pm.fill_rect(r, &p, Transform::identity(), None);
+        }
+    });
+}
+
+/// The globe's backdrop and lighting depend only on the view size, zoom, ocean and stars, not on
+/// the rotation, so they are drawn once and reused while the globe turns.
 struct GlobeLayers {
-    key: (u32, u32, u32, u32, u32, u32, rustgis_map::Basemap, [u8; 4], bool),
+    key: (u32, u32, u32, u32, u32, u32, [u8; 4], bool),
     backdrop: Pixmap,
     shading: Pixmap,
 }
@@ -1055,15 +1570,7 @@ thread_local! {
     static GLOBE_LAYERS: std::cell::RefCell<Option<GlobeLayers>> = const { std::cell::RefCell::new(None) };
 }
 
-fn with_globe_layers(
-    pm: &mut Pixmap,
-    g: &Globe,
-    basemap: rustgis_map::Basemap,
-    water: Rgba,
-    dark: bool,
-    ppp: f32,
-    f: impl FnOnce(&mut Pixmap, &GlobeLayers),
-) {
+fn with_globe_layers(pm: &mut Pixmap, g: &Globe, water: Rgba, stars: bool, ppp: f32, f: impl FnOnce(&mut Pixmap, &GlobeLayers)) {
     let (cx, cy) = g.center();
     let key = (
         pm.width(),
@@ -1072,9 +1579,8 @@ fn with_globe_layers(
         (cx as f32).to_bits(),
         (cy as f32).to_bits(),
         (g.disc_radius() as f32).to_bits(),
-        basemap,
         water.0,
-        dark,
+        stars,
     );
     GLOBE_LAYERS.with(|cell| {
         let mut cache = cell.borrow_mut();
@@ -1083,7 +1589,7 @@ fn with_globe_layers(
             else {
                 return;
             };
-            draw_globe_backdrop(&mut backdrop, g, basemap, water, dark, ppp);
+            draw_globe_backdrop(&mut backdrop, g, water, stars, ppp);
             draw_globe_shading(&mut shading, g, ppp);
             *cache = Some(GlobeLayers { key, backdrop, shading });
         }
@@ -1093,30 +1599,36 @@ fn with_globe_layers(
     });
 }
 
-fn globe_backdrop(pm: &mut Pixmap, g: &Globe, basemap: rustgis_map::Basemap, water: Rgba, dark: bool, ppp: f32) {
-    with_globe_layers(pm, g, basemap, water, dark, ppp, |pm, c| pm.data_mut().copy_from_slice(c.backdrop.data()));
+fn globe_backdrop(pm: &mut Pixmap, g: &Globe, water: Rgba, stars: bool, ppp: f32) {
+    with_globe_layers(pm, g, water, stars, ppp, |pm, c| pm.data_mut().copy_from_slice(c.backdrop.data()));
 }
 
-fn globe_shading(pm: &mut Pixmap, g: &Globe, basemap: rustgis_map::Basemap, water: Rgba, dark: bool, ppp: f32) {
-    with_globe_layers(pm, g, basemap, water, dark, ppp, |pm, c| {
+fn globe_shading(pm: &mut Pixmap, g: &Globe, water: Rgba, stars: bool, ppp: f32) {
+    with_globe_layers(pm, g, water, stars, ppp, |pm, c| {
         pm.draw_pixmap(0, 0, c.shading.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
     });
 }
 
-/// The globe's surroundings and ocean: space (or a soft backdrop), an atmosphere glow, and the
+/// The globe's surroundings and ocean: space (starry, when `stars`), an atmosphere glow, and the
 /// ocean disc.
-fn draw_globe_backdrop(pm: &mut Pixmap, g: &Globe, basemap: rustgis_map::Basemap, water: Rgba, dark_ui: bool, ppp: f32) {
-    let dark = dark_ui || basemap == rustgis_map::Basemap::Midnight;
-    let bg = globe_space(dark_ui, basemap);
+fn draw_globe_backdrop(pm: &mut Pixmap, g: &Globe, water: Rgba, stars: bool, ppp: f32) {
+    let bg = globe_space();
     pm.fill(tiny_skia::Color::from_rgba8(bg.r(), bg.g(), bg.b(), 255));
+    if stars {
+        draw_stars(pm, ppp);
+    }
     let (cx, cy) = g.center();
-    let (cx, cy, r) = (cx as f32 * ppp, cy as f32 * ppp, g.disc_radius() as f32 * ppp);
+    draw_globe_disc(pm, cx as f32 * ppp, cy as f32 * ppp, g.disc_radius() as f32 * ppp, water);
+}
+
+/// The atmosphere glow and the ocean disc, for a disc of radius `r` pixels at (`cx`, `cy`).
+fn draw_globe_disc(pm: &mut Pixmap, cx: f32, cy: f32, r: f32, water: Rgba) {
     if !(r.is_finite() && r > 0.5 && cx.is_finite() && cy.is_finite()) {
         return;
     }
     // Atmosphere: a glow fading out just beyond the limb.
     let glow_r = r * 1.07;
-    let glow = if dark { (0x5A, 0x9B, 0xF0, 150) } else { (0x7F, 0xB4, 0xE8, 120) };
+    let glow = (0x5A, 0x9B, 0xF0, 150);
     if let Some(shader) = RadialGradient::new(
         Point::from_xy(cx, cy),
         0.0,
@@ -1142,7 +1654,11 @@ fn draw_globe_backdrop(pm: &mut Pixmap, g: &Globe, basemap: rustgis_map::Basemap
 /// Light from the upper left: a soft highlight and a darker limb, so the globe reads as a sphere.
 fn draw_globe_shading(pm: &mut Pixmap, g: &Globe, ppp: f32) {
     let (cx, cy) = g.center();
-    let (cx, cy, r) = (cx as f32 * ppp, cy as f32 * ppp, g.disc_radius() as f32 * ppp);
+    draw_globe_light(pm, cx as f32 * ppp, cy as f32 * ppp, g.disc_radius() as f32 * ppp);
+}
+
+/// The lighting of a disc of radius `r` pixels at (`cx`, `cy`).
+fn draw_globe_light(pm: &mut Pixmap, cx: f32, cy: f32, r: f32) {
     if !(r.is_finite() && r > 0.5 && cx.is_finite() && cy.is_finite()) {
         return;
     }
@@ -1165,6 +1681,75 @@ fn draw_globe_shading(pm: &mut Pixmap, g: &Globe, ppp: f32) {
         let p = Paint { shader, anti_alias: true, ..Paint::default() };
         pm.fill_path(&path, &p, FillRule::Winding, Transform::identity(), None);
     }
+}
+
+/// How far the atmosphere glow reaches, in disc radii.
+pub const GLOBE_GLOW: f32 = 1.07;
+
+/// The globe's surroundings as two square sprites for a disc of radius `r` pixels, centred in
+/// them (side `2 × GLOBE_GLOW × r`): the atmosphere and ocean drawn under the map, and the
+/// lighting drawn over it. Neither changes as the globe turns, so a view can scale them while it
+/// moves instead of drawing them again.
+pub fn globe_sprites(basemap: rustgis_map::Basemap, r: f32) -> Option<(Pixmap, Pixmap)> {
+    if !(r.is_finite() && r >= 1.0) {
+        return None;
+    }
+    // A whole number of pixels a side, with the disc exactly in proportion to it.
+    let side = (2.0 * GLOBE_GLOW * r.min(2048.0)).round().max(2.0);
+    let (r, c) = (side / (2.0 * GLOBE_GLOW), side / 2.0);
+    let (mut under, mut over) = (Pixmap::new(side as u32, side as u32)?, Pixmap::new(side as u32, side as u32)?);
+    draw_globe_disc(&mut under, c, c, r, basemap.palette().0);
+    draw_globe_light(&mut over, c, c, r);
+    Some((under, over))
+}
+
+/// A part of the map drawn flat, in Web Mercator, to lay over the globe while it turns.
+pub struct DrapePatch {
+    pub pixmap: Pixmap,
+    /// The Web Mercator box the picture shows.
+    pub merc: Extent,
+}
+
+/// Draws the longitude/latitude `boxes` (from `Globe::drape_extents`) of a globe map flat, at
+/// the view's scale, each picture at most `max_side` pixels a side (coarser beyond that). The
+/// globe view then drapes them over the sphere ([`rustgis_map::Globe::drape_mesh`]) while it
+/// turns, with no drawing per frame. Labels are left out (the view hides them while it moves).
+pub fn render_globe_drape(map: &mut Map, view: &View, boxes: &[Extent], max_side: u32) -> Vec<DrapePatch> {
+    let ppp = if view.pixels_per_point.is_finite() { view.pixels_per_point.clamp(0.25, 4.0) } else { 1.0 };
+    let res = view.camera.res;
+    if !(res.is_finite() && res > 0.0) {
+        return Vec::new();
+    }
+    let max_side = f64::from(max_side.clamp(64, 8192));
+    let projection = std::mem::replace(&mut map.projection, rustgis_map::Projection::WebMercator);
+    let (display, lock) = (map.label_display, map.label_lock.take());
+    map.label_display.paused = true;
+    let mut out = Vec::new();
+    for b in boxes {
+        let merc = extent_to_merc(b);
+        if merc.is_empty() || !(merc.width() > 0.0 && merc.height() > 0.0) {
+            continue;
+        }
+        // Metres per point: the view's, or coarser to fit the size limit.
+        let res = res.max(merc.width().max(merc.height()) * ppp / max_side);
+        // Whole points, rounded down so the picture never passes the size limit.
+        let (w, h) = ((merc.width() / res).floor().max(1.0), (merc.height() / res).floor().max(1.0));
+        if w * ppp < 2.0 || h * ppp < 2.0 {
+            continue;
+        }
+        let camera = Camera { center: merc.center(), res };
+        let v = View { width: w, height: h, pixels_per_point: ppp, camera };
+        // The picture is given the box asked for, though rounding to whole points made it show
+        // up to a point less: stretched by under a point, its edges stay exactly where asked, so
+        // one at the Web Mercator limit is still stretched on to the pole (drape_mesh).
+        if let Some(r) = render(map, &v) {
+            out.push(DrapePatch { pixmap: r.pixmap, merc });
+        }
+    }
+    map.projection = projection;
+    map.label_display = display;
+    map.label_lock = lock;
+    out
 }
 
 /// A halo that contrasts with the text colour.
@@ -1341,6 +1926,67 @@ mod tests {
     }
 
     #[test]
+    fn the_globe_drape_is_the_flat_map_of_its_box() {
+        let mut m = Map::new("Map");
+        let mut d = Dataset::new("pts", GeometryType::Point, vec![Field::new("name", FieldType::Text)]);
+        d.push(Some(Geometry::Point(Coord::new(2.35, 48.85))), vec![Value::Text("Paris".into())]);
+        m.add_dataset(d);
+        m.projection = rustgis_map::Projection::Globe;
+        let paris = lonlat_to_merc(Coord::new(2.35, 48.85));
+        let camera = Camera { center: paris, res: 2_000.0 };
+        let view = View { width: 400.0, height: 300.0, pixels_per_point: 1.0, camera };
+        let boxes = Globe::new(&camera, 400.0, 300.0).drape_extents(400.0, 300.0, 0.25);
+        let patches = render_globe_drape(&mut m, &view, &boxes, 4096);
+        assert_eq!(patches.len(), 1);
+        // The map is left as it was.
+        assert!(m.projection.is_globe() && m.label_lock.is_none() && !m.label_display.paused);
+        let p = &patches[0];
+        assert!(p.merc.contains(paris) && p.merc.contains(lonlat_to_merc(boxes[0].center())));
+        // Paris's marker is where the box puts it, as the flat map draws it.
+        let px = |pm: &Pixmap, x: f64, y: f64| pm.pixel(x as u32, y as u32).map(|c| (c.red(), c.green(), c.blue()));
+        let res = p.merc.width() / f64::from(p.pixmap.width());
+        let at = px(&p.pixmap, (paris.x - p.merc.min_x) / res, (p.merc.max_y - paris.y) / res);
+        m.projection = rustgis_map::Projection::WebMercator;
+        let flat = render(&mut m, &View { camera: Camera { center: paris, res }, ..view }).unwrap();
+        assert_eq!(at, px(&flat.pixmap, 200.0, 150.0));
+        // Too big a box is drawn coarser, within the limit; junk draws nothing.
+        let big = render_globe_drape(&mut m, &view, &[Extent::new(-180.0, -80.0, 180.0, 80.0)], 512);
+        assert!(big.iter().all(|p| p.pixmap.width() <= 512 && p.pixmap.height() <= 512));
+        // A box at the Web Mercator limit stays exactly there however coarse the picture, so its
+        // mesh still reaches the pole.
+        let lim = rustgis_geom::MAX_LAT;
+        // (30 km points leave a remainder: the picture is 1335 points tall, 0.8 of a point short.)
+        let coarse = View { camera: Camera { center: paris, res: 30_000.0 }, ..view };
+        let world = render_globe_drape(&mut m, &coarse, &[Extent::new(-180.0, -lim, 180.0, lim)], 4096);
+        let edge = std::f64::consts::PI * rustgis_geom::MERCATOR_R * 0.9999;
+        assert!(
+            world.iter().all(|p| p.merc.max_y >= edge && p.merc.min_y <= -edge),
+            "{:?}",
+            world.iter().map(|p| p.merc).collect::<Vec<_>>()
+        );
+        assert!(render_globe_drape(&mut m, &View { camera: Camera { center: paris, res: f64::NAN }, ..view }, &boxes, 4096).is_empty());
+        assert!(render_globe_drape(&mut m, &view, &[Extent::EMPTY], 4096).is_empty());
+        // The sprites: a square around the disc, or nothing for a junk radius.
+        let (under, over) = globe_sprites(rustgis_map::Basemap::Paper, 100.0).unwrap();
+        assert_eq!((under.width(), over.height()), (214, 214));
+        assert_eq!(under.pixel(107, 107).map(|c| c.alpha()), Some(255));
+        assert!(globe_sprites(rustgis_map::Basemap::Paper, f32::NAN).is_none());
+    }
+
+    #[test]
+    fn the_starfield_is_the_same_sky_every_time() {
+        let a = starfield(2.0).unwrap();
+        assert_eq!((a.width(), a.height()), (1024, 1024));
+        assert_eq!(a.data(), starfield(2.0).unwrap().data());
+        // Stars on a transparent sky.
+        let lit = a.pixels().iter().filter(|p| p.alpha() > 0).count();
+        assert!(lit > 100 && lit < a.pixels().len() / 20, "{lit}");
+        // Junk scales still give a tile.
+        assert!(starfield(f32::NAN).is_some_and(|t| t.width() == 512));
+        assert!(starfield(1e9).is_some_and(|t| t.width() == 2048));
+    }
+
+    #[test]
     fn renders_world_and_layers() {
         let mut m = Map::new("Map");
         let mut d = Dataset::new("pts", GeometryType::Point, vec![Field::new("name", FieldType::Text)]);
@@ -1351,7 +1997,7 @@ mod tests {
             l.selection = vec![0];
         }
         let camera = Camera { center: lonlat_to_merc(Coord::new(2.35, 48.85)), res: 5000.0 };
-        let view = View { width: 400.0, height: 300.0, pixels_per_point: 1.0, camera, dark: false };
+        let view = View { width: 400.0, height: 300.0, pixels_per_point: 1.0, camera };
         let r = render(&mut m, &view).unwrap();
         assert_eq!(r.labels.len(), 1);
         assert_eq!(r.labels[0].text, "Paris");
@@ -1364,8 +2010,349 @@ mod tests {
     fn degenerate_views_do_not_panic() {
         let mut m = Map::new("Map");
         for (w, h) in [(0.0, 0.0), (1e9, 1e9), (f64::NAN, 3.0)] {
-            let view = View { width: w, height: h, pixels_per_point: 1.0, camera: Camera::world(), dark: false };
+            let view = View { width: w, height: h, pixels_per_point: 1.0, camera: Camera::world() };
             let _ = render(&mut m, &view);
         }
+    }
+
+    /// The world sample the golden pixmap test renders.
+    fn sample_world() -> Map {
+        let mut m = Map::new("Map");
+        for (name, text) in [
+            ("Countries", sample_data::COUNTRIES),
+            ("Rivers", sample_data::RIVERS),
+            ("Lakes", sample_data::LAKES),
+            ("Cities", sample_data::CITIES),
+        ] {
+            if let Some(d) = world_dataset(name, text) {
+                m.add_dataset(d);
+            }
+        }
+        m
+    }
+
+    fn fnv1a(data: &[u8]) -> u64 {
+        let mut h = 0xcbf2_9ce4_8422_2325u64;
+        for b in data {
+            h = (h ^ u64::from(*b)).wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        h
+    }
+
+    /// Golden hash of the sample world render: a byte-lock proving the GPU-backend refactor
+    /// (Backend/RenderOutput plumbing) never changed the CPU path's output. tiny-skia is
+    /// deterministic IEEE f32 with no platform fast-math, so the hash should hold everywhere;
+    /// if a platform or a tiny-skia bump ever disagrees (CI runs Linux/macOS/Windows), convert
+    /// this to a handful of sampled pixels rather than deleting the lock.
+    #[test]
+    fn world_atlas_pixmap_is_byte_stable() {
+        let mut m = sample_world();
+        let view = View { width: 800.0, height: 500.0, pixels_per_point: 1.0, camera: Camera::world() };
+        let r = render(&mut m, &view).expect("render");
+        assert_eq!(r.pixmap.data().len(), 800 * 500 * 4);
+        let h = fnv1a(r.pixmap.data());
+        // Point markers are stamped from sprites at quarter-pixel offsets (the cities' anti-aliased
+        // edges moved by up to an eighth of a pixel); nothing else changed this frame.
+        assert_eq!(h, 0x89e2_f6ec_5589_a46e, "golden pixmap hash changed: {h:#x}");
+    }
+
+    fn square_layer(m: &mut Map, name: &str, x: f64, y: f64, s: f64) -> u32 {
+        let mut d = Dataset::new(name, GeometryType::Polygon, vec![]);
+        d.push(
+            Some(Geometry::Polygon(vec![vec![vec![
+                Coord::new(x, y),
+                Coord::new(x + s, y),
+                Coord::new(x + s, y + s),
+                Coord::new(x, y + s),
+            ]]])),
+            vec![],
+        );
+        m.add_dataset(d)
+    }
+
+    fn cmd_kinds(scene: &gpu_scene::GpuScene) -> Vec<&'static str> {
+        scene
+            .cmds
+            .iter()
+            .map(|c| match c {
+                gpu_scene::DrawCmd::Mesh { .. } => "mesh",
+                gpu_scene::DrawCmd::Points { .. } => "points",
+                gpu_scene::DrawCmd::Image { .. } => "image",
+            })
+            .collect()
+    }
+
+    #[test]
+    fn gpu_backend_builds_scene_for_flat_world() {
+        let mut m = sample_world();
+        if let Some(l) = m.layers.iter_mut().find(|l| l.name == "Cities") {
+            l.labels.enabled = true;
+        }
+        let view = View { width: 800.0, height: 500.0, pixels_per_point: 1.0, camera: Camera::world() };
+        let Some(RenderOutput::Gpu(scene)) = render_backend(&mut m, &view, Backend::Gpu) else { panic!("gpu scene") };
+        let kinds = cmd_kinds(&scene);
+        assert!(kinds.iter().filter(|k| **k == "mesh").count() >= 2, "countries/lakes/rivers as meshes: {kinds:?}");
+        assert!(kinds.contains(&"points"), "cities as marker instances: {kinds:?}");
+        // The label channel is identical to the CPU render's.
+        let mut m2 = sample_world();
+        if let Some(l) = m2.layers.iter_mut().find(|l| l.name == "Cities") {
+            l.labels.enabled = true;
+        }
+        let cpu = render(&mut m2, &view).expect("cpu");
+        assert_eq!(scene.labels.len(), cpu.labels.len());
+        assert_eq!(scene.labels.first().map(|l| l.text.as_str()), cpu.labels.first().map(|l| l.text.as_str()));
+    }
+
+    #[test]
+    fn gpu_backend_interleaves_cpu_image_for_blended_layer() {
+        let mut m = Map::new("Map");
+        // Layers draw bottom-up: the last one in the list first.
+        square_layer(&mut m, "a", 0.0, 0.0, 10.0);
+        let b = square_layer(&mut m, "b", 20.0, 0.0, 10.0);
+        square_layer(&mut m, "c", 40.0, 0.0, 10.0);
+        if let Some(l) = m.layer_mut(b) {
+            l.blend = rustgis_map::effects::Blend::Multiply;
+        }
+        let view = View { width: 400.0, height: 300.0, pixels_per_point: 1.0, camera: Camera::world() };
+        let Some(RenderOutput::Gpu(scene)) = render_backend(&mut m, &view, Backend::Gpu) else { panic!("gpu scene") };
+        let kinds = cmd_kinds(&scene);
+        let last_image = kinds.iter().rposition(|k| *k == "image").expect("the blended layer's cpu image");
+        assert!(kinds[..last_image].contains(&"mesh"), "a mesh below the blended layer: {kinds:?}");
+        assert!(kinds[last_image + 1..].contains(&"mesh"), "a mesh above the blended layer: {kinds:?}");
+    }
+
+    #[test]
+    fn gpu_backend_skips_the_spurious_image_for_hidden_tile_layers() {
+        let mut m = sample_world();
+        m.tiles.push(rustgis_map::TileLayer::new("hidden", rustgis_map::TileKind::Raster, "https://example.invalid/{z}/{x}/{y}.png"));
+        for t in &mut m.tiles {
+            t.visible = false;
+        }
+        let view = View { width: 800.0, height: 500.0, pixels_per_point: 1.0, camera: Camera::world() };
+        let Some(RenderOutput::Gpu(scene)) = render_backend(&mut m, &view, Backend::Gpu) else { panic!("gpu scene") };
+        assert!(!scene.cmds.iter().any(|c| matches!(c, gpu_scene::DrawCmd::Image { .. })), "hidden tiles must not emit an empty image");
+    }
+
+    #[test]
+    fn gpu_backend_caps_image_commands_to_a_cpu_frame() {
+        // More than four alternating CPU-only layers costs more full-screen uploads than a
+        // plain CPU rasterization: the whole frame goes to the CPU backend.
+        let build = |blends: usize| {
+            let mut m = Map::new("Map");
+            for i in 0..(blends * 2 + 1) {
+                let id = square_layer(&mut m, &format!("l{i}"), i as f64 * 20.0, 0.0, 10.0);
+                if i % 2 == 1
+                    && let Some(l) = m.layer_mut(id)
+                {
+                    l.transparency = 50.0; // offscreen-composited → an image command each
+                }
+            }
+            m
+        };
+        let view = View { width: 400.0, height: 300.0, pixels_per_point: 1.0, camera: Camera::world() };
+        let mut three = build(3);
+        let Some(RenderOutput::Gpu(scene)) = render_backend(&mut three, &view, Backend::Gpu) else { panic!("3 blends stays gpu") };
+        assert_eq!(scene.cmds.iter().filter(|c| matches!(c, gpu_scene::DrawCmd::Image { .. })).count(), 3);
+        let mut five = build(5);
+        assert!(
+            matches!(render_backend(&mut five, &view, Backend::Gpu), Some(RenderOutput::Cpu(_))),
+            "5 blends falls back to the cpu frame"
+        );
+    }
+
+    #[test]
+    fn gpu_backend_appends_selection_highlight() {
+        let mut m = Map::new("Map");
+        let id = square_layer(&mut m, "s", 0.0, 0.0, 10.0);
+        if let Some(l) = m.layer_mut(id) {
+            l.selection = vec![0];
+        }
+        let view = View { width: 400.0, height: 300.0, pixels_per_point: 1.0, camera: Camera::world() };
+        let Some(RenderOutput::Gpu(scene)) = render_backend(&mut m, &view, Backend::Gpu) else { panic!("gpu scene") };
+        let kinds = cmd_kinds(&scene);
+        assert_eq!(kinds.last(), Some(&"mesh"), "the highlight mesh follows the layer: {kinds:?}");
+        assert!(kinds.iter().filter(|k| **k == "mesh").count() >= 2, "layer mesh + highlight mesh: {kinds:?}");
+    }
+
+    #[test]
+    fn gpu_scene_carries_backdrop_as_clear_color_and_no_image_for_pure_vectors() {
+        let mut m = sample_world();
+        let view = View { width: 800.0, height: 500.0, pixels_per_point: 1.0, camera: Camera::world() };
+        let Some(RenderOutput::Gpu(scene)) = render_backend(&mut m, &view, Backend::Gpu) else { panic!("gpu scene") };
+        assert!(
+            !scene.cmds.iter().any(|c| matches!(c, gpu_scene::DrawCmd::Image { .. })),
+            "a pure-vector scene must carry no CPU image (it would poison the camera fast path): {} cmds",
+            scene.cmds.len()
+        );
+        let (water, ..) = m.basemap.palette();
+        assert_eq!(scene.clear, mesh::premul(water), "the clear colour is the basemap's water");
+    }
+
+    #[test]
+    fn gpu_backend_skips_non_finite_stroke_widths() {
+        // A hostile symbol state (NaN stroke width) must not put NaN vertices on the GPU:
+        // the line's stroke is skipped, the rest of the scene is unaffected.
+        let mut m = Map::new("Map");
+        let mut d = Dataset::new("l", GeometryType::Polyline, vec![]);
+        d.push(Some(Geometry::Line(vec![vec![Coord::new(-50.0, 0.0), Coord::new(50.0, 0.0)]])), vec![]);
+        let id = m.add_dataset(d);
+        if let Some(l) = m.layer_mut(id) {
+            l.renderer = rustgis_map::Renderer::Single(rustgis_map::Symbol {
+                fill: rustgis_map::Rgba::rgb(0, 0, 200),
+                stroke: rustgis_map::Rgba::rgb(0, 0, 200),
+                stroke_width: f32::NAN,
+                size: 0.0,
+                marker: rustgis_map::Marker::Circle,
+            });
+        }
+        let view = View { width: 400.0, height: 300.0, pixels_per_point: 1.0, camera: Camera::world() };
+        let Some(RenderOutput::Gpu(scene)) = render_backend(&mut m, &view, Backend::Gpu) else { panic!("gpu scene") };
+        for c in &scene.cmds {
+            if let gpu_scene::DrawCmd::Mesh { vertices, .. } = c {
+                assert!(vertices.iter().all(|v| v.position[0].is_finite() && v.position[1].is_finite() && v.stroke_px.is_finite()));
+            }
+        }
+    }
+
+    #[test]
+    fn gpu_backend_handles_non_finite_geometry_without_panicking() {
+        // A polygon with a NaN vertex (hostile file): the GPU drops the point (lyon's path
+        // builder panics on NaN — never feed it), the healthy layer still tessellates, and
+        // the frame completes like the CPU's.
+        let build = || {
+            let mut m = Map::new("Map");
+            let mut d = Dataset::new("bad", GeometryType::Polygon, vec![]);
+            d.push(
+                Some(Geometry::Polygon(vec![vec![vec![
+                    Coord::new(0.0, 0.0),
+                    Coord::new(10.0, f64::NAN),
+                    Coord::new(10.0, 10.0),
+                    Coord::new(0.0, 10.0),
+                ]]])),
+                vec![],
+            );
+            m.add_dataset(d);
+            square_layer(&mut m, "good", 30.0, 0.0, 10.0);
+            m
+        };
+        let view = View { width: 400.0, height: 300.0, pixels_per_point: 1.0, camera: Camera::world() };
+        let mut gm = build();
+        let Some(RenderOutput::Gpu(scene)) = render_backend(&mut gm, &view, Backend::Gpu) else { panic!("gpu scene") };
+        assert!(cmd_kinds(&scene).contains(&"mesh"), "the healthy layer tessellated");
+        let mut cm = build();
+        assert!(render(&mut cm, &view).is_some(), "cpu frame completes too");
+    }
+
+    #[test]
+    fn gpu_backend_falls_back_for_globe_and_effects() {
+        let mut m = sample_world();
+        let view = View { width: 400.0, height: 300.0, pixels_per_point: 1.0, camera: Camera::world() };
+        m.projection = rustgis_map::Projection::Globe;
+        assert!(matches!(render_backend(&mut m, &view, Backend::Gpu), Some(RenderOutput::Cpu(_))), "globe stays on the CPU renderer");
+        m.projection = rustgis_map::Projection::WebMercator;
+        m.view.effects.vignette = true;
+        assert!(matches!(render_backend(&mut m, &view, Backend::Gpu), Some(RenderOutput::Cpu(_))), "view effects stay on the CPU renderer");
+    }
+
+    #[test]
+    fn deep_zoom_on_the_coast_does_not_panic() {
+        // Zoomed in to millimetres on a coastline, the land polygon's far vertices were billions
+        // of pixels away, and the rasteriser indexed past its buffer.
+        let mut m = Map::new("Map");
+        for res in [0.05, 0.008, 0.001, 1e-5] {
+            let camera = Camera { center: lonlat_to_merc(Coord::new(-122.2585, 37.8719)), res };
+            let view = View { width: 1600.0, height: 1000.0, pixels_per_point: 1.0, camera };
+            assert!(render(&mut m, &view).is_some(), "{res}");
+        }
+    }
+
+    #[test]
+    fn clips_rings_and_lines_to_a_box() {
+        let b = Extent { min_x: 0.0, min_y: 0.0, max_x: 10.0, max_y: 10.0 };
+        // A square far bigger than the box clips to the box.
+        let big = [(-1e9, -1e9), (1e9, -1e9), (1e9, 1e9), (-1e9, 1e9)];
+        let c = clip_ring(&big, &b);
+        assert_eq!(c.len(), 4);
+        assert!(c.iter().all(|p| (p.0 == 0.0 || p.0 == 10.0) && (p.1 == 0.0 || p.1 == 10.0)), "{c:?}");
+        // One wholly outside clips away; one inside is kept as it is.
+        assert!(clip_ring(&[(20.0, 20.0), (30.0, 20.0), (30.0, 30.0)], &b).is_empty());
+        let inside = [(1.0, 1.0), (5.0, 1.0), (5.0, 5.0)];
+        assert_eq!(clip_ring(&inside, &b), inside.to_vec());
+        // A line in and out of the box comes back as its two parts inside.
+        let parts = clip_line(&[(-5.0, 2.0), (5.0, 2.0), (5.0, 20.0), (8.0, 20.0), (8.0, 5.0), (15.0, 5.0)], &b);
+        assert_eq!(parts, vec![vec![(0.0, 2.0), (5.0, 2.0), (5.0, 10.0)], vec![(8.0, 10.0), (8.0, 5.0), (10.0, 5.0)]]);
+        assert!(clip_line(&[(-5.0, -5.0), (-1.0, 20.0)], &b).is_empty());
+    }
+
+    #[test]
+    fn stamped_markers_match_drawn_ones() {
+        let view = View { width: 120.0, height: 80.0, pixels_per_point: 1.0, camera: Camera { center: Coord::new(0.0, 0.0), res: 1.0 } };
+        let ctx = Ctx { view: &view, ppp: 1.0, wireframe: false, cull: Extent::EMPTY, globe: None, sprites: Default::default() };
+        for marker in Marker::ALL {
+            let s = Symbol { fill: Rgba::new(200, 60, 30, 200), stroke: Rgba::rgb(20, 20, 20), stroke_width: 1.2, size: 9.0, marker };
+            let (mut stamped, mut drawn) = (Pixmap::new(120, 80).unwrap(), Pixmap::new(120, 80).unwrap());
+            // Points on and off the quarter-pixel grid, and over the image's edge.
+            for c in
+                [Coord::new(-30.0, 10.0), Coord::new(5.37, -12.81), Coord::new(25.25, 3.5), Coord::new(-61.0, 0.0), Coord::new(40.0, 41.0)]
+            {
+                ctx.stamp(&mut stamped, c, &s);
+                ctx.stamp(&mut stamped, c, &s); // the second comes from the cache
+                ctx.marker(&mut drawn, c, &s, 1.0, None);
+                ctx.marker(&mut drawn, c, &s, 1.0, None);
+            }
+            let worst = stamped.data().iter().zip(drawn.data()).map(|(a, b)| a.abs_diff(*b)).max().unwrap_or(0);
+            assert!(worst < 120, "{marker:?}: {worst}");
+            let total: u64 = stamped.data().iter().zip(drawn.data()).map(|(a, b)| a.abs_diff(*b) as u64).sum();
+            let ink: u64 = drawn.data().iter().map(|v| *v as u64).sum();
+            assert!(total * 20 < ink, "{marker:?}: {total} of {ink}");
+        }
+        assert!(ctx.sprites.borrow().len() <= 5 * 16);
+    }
+
+    #[test]
+    fn only_features_still_under_a_pixel_with_their_outline_are_splatted() {
+        let view = View { width: 100.0, height: 100.0, pixels_per_point: 2.0, camera: Camera { center: Coord::new(0.0, 0.0), res: 1.0 } };
+        let ctx = Ctx { view: &view, ppp: 2.0, wireframe: false, cull: Extent::EMPTY, globe: None, sprites: Default::default() };
+        let ring = vec![Coord::new(0.0, 0.0), Coord::new(0.25, 0.0), Coord::new(0.25, 0.25), Coord::new(0.0, 0.25), Coord::new(0.0, 0.0)];
+        let g = Geometry::Polygon(vec![vec![ring]]);
+        let mut pm = Pixmap::new(200, 200).unwrap();
+        let thin = Symbol { fill: Rgba::rgb(200, 0, 0), stroke: Rgba::rgb(0, 0, 0), stroke_width: 0.5, size: 0.0, marker: Marker::Circle };
+        assert!(ctx.splat(&mut pm, &g.extent(), &g, &thin), "0.5 px across with a 1 px outline");
+        // A 3 pt outline at 2× is 6 px wide: drawn as a ring, not a dot.
+        let thick = Symbol { stroke_width: 3.0, ..thin };
+        assert!(!ctx.splat(&mut pm, &g.extent(), &g, &thick));
+    }
+
+    #[test]
+    fn features_under_a_pixel_still_show() {
+        // A dense grid of tiny squares seen whole: each is splatted rather than filled as a path,
+        // and the area still comes out the colour of their outlines.
+        let mut m = Map::new("Map");
+        m.basemap = rustgis_map::Basemap::Blank;
+        let mut d = Dataset::new("cells", GeometryType::Polygon, vec![]);
+        for i in 0..100 {
+            for j in 0..100 {
+                let (x, y) = (i as f64 * 0.01, j as f64 * 0.01);
+                let ring = vec![
+                    Coord::new(x, y),
+                    Coord::new(x + 0.005, y),
+                    Coord::new(x + 0.005, y + 0.005),
+                    Coord::new(x, y + 0.005),
+                    Coord::new(x, y),
+                ];
+                d.push(Some(Geometry::Polygon(vec![vec![ring]])), vec![]);
+            }
+        }
+        let id = m.add_dataset(d);
+        let sym = m.layer(id).map(|l| l.symbol(0)).unwrap();
+        let camera = Camera { center: lonlat_to_merc(Coord::new(0.5, 0.5)), res: 2000.0 };
+        let view = View { width: 200.0, height: 200.0, pixels_per_point: 1.0, camera };
+        let r = render(&mut m, &view).unwrap();
+        let px = |x: u32, y: u32| r.pixmap.pixel(x, y).unwrap();
+        let (centre, corner) = (px(100, 100), px(2, 2));
+        assert_ne!((centre.red(), centre.green(), centre.blue()), (corner.red(), corner.green(), corner.blue()));
+        // Towards the outline's colour (darker than the blank basemap).
+        let lum = |p: tiny_skia::PremultipliedColorU8| p.red() as u32 + p.green() as u32 + p.blue() as u32;
+        assert!(lum(centre) < lum(corner), "{centre:?} vs {corner:?} ({sym:?})");
     }
 }

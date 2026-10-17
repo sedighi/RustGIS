@@ -10,7 +10,9 @@ Every asset file in this repository, with its source and licence.
 
 Raster coordinate systems are looked up by EPSG code in the PROJ definitions of the
 [crs-definitions](https://crates.io/crates/crs-definitions) crate (CC0-1.0), compiled into the
-app.
+app. The codes it lacks (EPSG 9020–20003, `crates/data/src/raster/epsg_gap.rs`) are from the
+[EPSG Geodetic Parameter Dataset](https://epsg.org) v12.029 (© IOGP, under its
+[terms of use](https://epsg.org/terms-of-use.html)), written as PROJ definitions by PROJ 9.8.
 
 The GeoLibre tool suite ([geolibre-rust](https://github.com/opengeos/geolibre-rust), MIT, built
 on [whitebox-wasm](https://github.com/opengeos/whitebox-wasm), MIT) is not part of RustGIS: the

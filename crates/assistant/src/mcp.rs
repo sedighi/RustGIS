@@ -38,10 +38,18 @@ Open data with the layer.addData command ({\"path\": …}) and save with project
 file and network access works only when the server was started with --yes.";
 
 /// The server: the session's access policy. The session itself is the caller's.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Server {
     /// Whether commands may read and write files, use the network and run plugin commands.
     pub allow_access: bool,
+    /// The skills offered as prompts ([`crate::skills`]).
+    pub skills: Vec<crate::skills::Skill>,
+}
+
+impl Default for Server {
+    fn default() -> Self {
+        Self::new(false)
+    }
 }
 
 /// A JSON-RPC error: its code and message.
@@ -59,8 +67,10 @@ const RESOURCE_NOT_FOUND: i64 = -32002;
 const PROJECT_COMMANDS: &[&str] = &["project.new", "project.open", "project.openText", "project.sample", "project.fromTemplate"];
 
 impl Server {
+    /// A server with the built-in skills. `rustgis-cli mcp` and the desktop's relay replace them
+    /// with the skills switched on (`skills::installed`): the user's, the plugins' and shared ones.
     pub fn new(allow_access: bool) -> Self {
-        Self { allow_access }
+        Self { allow_access, skills: crate::skills::built_in() }
     }
 
     /// Handles one message (a line of JSON): the reply to send, or `None` for a notification or
@@ -137,7 +147,17 @@ impl Server {
                     uri.strip_prefix("rustgis://docs/").and_then(docs::page).ok_or((RESOURCE_NOT_FOUND, format!("no resource '{uri}'")))?;
                 Ok(json!({"contents": [{"uri": uri, "mimeType": "text/markdown", "text": page.text}]}))
             }
-            "prompts/list" => Ok(json!({"prompts": []})),
+            // Skills, as prompts: a client offers them to its user, or reads them for its model.
+            "prompts/list" => Ok(
+                json!({"prompts": self.skills.iter().map(|s| json!({"name": s.name, "description": s.description})).collect::<Vec<_>>()}),
+            ),
+            "prompts/get" => {
+                let name = params.get("name").and_then(Value::as_str).ok_or((INVALID_PARAMS, "name is required".to_string()))?;
+                let skill = self.skills.iter().find(|s| s.name == name).ok_or((INVALID_PARAMS, format!("no prompt '{name}'")))?;
+                Ok(
+                    json!({"description": skill.description, "messages": [{"role": "user", "content": {"type": "text", "text": skill.body}}]}),
+                )
+            }
             _ => Err((METHOD_NOT_FOUND, format!("unknown method '{method}'"))),
         }
     }
@@ -147,12 +167,6 @@ impl Server {
         let text = |t: String, is_error: bool| json!({"content": [{"type": "text", "text": t}], "isError": is_error});
         let result = match name {
             "view_map" => return view_map(s, &args).unwrap_or_else(|e| text(e, true)),
-            "search_docs" => {
-                let limit = args.get("limit").and_then(Value::as_u64).map_or(8, |n| usize::try_from(n).unwrap_or(30));
-                docs::search(args.get("query").and_then(Value::as_str).unwrap_or(""), limit).map(|v| v.to_string())
-            }
-            "read_doc" => docs::read(args.get("page").and_then(Value::as_str).unwrap_or(""), args.get("section").and_then(Value::as_str))
-                .map(|v| v.to_string()),
             _ => {
                 let call = ToolCall { id: String::new(), name: name.to_string(), args };
                 match self.refusal(s, &call) {
@@ -197,14 +211,14 @@ fn initialize(params: &Value) -> Value {
     let version = VERSIONS.iter().find(|v| **v == asked).copied().unwrap_or(VERSIONS[0]);
     json!({
         "protocolVersion": version,
-        "capabilities": {"tools": {"listChanged": false}, "resources": {"listChanged": false}},
+        "capabilities": {"tools": {"listChanged": false}, "resources": {"listChanged": false}, "prompts": {"listChanged": false}},
         "serverInfo": {"name": "rustgis", "title": "RustGIS", "version": env!("CARGO_PKG_VERSION")},
         "instructions": INSTRUCTIONS,
     })
 }
 
 /// The tools this server adds to the assistant's.
-const TOOL_NAMES: &[&str] = &["view_map", "search_docs", "read_doc"];
+const TOOL_NAMES: &[&str] = &["view_map"];
 
 /// Tools that only look: list, search, read, view.
 fn read_only(name: &str) -> bool {
@@ -215,10 +229,13 @@ fn tool_list() -> Vec<Value> {
     let mut out: Vec<Value> = tools::defs()
         .into_iter()
         .map(|d| {
-            let description = if d.name == "run_command" {
-                "Run a RustGIS command by id with JSON parameters (see search_commands for ids and parameters). Each run is one undo step (edit.undo undoes it). Commands that read or write files or use the network run only when the server was started with --yes."
-            } else {
-                d.description
+            let description = match d.name {
+                "run_command" => "Run a RustGIS command by id with JSON parameters (see search_commands for ids and parameters). Each run is one undo step (edit.undo undoes it). Commands that read or write files or use the network run only when the server was started with --yes.".to_string(),
+                "read_doc" => {
+                    let pages: Vec<&str> = docs::PAGES.iter().map(|p| p.path).collect();
+                    format!("Read a RustGIS documentation page or section as Markdown. Use next_offset to continue budgeted results. Pages: {}.", pages.join(", "))
+                }
+                _ => d.description.to_string(),
             };
             json!({"name": d.name, "description": description, "inputSchema": d.schema, "annotations": annotations(d.name)})
         })
@@ -234,33 +251,6 @@ fn tool_list() -> Vec<Value> {
             }
         },
         "annotations": annotations("view_map"),
-    }));
-    out.push(json!({
-        "name": "search_docs",
-        "description": "Search the RustGIS documentation (user guide, command line, plugins, installation…) by words. Returns the best matching sections: page, section, address and a snippet; read_doc reads one.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Words to look for, e.g. \"graduated symbols\", \"vector tiles\""},
-                "limit": {"type": "integer", "description": "At most this many (default 8)"}
-            },
-            "required": ["query"]
-        },
-        "annotations": annotations("search_docs"),
-    }));
-    let pages: Vec<&str> = docs::PAGES.iter().map(|p| p.path).collect();
-    out.push(json!({
-        "name": "read_doc",
-        "description": format!("Read a RustGIS documentation page as Markdown, or one section of it. Pages: {}.", pages.join(", ")),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "page": {"type": "string", "description": "Page path, e.g. user-guide/cartography.md"},
-                "section": {"type": "string", "description": "A section heading (default the whole page)"}
-            },
-            "required": ["page"]
-        },
-        "annotations": annotations("read_doc"),
     }));
     out
 }
@@ -308,6 +298,24 @@ fn view_map(s: &mut Session, a: &Value) -> Result<Value, String> {
         ],
         "isError": false,
     }))
+}
+
+/// Whether the server answers this message: a request (an id, not a response to one) or an
+/// unparseable line. A transport that waits for the server's reply — the relay client — needs
+/// this to know a notification gets none.
+pub fn expects_reply(message: &str) -> bool {
+    // A non-object is an INVALID_REQUEST the server answers (`handle_value`), so it expects a
+    // reply too; an object answers when it has an id and is neither a result nor an error.
+    let replies = |m: &Value| match m.as_object() {
+        None => true,
+        Some(o) => o.contains_key("id") && !o.contains_key("result") && !o.contains_key("error"),
+    };
+    match serde_json::from_str::<Value>(message) {
+        Ok(Value::Array(batch)) => batch.is_empty() || batch.iter().any(replies),
+        Ok(v) => replies(&v),
+        // Not JSON: the server answers with a parse error.
+        Err(_) => true,
+    }
 }
 
 fn error_value(id: &Value, code: i64, message: &str) -> Value {

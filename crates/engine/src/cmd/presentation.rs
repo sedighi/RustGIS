@@ -1,4 +1,4 @@
-//! Data › Project (New and Import Presentation), Publish › Page (Map, Blank, Image, Video), and
+//! Publish › Presentation (New and Import Presentation), Publish › Page (Map, Blank, Image, Video), and
 //! Publish › Save As (Presentation File) and Output (Export Presentation): presentations.
 
 use std::path::Path;
@@ -24,7 +24,7 @@ fn need_presentation(s: &Session) -> Option<&'static str> {
 
 pub fn commands() -> Vec<C> {
     vec![
-        C::new("presentation.new", "New Presentation", "Data › Project", |s, p| {
+        C::new("presentation.new", "New Presentation", "Publish › Presentation", |s, p| {
             let name = unique_name(s, ps(p, "name").unwrap_or("Presentation"));
             let mut pres = Presentation { name: name.clone(), ..Presentation::default() };
             // A title page to start from.
@@ -44,7 +44,7 @@ pub fn commands() -> Vec<C> {
             Ok(json!({"presentation": i, "name": name}))
         })
         .params(r#"{"name"?, "title"?: the title page's text}"#),
-        C::new("presentation.import", "Import Presentation", "Data › Project", |s, p| {
+        C::new("presentation.import", "Import Presentation", "Publish › Presentation", |s, p| {
             let text = super::items::read_text(p)?;
             let mut pres: Presentation = serde_json::from_str(&text).map_err(|e| format!("not a RustGIS presentation: {e}"))?;
             pres.clamp();

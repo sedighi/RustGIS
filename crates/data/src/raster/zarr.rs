@@ -91,6 +91,21 @@ impl DType {
         DType { kind, size: bits.parse::<usize>().ok()? / 8, little: true }.valid()
     }
 
+    /// `v` stored as this type, in the byte order given (a fill value).
+    fn encode(self, v: f64, little: bool) -> Vec<u8> {
+        let mut b = match (self.kind, self.size) {
+            (Kind::Float, 8) => v.to_le_bytes().to_vec(),
+            (Kind::Float, 4) => (v as f32).to_le_bytes().to_vec(),
+            (Kind::Float, _) => to_f16(v).to_le_bytes().to_vec(),
+            (Kind::Int, n) => (v as i64).to_le_bytes().get(..n).unwrap_or_default().to_vec(),
+            (Kind::UInt | Kind::Bool, n) => (v as u64).to_le_bytes().get(..n).unwrap_or_default().to_vec(),
+        };
+        if !little {
+            b.reverse();
+        }
+        b
+    }
+
     fn valid(self) -> Option<DType> {
         let ok = match self.kind {
             Kind::Int | Kind::UInt => matches!(self.size, 1 | 2 | 4 | 8),
@@ -145,6 +160,25 @@ fn f16(h: u16) -> f64 {
     }
 }
 
+/// A half-precision float's bits (rounded towards zero).
+fn to_f16(v: f64) -> u16 {
+    let x = v as f32;
+    let b = x.to_bits();
+    let sign = ((b >> 16) & 0x8000) as u16;
+    if x.is_nan() {
+        return sign | 0x7e00;
+    }
+    let e = ((b >> 23) & 0xff) as i32 - 127 + 15;
+    let m = b & 0x7f_ffff;
+    if e >= 31 {
+        sign | 0x7c00
+    } else if e <= 0 {
+        if e < -10 { sign } else { sign | ((m | 0x80_0000) >> (14 - e)) as u16 }
+    } else {
+        sign | ((e as u16) << 10) | (m >> 13) as u16
+    }
+}
+
 /// A step of a chunk's encoding, undone in reverse order.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Codec {
@@ -161,6 +195,15 @@ pub enum Codec {
     /// Zarr 3's `bytes` codec: the values' byte order.
     Bytes {
         little: bool,
+    },
+    /// Zarr 3's sharding: the chunk (a shard) holds smaller chunks of `inner` values, each
+    /// encoded with `codecs`, and an index of where they are (`index` its encoding, at the end or
+    /// the start).
+    Sharding {
+        inner: Vec<u64>,
+        codecs: Vec<Codec>,
+        index: Vec<Codec>,
+        index_at_end: bool,
     },
     /// A codec this reader doesn't know: the array can't be read, and this says why.
     Unsupported(String),
@@ -201,10 +244,7 @@ impl Array {
 
     /// Why it can't be read, if it can't.
     pub fn unsupported(&self) -> Option<String> {
-        self.codecs.iter().find_map(|c| match c {
-            Codec::Unsupported(why) => Some(why.clone()),
-            _ => None,
-        })
+        unsupported(&self.codecs)
     }
 
     /// The key of a chunk, relative to the store's root.
@@ -239,33 +279,58 @@ impl Array {
     /// Decodes a chunk's file into its values' bytes and their type (byte order included):
     /// value `i` is at `i * size`.
     pub fn decode_bytes(&self, bytes: &[u8]) -> Result<(Vec<u8>, DType)> {
-        let n = self.chunk_values()?;
-        let size = self.dtype.size;
-        let want = usize::try_from(n).ok().and_then(|n| n.checked_mul(size)).ok_or_else(|| bad("a chunk too large"))?;
-        let mut data = bytes.to_vec();
-        let mut little = self.dtype.little;
-        for c in self.codecs.iter().rev() {
-            data = match c {
-                Codec::Blosc => blosc(&data, want)?,
-                Codec::Zlib => inflate(&data, true, want)?,
-                Codec::Gzip => gunzip(&data, want)?,
-                Codec::Zstd => unzstd(&data, want)?,
-                Codec::Lz4 => numcodecs_lz4(&data, want)?,
-                Codec::Shuffle(e) => unshuffle(&data, *e),
-                Codec::Crc32c => data.get(..data.len().saturating_sub(4)).unwrap_or_default().to_vec(),
-                Codec::Bytes { little: l } => {
-                    little = *l;
-                    data
-                }
-                Codec::Unsupported(why) => return Err(bad(why.clone())),
-            };
-        }
-        if data.len() < want {
-            return Err(bad(format!("{}: a chunk holds {} bytes, not {want}", self.path, data.len())));
-        }
-        data.truncate(want);
+        self.chunk_values()?;
+        let (data, little) = decode_chunk(&self.codecs, bytes, &self.chunks, self.dtype, self.fill).map_err(|e| match e {
+            e if self.path.is_empty() => e,
+            DataError::Format(m) => bad(format!("{}: {m}", self.path)),
+            e => bad(format!("{}: {e}", self.path)),
+        })?;
         Ok((data, DType { little, ..self.dtype }))
     }
+}
+
+/// Why chunks encoded with `codecs` can't be read, if they can't.
+fn unsupported(codecs: &[Codec]) -> Option<String> {
+    codecs.iter().find_map(|c| match c {
+        Codec::Unsupported(why) => Some(why.clone()),
+        Codec::Sharding { codecs, index, .. } => unsupported(codecs).or_else(|| unsupported(index)),
+        _ => None,
+    })
+}
+
+/// Undoes `codecs` on a chunk of `shape` values of type `dtype`: its values' bytes (as many as
+/// the shape holds, never more) and their byte order. `fill` stands for a shard's missing chunks.
+fn decode_chunk(codecs: &[Codec], bytes: &[u8], shape: &[u64], dtype: DType, fill: Option<f64>) -> Result<(Vec<u8>, bool)> {
+    let n = shape.iter().try_fold(1u64, |a, &c| a.checked_mul(c)).ok_or_else(|| bad("a chunk too large"))?;
+    let want = usize::try_from(n).ok().and_then(|n| n.checked_mul(dtype.size)).ok_or_else(|| bad("a chunk too large"))?;
+    let mut data = bytes.to_vec();
+    let mut little = dtype.little;
+    for c in codecs.iter().rev() {
+        data = match c {
+            Codec::Blosc => blosc(&data, want)?,
+            Codec::Zlib => inflate(&data, true, want)?,
+            Codec::Gzip => gunzip(&data, want)?,
+            Codec::Zstd => unzstd(&data, want)?,
+            Codec::Lz4 => numcodecs_lz4(&data, want)?,
+            Codec::Shuffle(e) => unshuffle(&data, *e),
+            Codec::Crc32c => data.get(..data.len().saturating_sub(4)).unwrap_or_default().to_vec(),
+            Codec::Bytes { little: l } => {
+                little = *l;
+                data
+            }
+            Codec::Sharding { inner, codecs, index, index_at_end } => {
+                let (d, l) = unshard(&data, shape, inner, codecs, index, *index_at_end, dtype, fill)?;
+                little = l;
+                d
+            }
+            Codec::Unsupported(why) => return Err(bad(why.clone())),
+        };
+    }
+    if data.len() < want {
+        return Err(bad(format!("a chunk holds {} bytes, not {want}", data.len())));
+    }
+    data.truncate(want);
+    Ok((data, little))
 }
 
 /// A store's arrays.
@@ -445,6 +510,50 @@ fn array_v2(path: &str, z: &Value, attrs: Option<&Value>) -> Option<Array> {
     })
 }
 
+/// A Zarr 3 array's codecs, for chunks of `chunks` values; a shard's (not `outer`) can't be
+/// sharded again.
+fn codecs_v3(path: &str, list: Option<&Value>, chunks: &[u64], outer: bool) -> Vec<Codec> {
+    let mut codecs = Vec::new();
+    for c in list.and_then(Value::as_array).into_iter().flatten().take(8) {
+        let name = c.get("name").and_then(Value::as_str).unwrap_or("");
+        codecs.push(match name {
+            "bytes" => Codec::Bytes { little: c.pointer("/configuration/endian").and_then(Value::as_str) != Some("big") },
+            "gzip" => Codec::Gzip,
+            "zstd" => Codec::Zstd,
+            "blosc" => Codec::Blosc,
+            "crc32c" => Codec::Crc32c,
+            "sharding_indexed" if outer => sharding(path, c, chunks),
+            "sharding_indexed" => Codec::Unsupported(format!("{path}: shards inside shards aren't read")),
+            "transpose" => Codec::Unsupported(format!("{path}: transposed chunks aren't read")),
+            other => Codec::Unsupported(format!("{path}: the {other} codec isn't read")),
+        });
+    }
+    // Sharding turns the values into bytes, so only it can come first; anything after it would
+    // encode the whole shard, which isn't read.
+    if codecs.len() > 1 && codecs.iter().any(|c| matches!(c, Codec::Sharding { .. })) {
+        codecs.push(Codec::Unsupported(format!("{path}: only shards with nothing encoded after them are read")));
+    }
+    codecs
+}
+
+/// The `sharding_indexed` codec of an array whose chunks (shards) hold `shard` values.
+fn sharding(path: &str, c: &Value, shard: &[u64]) -> Codec {
+    let cfg = c.get("configuration");
+    let inner = u64s(cfg.and_then(|c| c.get("chunk_shape"))).unwrap_or_default();
+    // The inner chunks tile the shard exactly.
+    if inner.len() != shard.len() || inner.iter().zip(shard).any(|(&i, &s)| i == 0 || !s.is_multiple_of(i)) {
+        return Codec::Unsupported(format!("{path}: its shards' chunks don't tile its shards"));
+    }
+    let codecs = codecs_v3(path, cfg.and_then(|c| c.get("codecs")), &inner, false);
+    let index = codecs_v3(path, cfg.and_then(|c| c.get("index_codecs")), &[], false);
+    // The index's size is known only when it is stored as it is (with a checksum, or not).
+    if !index.iter().all(|c| matches!(c, Codec::Bytes { .. } | Codec::Crc32c)) {
+        return Codec::Unsupported(format!("{path}: its shards' index is encoded in a way that isn't read"));
+    }
+    let index_at_end = cfg.and_then(|c| c.get("index_location")).and_then(Value::as_str) != Some("start");
+    Codec::Sharding { inner, codecs, index, index_at_end }
+}
+
 /// A Zarr 2 (numcodecs) codec.
 fn numcodec(c: &Value) -> Codec {
     match c.get("id").and_then(Value::as_str).unwrap_or("") {
@@ -477,19 +586,7 @@ fn array_v3(path: &str, z: &Value) -> Option<Array> {
     if z.pointer("/chunk_grid/name").and_then(Value::as_str) != Some("regular") {
         codecs.push(Codec::Unsupported(format!("{path}: only regular chunk grids are read")));
     }
-    for c in z.get("codecs").and_then(Value::as_array).into_iter().flatten().take(8) {
-        let name = c.get("name").and_then(Value::as_str).unwrap_or("");
-        codecs.push(match name {
-            "bytes" => Codec::Bytes { little: c.pointer("/configuration/endian").and_then(Value::as_str) != Some("big") },
-            "gzip" => Codec::Gzip,
-            "zstd" => Codec::Zstd,
-            "blosc" => Codec::Blosc,
-            "crc32c" => Codec::Crc32c,
-            "sharding_indexed" => Codec::Unsupported(format!("{path}: sharded arrays aren't read yet")),
-            "transpose" => Codec::Unsupported(format!("{path}: transposed chunks aren't read")),
-            other => Codec::Unsupported(format!("{path}: the {other} codec isn't read")),
-        });
-    }
+    codecs.extend(codecs_v3(path, z.get("codecs"), &chunks, true));
     let encoding = z.pointer("/chunk_key_encoding/name").and_then(Value::as_str).unwrap_or("default");
     let sep = z.pointer("/chunk_key_encoding/configuration/separator").and_then(Value::as_str);
     let (key_prefix, separator) = if encoding == "v2" {
@@ -602,9 +699,6 @@ fn blosc(d: &[u8], want: usize) -> Result<Vec<u8>> {
     if flags & 0x2 != 0 {
         return Ok(d.get(16..16 + nbytes).ok_or_else(|| bad("a cut blosc chunk"))?.to_vec());
     }
-    if flags & 0x4 != 0 {
-        return Err(bad("bit-shuffled blosc chunks aren't read"));
-    }
     if blocksize == 0 || nbytes == 0 {
         return Ok(Vec::new());
     }
@@ -651,12 +745,128 @@ fn blosc(d: &[u8], want: usize) -> Result<Vec<u8>> {
             };
             block.extend_from_slice(part.get(..this.min(part.len())).unwrap_or_default());
         }
-        if flags & 0x1 != 0 && typesize > 1 {
+        if flags & 0x4 != 0 {
+            block = bitunshuffle(&block, typesize, h[0]);
+        } else if flags & 0x1 != 0 && typesize > 1 {
             block = unshuffle(&block, typesize);
         }
         out.extend_from_slice(&block);
     }
     Ok(out)
+}
+
+/// Bit unshuffle of a blosc block of `size`-byte elements: bit `k` of byte `j` of element `i` was
+/// stored in bit-plane `8j + k`, at bit `i % 8` of its byte `i / 8`. Blosc format 2 shuffles only
+/// blocks of a multiple of 8 elements; later formats shuffle the first multiple of 8 and leave the
+/// rest as it was.
+fn bitunshuffle(d: &[u8], size: usize, format: u8) -> Vec<u8> {
+    let n = d.len() / size.max(1);
+    let shuffled = if format <= 2 { if n.is_multiple_of(8) { n } else { 0 } } else { n - n % 8 };
+    let mut out = d.to_vec();
+    if shuffled == 0 {
+        return out;
+    }
+    let plane = shuffled / 8;
+    for (i, o) in out.iter_mut().take(shuffled * size).enumerate() {
+        let (e, j) = (i / size, i % size);
+        let mut byte = 0u8;
+        for k in 0..8 {
+            let bit = d.get((j * 8 + k) * plane + e / 8).map_or(0, |b| (b >> (e % 8)) & 1);
+            byte |= bit << k;
+        }
+        *o = byte;
+    }
+    out
+}
+
+/// A shard of `shard` values: its chunks of `inner` values, each decoded with `codecs`, put in
+/// place (row-major), with its index of (offset, size) pairs (`index` its encoding) at the end
+/// or the start. Chunks it doesn't hold are `fill`. Returns the values' bytes and byte order.
+#[allow(clippy::too_many_arguments)]
+fn unshard(
+    d: &[u8],
+    shard: &[u64],
+    inner: &[u64],
+    codecs: &[Codec],
+    index: &[Codec],
+    index_at_end: bool,
+    dtype: DType,
+    fill: Option<f64>,
+) -> Result<(Vec<u8>, bool)> {
+    let nd = shard.len();
+    if inner.len() != nd || inner.contains(&0) {
+        return Err(bad("a shard's chunks don't fit it"));
+    }
+    let grid: Vec<u64> = shard.iter().zip(inner).map(|(&s, &i)| s / i).collect();
+    let count = grid
+        .iter()
+        .try_fold(1u64, |a, &g| a.checked_mul(g))
+        .and_then(|n| usize::try_from(n).ok())
+        .ok_or_else(|| bad("a shard too large"))?;
+    // The index: 16 bytes a chunk, and a checksum after them. It must lie in the file, so its size
+    // is bounded by the file's before anything is made for it.
+    let checksum = if index.contains(&Codec::Crc32c) { 4 } else { 0 };
+    let ilen = count
+        .checked_mul(16)
+        .and_then(|n| n.checked_add(checksum))
+        .filter(|&n| n <= d.len())
+        .ok_or_else(|| bad("a shard's index is cut"))?;
+    let raw = if index_at_end { d.get(d.len() - ilen..) } else { d.get(..ilen) }.ok_or_else(|| bad("a shard's index is cut"))?;
+    let (idx, il) = decode_chunk(index, raw, &[count as u64, 2], DType { kind: Kind::UInt, size: 8, little: true }, None)?;
+    let word = |i: usize| -> u64 {
+        let b: [u8; 8] = idx.get(i * 8..i * 8 + 8).and_then(|b| b.try_into().ok()).unwrap_or([0xff; 8]);
+        if il { u64::from_le_bytes(b) } else { u64::from_be_bytes(b) }
+    };
+    let little = codecs.iter().find_map(|c| if let Codec::Bytes { little } = c { Some(*little) } else { None }).unwrap_or(dtype.little);
+    let size = dtype.size;
+    let total = shard
+        .iter()
+        .try_fold(1u64, |a, &c| a.checked_mul(c))
+        .and_then(|n| usize::try_from(n).ok())
+        .and_then(|n| n.checked_mul(size))
+        .ok_or_else(|| bad("a shard too large"))?;
+    let fill_bytes = dtype.encode(fill.unwrap_or(0.0), little);
+    let mut out: Vec<u8> = fill_bytes.iter().copied().cycle().take(total).collect();
+    // Row-major strides of the shard, in values.
+    let mut strides = vec![1u64; nd];
+    for k in (0..nd.saturating_sub(1)).rev() {
+        strides[k] = strides[k + 1].saturating_mul(shard[k + 1]);
+    }
+    let row = inner.last().copied().unwrap_or(1) as usize * size;
+    let rows = inner.iter().take(nd.saturating_sub(1)).product::<u64>() as usize;
+    for c in 0..count {
+        let (off, len) = (word(2 * c), word(2 * c + 1));
+        if off == u64::MAX && len == u64::MAX {
+            continue;
+        }
+        let src = usize::try_from(off)
+            .ok()
+            .zip(usize::try_from(len).ok())
+            .and_then(|(o, l)| d.get(o..o.checked_add(l)?))
+            .ok_or_else(|| bad("a shard's chunk lies outside it"))?;
+        let (vals, _) = decode_chunk(codecs, src, inner, dtype, fill)?;
+        // The chunk's corner in the shard, then each of its rows (all but the last dimension)
+        // copied to where it goes.
+        let mut at = vec![0u64; nd];
+        let mut rest = c as u64;
+        for k in (0..nd).rev() {
+            at[k] = rest % grid[k] * inner[k];
+            rest /= grid[k];
+        }
+        for r in 0..rows {
+            let mut rest = r as u64;
+            let mut start = at.last().copied().unwrap_or(0);
+            for k in (0..nd.saturating_sub(1)).rev() {
+                start += (at[k] + rest % inner[k]) * strides[k];
+                rest /= inner[k];
+            }
+            let to = start as usize * size;
+            if let (Some(o), Some(v)) = (out.get_mut(to..to + row), vals.get(r * row..r * row + row)) {
+                o.copy_from_slice(v);
+            }
+        }
+    }
+    Ok((out, little))
 }
 
 // --- Slices --------------------------------------------------------------------------------------
@@ -1483,11 +1693,128 @@ mod tests {
         let r = assemble(&st2, &p, &chunks, "elev", None).unwrap();
         assert_eq!(r.bands[0].data[0], 0.0);
         assert_eq!(r.bands[0].data[5], -9999.0);
-        // Unknown codecs and sharding are said, not misread.
-        let mut sharded = root.clone();
-        sharded["consolidated_metadata"]["metadata"]["elev"]["codecs"] = serde_json::json!([{"name": "sharding_indexed"}]);
-        let s = parse_store(&[("zarr.json".into(), sharded.to_string().into_bytes())]).unwrap();
-        assert!(plan(&s, &Selection { variable: "elev".into(), index: vec![] }).unwrap_err().to_string().contains("sharded"));
+        // Unknown codecs, and shards that can't be read, are said, not misread.
+        let refused = |codecs: Value, why: &str| {
+            let mut r = root.clone();
+            r["consolidated_metadata"]["metadata"]["elev"]["codecs"] = codecs;
+            let s = parse_store(&[("zarr.json".into(), r.to_string().into_bytes())]).unwrap();
+            let e = plan(&s, &Selection { variable: "elev".into(), index: vec![] }).unwrap_err().to_string();
+            assert!(e.contains(why), "{e}");
+        };
+        let shard = |inner: Value, codecs: Value| serde_json::json!({"name": "sharding_indexed", "configuration": {"chunk_shape": inner, "codecs": codecs, "index_codecs": [{"name": "bytes"}]}});
+        refused(serde_json::json!([{"name": "transpose"}, {"name": "bytes"}]), "transposed");
+        refused(serde_json::json!([shard(serde_json::json!([2, 4]), serde_json::json!([{"name": "bytes"}]))]), "don't tile");
+        refused(
+            serde_json::json!([shard(
+                serde_json::json!([3, 2]),
+                serde_json::json!([shard(serde_json::json!([3, 1]), serde_json::json!([]))])
+            )]),
+            "inside shards",
+        );
+        refused(
+            serde_json::json!([shard(serde_json::json!([3, 2]), serde_json::json!([{"name": "bytes"}])), {"name": "zstd"}]),
+            "after them",
+        );
+    }
+
+    /// A shard of a (4, 6) int16 array in chunks of (2, 3), raw: chunk (0, 1) isn't held, and
+    /// the index (little- or big-endian, with a checksum) is at the end or the start.
+    fn shard_file(index_at_end: bool, index_little: bool) -> Vec<u8> {
+        let value = |r: u64, c: u64| (r * 10 + c) as i16;
+        let mut body = Vec::new();
+        let mut index = Vec::new();
+        let head = if index_at_end { 0 } else { 4 * 16 + 4 };
+        for (gy, gx) in [(0u64, 0u64), (0, 1), (1, 0), (1, 1)] {
+            if (gy, gx) == (0, 1) {
+                index.extend([u64::MAX, u64::MAX]);
+                continue;
+            }
+            let start = head + body.len() as u64;
+            for r in 0..2 {
+                for c in 0..3 {
+                    body.extend(value(gy * 2 + r, gx * 3 + c).to_le_bytes());
+                }
+            }
+            index.extend([start, head + body.len() as u64 - start]);
+        }
+        let mut idx: Vec<u8> = index.iter().flat_map(|v| if index_little { v.to_le_bytes() } else { v.to_be_bytes() }).collect();
+        idx.extend([0u8; 4]);
+        if index_at_end { [body, idx].concat() } else { [idx, body].concat() }
+    }
+
+    #[test]
+    fn sharded_chunks() {
+        for (at_end, little) in [(true, true), (false, true), (true, false)] {
+            let z = serde_json::json!({
+                "zarr_format": 3, "node_type": "array", "shape": [4, 6], "data_type": "int16",
+                "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [4, 6]}},
+                "codecs": [{"name": "sharding_indexed", "configuration": {
+                    "chunk_shape": [2, 3],
+                    "codecs": [{"name": "bytes", "configuration": {"endian": "little"}}],
+                    "index_codecs": [{"name": "bytes", "configuration": {"endian": if little { "little" } else { "big" }}}, {"name": "crc32c"}],
+                    "index_location": if at_end { "end" } else { "start" }}}],
+                "fill_value": -1, "dimension_names": ["y", "x"]
+            });
+            let s = parse_store(&[("zarr.json".into(), z.to_string().into_bytes())]).unwrap();
+            let a = s.array("").unwrap();
+            assert_eq!(a.unsupported(), None);
+            assert_eq!(a.chunk_key(&[0, 0]), "c/0/0");
+            let vals = a.decode(&shard_file(at_end, little)).unwrap();
+            // Row-major over the shard; the chunk it doesn't hold is the fill value.
+            let want: Vec<f64> =
+                (0..4).flat_map(|r| (0..6).map(move |c| if r < 2 && c >= 3 { -1.0 } else { (r * 10 + c) as f64 })).collect();
+            assert_eq!(vals, want, "index at end {at_end}, little {little}");
+        }
+    }
+
+    /// Blosc's bit shuffle of `size`-byte elements (the first multiple of 8 of them).
+    fn bitshuffle(raw: &[u8], size: usize) -> Vec<u8> {
+        let n = raw.len() / size / 8 * 8;
+        let mut o = raw.to_vec();
+        o[..n * size].fill(0);
+        for e in 0..n {
+            for j in 0..size {
+                for k in 0..8 {
+                    let bit = (raw[e * size + j] >> k) & 1;
+                    o[(j * 8 + k) * (n / 8) + e / 8] |= bit << (e % 8);
+                }
+            }
+        }
+        o
+    }
+
+    #[test]
+    fn blosc_bit_shuffle() {
+        // 1001 values: format 3 shuffles the first 1000 and leaves the last; format 2 shuffles a
+        // block only when it is a whole number of 8 values, so this one is stored as it is.
+        let raw: Vec<u8> = (0..1001u32).flat_map(|v| ((v * 37 % 1013) as f32 - 500.0).to_le_bytes()).collect();
+        for (format, body) in [(3u8, bitshuffle(&raw, 4)), (2, raw.clone())] {
+            let c = lz4_block(&body);
+            let mut f = vec![format, 1, 0x4 | 0x10 | (1 << 5), 4];
+            f.extend((raw.len() as u32).to_le_bytes());
+            f.extend((raw.len() as u32).to_le_bytes());
+            f.extend(((16 + 4 + 4 + c.len()) as u32).to_le_bytes());
+            f.extend(20u32.to_le_bytes());
+            f.extend((c.len() as i32).to_le_bytes());
+            f.extend(c);
+            assert_eq!(blosc(&f, raw.len()).unwrap(), raw, "format {format}");
+        }
+        assert_eq!(bitunshuffle(&bitshuffle(&raw[..64], 2), 2, 2), raw[..64]);
+        // As c-blosc 1.21 writes it (numcodecs `Blosc(cname="zstd", clevel=9, shuffle=BITSHUFFLE)`
+        // of `arange(3000, dtype="<i4") // 7`): one 12,000-byte block, its bits transposed whole
+        // (bitshuffle's 8 KiB sub-blocks are its own framing, which blosc doesn't use).
+        let hex = concat!(
+            "02019404e02e0000e02e000078000000140000006000000028b52ffd60e02db502005242070ef01903d27a8f44ed7297",
+            "b9b16c0af7f6f6feff6ded8b47e9848b920914a0c05e661df0300cb701ad016f12858b2928e35426fd34dd31af0e33dd",
+            "19cfae1e4667aba7aa554766810ab06cab9a5bab6c93aa5b",
+        );
+        let real: Vec<u8> = (0..hex.len() / 2).map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap()).collect();
+        assert_eq!((real[0], real[2] & 0x4, u32::from_le_bytes(real[8..12].try_into().unwrap())), (2, 0x4, 12_000));
+        let want: Vec<u8> = (0..3000i32).flat_map(|v| (v / 7).to_le_bytes()).collect();
+        assert_eq!(blosc(&real, want.len()).unwrap(), want);
+        assert_eq!(to_f16(1.0), 0x3c00);
+        assert_eq!(f16(to_f16(-2.5)), -2.5);
+        assert_eq!(DType::parse_v2(">i2").unwrap().encode(-2.0, false), vec![0xff, 0xfe]);
     }
 
     #[test]
@@ -1591,6 +1918,27 @@ mod tests {
             let _ = numcodecs_lz4(d, 100);
             let _ = unzstd(d, 100);
         }
+        // Shards cut anywhere, with an index lying about where its chunks are or how many there
+        // are, fail without panicking or making room for what they claim.
+        let shard = |inner: u64| {
+            serde_json::json!({"zarr_format": 3, "node_type": "array", "shape": [4, 6], "data_type": "int16",
+            "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [4, 6]}},
+            "codecs": [{"name": "sharding_indexed", "configuration": {"chunk_shape": [2, inner],
+                "codecs": [{"name": "bytes"}, {"name": "zstd"}], "index_codecs": [{"name": "bytes"}, {"name": "crc32c"}]}}],
+            "fill_value": 0})
+        };
+        let s = parse_store(&[("zarr.json".into(), shard(3).to_string().into_bytes())]).unwrap();
+        let a = s.array("").unwrap();
+        let file = shard_file(true, true);
+        for n in 0..file.len() {
+            let _ = a.decode(&file[..n]);
+        }
+        let mut lied = file.clone();
+        let at = lied.len() - 68;
+        lied[at..at + 8].copy_from_slice(&(u64::MAX - 3).to_le_bytes());
+        assert!(a.decode(&lied).is_err());
+        let s1 = parse_store(&[("zarr.json".into(), shard(1).to_string().into_bytes())]).unwrap();
+        assert!(s1.array("").unwrap().decode(&[0u8; 40]).is_err());
         let huge = serde_json::json!({"metadata": {"a/.zarray": {"shape": [1u64 << 40, 1u64 << 40], "chunks": [1u64 << 30, 1u64 << 30], "dtype": "<f8", "compressor": null}}});
         let s = parse_store(&[(".zmetadata".into(), huge.to_string().into_bytes())]).unwrap();
         assert!(plan(&s, &Selection { variable: "a".into(), index: vec![] }).is_err());

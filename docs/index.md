@@ -12,6 +12,8 @@ script from the command line, a notebook or the AI Assistant.
 [Get started](getting-started.md){ .md-button }
 [Compare](comparison/index.md){ .md-button }
 
+[![Get it from Microsoft](https://get.microsoft.com/images/en-us%20dark.svg){ width="160" }](https://apps.microsoft.com/detail/9ppjw8h561lq?mode=direct)
+
 [![RustGIS with the Home tab of the ribbon open over a world map in the Equal Earth projection, countries shaded by population](https://assets.rustgis.app/images/hero.webp)](https://assets.rustgis.app/images/hero.webp){ target="_blank" rel="noopener" title="Open the full-size image" }
 
 ## Highlights
@@ -22,8 +24,9 @@ script from the command line, a notebook or the AI Assistant.
 
     GeoJSON, CSV, Shapefile, GeoPackage, GeoParquet, FlatGeobuf, KML, GPX, GeoTIFF and
     cloud-optimised GeoTIFF, web tiles, vector tiles, PMTiles, MBTiles and MapLibre styles, drawn on a 3D
-    globe or in any projection, on the desktop and in the browser; SQL and DuckDB databases on
-    the desktop.
+    globe or in any projection, on the desktop and in the browser; STAC catalogs, Overture
+    Maps, OpenStreetMap, open-data portals and S3 buckets; SQL, DuckDB and live PostGIS
+    databases on the desktop.
     [Data](user-guide/data.md) · [Formats](user-guide/data-formats.md) · [Maps](user-guide/maps.md)
 
 -   **Cartography**

@@ -7,7 +7,11 @@
 Select a layer in Layers and open **Style › Symbology** (or the Symbology pane):
 
 - **Single Symbol**: one fill, outline and marker for every feature.
-- **Unique Values**: one colour per distinct value of a field.
+- **Unique Values**: one colour per distinct value of a field. The Layers pane and layout legends
+  list only the classes that drawn features use (after the definition query and display filters);
+  `<all other values>` appears only when a drawn feature falls outside the classes and its symbol
+  is not fully transparent. A layout legend can leave it out with **Hide other values** (see
+  [Layouts](layouts.md)).
 - **Graduated Colors**: 1 to 12 classes of a numeric field by natural breaks (Jenks), equal
   interval or quantile.
 - **Proportional Symbols**: point size grows with a numeric field.
@@ -15,9 +19,33 @@ Select a layer in Layers and open **Style › Symbology** (or the Symbology pane
 Pick a colour scheme from the pane's swatches. The Style tab sets the fill **Color**,
 the **Outline** width, **Transparency** and a **Visibility Range** (the scales between which the
 layer draws); points can be circles, squares, triangles, diamonds or stars. **Data › Definition
-Query** draws only the features matching a SQL clause, and a layer with
+Query** draws only the features matching a SQL clause; Unique Values, Graduated Colors and
+Proportional Symbols take their values, classes and sizes from those features when you apply them
+(apply the symbology again after changing the query), and **Full Extent** zooms to them. A layer with
 [subtypes](editing.md#data-design) can be symbolized by them. **Style › Styles** saves symbology
 as styles to reuse on other layers and in other projects.
+
+### Edit a class
+
+With Unique Values or Graduated Colors, each class in the Symbology pane's list has a colour button
+and a legend label. Pick a colour to give that class its own. Type a label to show in the Layers
+pane and in layout legends instead of the value or range (for example `High income` for
+`1. High income: OECD`); clear it to show the value again. `<all other values>` can be edited the
+same way. Applying the symbology again on the same field keeps the colours, outlines and labels
+you set by hand on the classes that are still there (the others take the scheme's colours again);
+picking another colour scheme recolours every class but keeps the labels. A Graduated Colors
+class keeps its colour and label while its range stays the same. By command:
+
+```text
+layer.classStyle={"layer":"Countries","value":"1. High income: OECD","color":"#2E6B4F","label":"High income"}
+layer.classStyle={"layer":"Countries","index":0,"label":"Under 1 million"}
+layer.classStyle={"layer":"Countries","other":true,"label":"No data"}
+```
+
+`value` names a Unique Values class, `index` a Graduated Colors class (0 is the lowest) and
+`other` the `<all other values>` class; `outline` sets a class's outline colour. A polygon class
+keeps its own transparency (the layer's, as a colour scheme leaves it), so the `AA` of a
+`#RRGGBBAA` colour applies to points and lines only.
 
 ### Custom color ramps
 

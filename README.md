@@ -23,6 +23,7 @@
   <a href="https://web.rustgis.app"><img alt="Launch the RustGIS web app" src="https://img.shields.io/badge/Launch-web%20app-b84a2c?style=for-the-badge&logo=webassembly&logoColor=white" height="36"></a>
   <a href="https://github.com/opengeos/RustGIS/releases/latest"><img alt="Download the desktop app" src="https://img.shields.io/badge/Download-desktop%20app-2563eb?style=for-the-badge&logo=github&logoColor=white" height="36"></a>
   <a href="https://rustgis.app"><img alt="Read the documentation" src="https://img.shields.io/badge/Read-the%20docs-0e9384?style=for-the-badge&logo=materialformkdocs&logoColor=white" height="36"></a>
+  <a href="https://apps.microsoft.com/detail/9ppjw8h561lq?mode=direct"><img alt="Get it from Microsoft" src="https://get.microsoft.com/images/en-us%20dark.svg" height="36"></a>
 </p>
 
 <p align="center">
@@ -77,9 +78,9 @@ Every screenshot is RustGIS itself, rendered offscreen by `cargo run -p rustgis-
 
 | Area | Highlights |
 |---|---|
-| **Data** | GeoJSON, CSV/TSV with x/y columns in any coordinate system or WKT geometry, Excel and OpenDocument spreadsheets, GeoRSS, LandXML, encoded polylines, Shapefile (zipped too, in the browser as well), GeoPackage, GeoParquet, FlatGeobuf, KML/KMZ (with styles), GPX, GML, MapInfo MIF/MID, OpenStreetMap PBF, TopoJSON, AutoCAD DXF, LiDAR point clouds (LAS, LAZ, COPC) and geotagged photos in (large files read in place), files by their web address, every vector format GDAL reads when it is installed, and SQL queries and DuckDB databases through DuckDB Spatial when DuckDB is; PMTiles archives (web or file) and MBTiles files; GeoJSON, CSV, GeoPackage, GeoParquet, Shapefile, FlatGeobuf, KML/KMZ, GPX and WKT out; standalone tables; layer and map files, styles, templates and packages |
-| **Rasters** | GeoTIFF and cloud-optimised GeoTIFF (any pixel type, tiled or striped, compressed), ASCII grids, Zarr 2 and 3 stores (a variable at a time step, by folder or web address); reprojection from any EPSG code; Stretch, RGB, Classify, Unique Values, Colormap and Shaded Relief; DRA, band combinations, brightness/contrast/gamma; raster functions, indices, change detection, classification, georeferencing |
-| **Maps** | Multiple maps per project; a 3D globe; Web Mercator or any projection (Equal Earth, Robinson, Winkel Tripel, polar and regional presets, or an EPSG code); bookmarks, extent history, Go To XY; five offline basemaps |
+| **Data** | GeoJSON, CSV/TSV with x/y columns in any coordinate system or WKT geometry, Excel and OpenDocument spreadsheets, GeoRSS, LandXML, encoded polylines, Shapefile (zipped too, in the browser as well), GeoPackage, GeoParquet, FlatGeobuf, KML/KMZ (with styles), GPX, GML, MapInfo MIF/MID, OpenStreetMap PBF, TopoJSON, AutoCAD DXF, LiDAR point clouds (LAS, LAZ, COPC) and geotagged photos in (large files read in place), files by their web address, every vector format GDAL reads when it is installed, PostGIS tables read live from PostgreSQL, and SQL queries and DuckDB databases through DuckDB Spatial when DuckDB is; PMTiles archives (web or file) and MBTiles files; GeoJSON, CSV, GeoPackage, GeoParquet, Shapefile, FlatGeobuf, KML/KMZ, GPX and WKT out; standalone tables; layer and map files, styles, templates and packages |
+| **Rasters** | GeoTIFF and cloud-optimised GeoTIFF (any pixel type, tiled or striped, compressed), ASCII grids, Zarr 2 and 3 stores (a variable at a time step, by folder or web address), and JPEG 2000, NetCDF, HDF, ERDAS Imagine and the other rasters GDAL reads when it is installed (desktop); reprojection from any EPSG code; Stretch, RGB, Classify, Unique Values, Colormap and Shaded Relief; DRA, band combinations, brightness/contrast/gamma; raster functions, indices, change detection, classification, georeferencing |
+| **Maps** | Multiple maps and layouts per project, renamed and duplicated from the Browser pane; a 3D globe; Web Mercator or any projection (Equal Earth, Robinson, Winkel Tripel, polar and regional presets, or an EPSG code); bookmarks, extent history, Go To XY; five offline basemaps, with borders in two worldviews |
 | **Web services** | WMS, WMTS, WFS, OGC API Features and ArcGIS REST (FeatureServer, MapServer, ImageServer, VectorTileServer) from their capabilities |
 | **Web tiles** | XYZ/TMS/WMS raster tiles, Mapbox Vector Tiles and MapLibre styles (sprites, patterns, expressions), cached and fetched in the background |
 | **Cartography** | Single symbol, unique values, graduated colours, proportional symbols; collision-free labels with placement, scale ranges and annotation; masking, display filters, aggregation bins, 2.5D extrusion; graphics and dynamic text |
@@ -88,9 +89,9 @@ Every screenshot is RustGIS itself, rendered offscreen by `cargo run -p rustgis-
 | **Imagery** | Ortho and reality mapping, pixel classification (k-means, minimum distance, a trainable neural network), mensuration, hosted imagery tiles |
 | **Layouts and reports** | Page layouts with map frames, legends, scale bars, grids and map series; reports with groups, statistics, charts and subreports; presentations (HTML slideshow, PDF); notebooks (Jupyter in and out) |
 | **Sharing** | PNG export at any DPI; PDF; web map pages, OGC API Features collections, MapLibre styles, glTF scenes, locators; project, map and mobile map packages; offline areas with sync |
-| **AI Assistant** | Ask about your data or tell the map what to do in plain language, with Anthropic, OpenAI, Gemini, OpenRouter, Ollama or any OpenAI-compatible model; also `rustgis-cli ask`, and an [MCP server](docs/mcp.md) (`rustgis-cli mcp`) for Claude Code, Cursor, VS Code and other agents |
+| **AI Assistant** | Ask about your data or tell the map what to do in plain language, with Anthropic, OpenAI (a key, or your ChatGPT plan by signing in), Gemini, OpenRouter, Ollama or any OpenAI-compatible model; also `rustgis-cli ask`, and an [MCP server](docs/mcp.md) (`rustgis-cli mcp`) for Claude Code, Cursor, VS Code and other agents |
 | **Plugins** | Sandboxed WebAssembly [plugins](docs/plugins.md) add commands, tools and ribbon tabs; install them from [plugins.rustgis.app](https://plugins.rustgis.app) on the desktop, command line and web |
-| **Interface** | Command search (Ctrl+K), keyboard shortcuts, dark mode, a customizable ribbon and Quick Access Toolbar, linked side-by-side maps, 16 languages |
+| **Interface** | Layers, Browser and Data Sources panes as tabs, command search (Ctrl+K), keyboard shortcuts, dark mode, a customizable ribbon and Quick Access Toolbar, linked side-by-side maps, 16 languages |
 
 The [user guide](https://rustgis.app/user-guide/) covers each area in detail,
 [Comparison](https://rustgis.app/comparison/) sets RustGIS beside GeoLibre, QGIS and ArcGIS, and
@@ -104,6 +105,9 @@ The [user guide](https://rustgis.app/user-guide/) covers each area in detail,
   [downloads.rustgis.app](https://downloads.rustgis.app) or the
   [latest release](https://github.com/opengeos/RustGIS/releases/latest) (see
   [Installation](docs/installation.md) for the files and first-run notes).
+- **Microsoft Store**: get RustGIS from the
+  [Microsoft Store](https://apps.microsoft.com/detail/9ppjw8h561lq) on Windows 10 and 11, which
+  installs it in one click and keeps it up to date.
 - **Package managers**: `winget install OpenGeos.RustGIS`,
   `brew install --cask opengeos/rustgis/rustgis`, `yay -S rustgis-bin` (AUR), or
   `sudo dnf copr enable giswqs/rustgis && sudo dnf install rustgis` (Fedora).
@@ -152,16 +156,16 @@ Layered crates, each depending only on the ones below it:
 | Layer | Crate | Job |
 |---|---|---|
 | L0 | `rustgis-geom` | coordinates, extents, Web Mercator, geodesic distance/area, scale |
-| L1 | `rustgis-data` | features and typed attributes; GeoJSON, CSV, Shapefile; GeoPackage, GeoParquet and FlatGeobuf providers; SQL where clauses; rasters and their coordinate systems |
+| L1 | `rustgis-data` | features and typed attributes; GeoJSON, CSV, Shapefile, KML, GPX and more; GeoPackage, GeoParquet, FlatGeobuf, LiDAR and PostGIS providers; GDAL formats and DuckDB queries through their programs; SQL where clauses; rasters (GeoTIFF, ASCII grid, Zarr) and their coordinate systems |
 | L2 | `rustgis-map`, `rustgis-analysis` | layers, symbology, labeling, camera, basemaps; geoprocessing (on `geo`) |
-| L2 | `rustgis-tiles` | web map tiles: XYZ/TMS/WMS, Mapbox Vector Tiles, MapLibre styles, the tile cache |
+| L2 | `rustgis-tiles` | web map tiles: XYZ/TMS/WMS, Mapbox Vector Tiles, PMTiles and MBTiles archives, MapLibre styles, the tile cache |
 | L3 | `rustgis-render` | tiny-skia renderer, label placement, PNG export, fonts |
 | L3 | `rustgis-plugins` | sandboxed WebAssembly plugins and the plugin registry |
 | L3 | `rustgis-geolibre` | the GeoLibre tool suite as geoprocessing tools |
 | L4 | `rustgis-engine` | session, undo, command registry, sample project |
 | L5 | `rustgis-assistant` | the AI Assistant: a chat agent that acts through commands |
 | L6 | `rustgis-ui-egui` | the ribbon front end (swappable) |
-| apps | `rustgis`, `rustgis-cli`, `rustgis-web` | desktop, command line, browser (WebAssembly) |
+| apps | `rustgis`, `rustgis-cli`, `rustgis-web`, `rustgis-python` | desktop, command line, browser (WebAssembly), the `rustgis` Python package |
 
 `cargo xtask ci` runs formatting, clippy, the tests and the layering check. Contributor and
 agent notes: [AGENTS.md](AGENTS.md).

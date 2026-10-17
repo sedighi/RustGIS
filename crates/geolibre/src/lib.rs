@@ -1,17 +1,21 @@
 //! L3: the GeoLibre tool suite (Whitebox's tools plus GeoLibre's own: 1,000+ raster, vector,
 //! LiDAR, hydrology and terrain tools) as geoprocessing tools.
 //!
-//! The suite is an optional download: the `geolibre` runner, a separate executable (see
-//! [`runner`]). [`register`] adds its tools to [`rustgis_analysis`], which lists them next to
-//! the built-in tools under "GeoLibre ›" toolboxes; without a runner there are none. Their
-//! forms come from the runner's manifests: each parameter says whether it is a raster or vector
-//! input, an output, a choice, a number or a switch.
+//! RustGIS doesn't link the suite; a runner runs it. Natively that is the `geolibre` program, an
+//! optional download run as a subprocess (see `runner`). In the browser it is geolibre-rust's
+//! WASI runner, which the web app loads on demand and runs asynchronously
+//! ([`set_manifests`], then `external_start` → `Services::geolibre_run` → `external_complete`
+//! → `gp.finish` in the engine). [`register`] adds the tools to [`rustgis_analysis`], which
+//! lists them next to the built-in tools under "GeoLibre ›" toolboxes; without a runner there
+//! are none. Their forms come from the runner's manifests: each parameter says whether it is a
+//! raster or vector input, an output, a choice, a number or a switch.
 //!
-//! The tools read and write files, so a run stages its inputs in a temporary folder: raster
-//! layers as their own file (or the embedded copy), vector layers as GeoJSON. Vector data goes
-//! in a metric coordinate system (the first raster input's, or the UTM zone of the data), so
-//! distances and areas are in metres; outputs come back as new layers in longitude/latitude.
-//! Native only: the browser build has no file system for the tools to use.
+//! The tools read and write files. Natively, raster layers and files already on disk are passed
+//! by path; every other input is staged in a working folder (a temporary folder natively, an
+//! in-memory `/work` folder in the browser): raster layers as their own file (or the embedded
+//! copy), vector layers as GeoJSON. Vector data goes in a metric coordinate system (the first
+//! raster input's, or the UTM zone of the data), so distances and areas are in metres; outputs
+//! come back as new layers in longitude/latitude.
 //!
 //! Like Add Data, a tool reads any file named in its parameters (a layer name that isn't a
 //! layer is taken as a path, and LiDAR inputs are paths), with the user's permissions. The
@@ -118,6 +122,8 @@ struct MetaParam {
     name: String,
     role: Role,
     data: Data,
+    /// The manifest's default for an optional parameter, when it gives one.
+    default: Option<Value>,
 }
 
 /// What a run needs to know about a tool beyond its [`ToolSpec`].
@@ -217,13 +223,20 @@ fn spec_of(m: &Value) -> Option<(ToolSpec, Meta)> {
             _ => Role::Option,
         };
         let many = schema.and_then(|s| s.get("cardinality")).and_then(Value::as_str).is_some_and(|c| c != "single");
-        meta.push(MetaParam { name: pname.to_string(), role, data });
+        let optional = !p.get("required").and_then(Value::as_bool).unwrap_or(false);
+        let default = defaults.and_then(|d| d.get(pname)).filter(|v| optional && !v.is_null()).cloned();
+        meta.push(MetaParam { name: pname.to_string(), role, data, default });
         // Outputs are written to a scratch folder and come back as layers: no form field.
         if role == Role::Output {
             continue;
         }
         let kind = match role {
-            Role::Input if many => ParamKind::Text,
+            // Several layers, picked in order in the form (#270); files typed in go as text.
+            Role::Input if many => match data {
+                Data::Raster => ParamKind::RasterLayers,
+                Data::Vector => ParamKind::VectorLayers,
+                _ => ParamKind::Text,
+            },
             Role::Input => match data {
                 Data::Raster => ParamKind::RasterLayer,
                 Data::Vector => ParamKind::VectorLayer,
@@ -433,7 +446,8 @@ fn stage(inputs: &dyn Inputs, value: &str, data: Data, tf: &Transformer, job: &m
         if let Some(p) = r.path.filter(|p| on_disk(p)) {
             return Ok(FileRef::Path(p.to_string()));
         }
-        if let Some((file_name, bytes)) = r.embedded {
+        // The parts of a large GeoTIFF the web app read are RustGIS's own: written out below instead.
+        if let Some((file_name, bytes)) = r.embedded.filter(|(_, b)| !rustgis_data::raster::cog::Sparse::is_container(b)) {
             // The tools tell formats apart by extension.
             let ext = Path::new(file_name).extension().and_then(|e| e.to_str()).map(safe).unwrap_or_else(|| "tif".into());
             return Ok(job.stage(value, &ext, bytes.to_vec()));
@@ -556,9 +570,15 @@ fn prepare_with(spec: &ToolSpec, meta: &Meta, inputs: &dyn Inputs, params: &Valu
                 job.outputs.push((file, name));
             }
             Role::Option => {
-                if let Some(v) = value_of(&p.name) {
-                    job.args.push((p.name.clone(), Arg::Value(option_value(v, p.data))));
+                let Some(v) = value_of(&p.name).map(|v| option_value(v, p.data)) else { continue };
+                // A value left at the manifest's default isn't passed: the runner then uses its
+                // own default, as when it runs alone. They can differ: `fill_depressions` lists
+                // a `flat_increment` of 0.0001 but, without one, picks a far smaller step that
+                // keeps flats draining (#237).
+                if p.default.as_ref().is_some_and(|d| option_value(d, p.data) == v) {
+                    continue;
                 }
+                job.args.push((p.name.clone(), Arg::Value(v)));
             }
         }
     }

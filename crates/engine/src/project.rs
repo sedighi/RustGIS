@@ -119,7 +119,7 @@ struct TableFile {
 impl From<TableFile> for Table {
     fn from(t: TableFile) -> Self {
         let TableFile { id, name, geometry_type, fields, features, source } = t;
-        Table { id, dataset: Dataset { name, geometry_type, fields, features, source, windowed: false } }
+        Table { id, dataset: Dataset { name, geometry_type, fields, features: features.into(), source, windowed: false } }
     }
 }
 
@@ -378,6 +378,21 @@ impl Project {
         }
         unique_names(self.ramps.iter_mut().map(|r| r.name_mut()));
         for m in &mut self.maps {
+            // Groups from project files must stay shallow, bounded and unambiguous. Children
+            // refer to existing ordinary layers; no layer belongs to two groups.
+            m.service_groups.truncate(2000);
+            let layer_ids: std::collections::HashSet<u32> = m.layers.iter().map(|l| l.id).collect();
+            let mut ids = layer_ids.clone();
+            let mut children = std::collections::HashSet::new();
+            m.service_groups.retain_mut(|g| {
+                if g.id == 0 || g.url.len() > 8192 || !ids.insert(g.id) {
+                    return false;
+                }
+                g.name = g.name.chars().take(200).collect();
+                g.children.truncate(2000);
+                g.children.retain(|c| layer_ids.contains(&c.layer) && children.insert(c.layer));
+                true
+            });
             // A projection this version can't use (a hand edit, or a newer file) falls back to
             // Web Mercator rather than being named while another is drawn.
             if let rustgis_map::Projection::Custom(code) = &m.projection

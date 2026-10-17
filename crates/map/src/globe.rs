@@ -8,7 +8,7 @@
 //! of view, `z` towards the viewer. A point is visible when `z` exceeds the horizon value
 //! `1 / GLOBE_DISTANCE`.
 
-use rustgis_geom::{Coord, MERCATOR_R};
+use rustgis_geom::{Coord, Extent, MERCATOR_R};
 use serde::{Deserialize, Serialize};
 
 use crate::Camera;
@@ -51,7 +51,7 @@ impl Projection {
     }
 
     /// A projection by code: `mercator`, `globe`, a preset id or name, or an EPSG code (which
-    /// must name a projected coordinate system).
+    /// must name a projected coordinate system the map can draw).
     pub fn from_code(s: &str) -> Result<Projection, String> {
         match s.trim().to_ascii_lowercase().replace([' ', '_', '-'], "").as_str() {
             "mercator" | "webmercator" | "2d" | "map" | "epsg:3857" | "3857" | "epsg:900913" => return Ok(Projection::WebMercator),
@@ -59,7 +59,9 @@ impl Projection {
             _ => {}
         }
         let s = s.trim();
-        crate::projection::lookup(s)?;
+        // Build it, not just look it up: a known code whose method has no implementation would
+        // otherwise be accepted and drawn in Web Mercator under its own name (opengeos/RustGIS#208).
+        crate::projection::Projector::new(s)?;
         // A local view keeps its centre.
         if s.starts_with("local:") {
             return Ok(Projection::Custom(s.to_string()));
@@ -321,6 +323,178 @@ impl Globe {
     }
 }
 
+/// A triangle mesh laying a flat Web Mercator picture over the globe: screen positions (logical
+/// pixels from the view's top left), texture positions (0–1 across the picture) and triangles.
+#[derive(Clone, Debug, Default)]
+pub struct DrapeMesh {
+    pub pos: Vec<[f32; 2]>,
+    pub uv: Vec<[f32; 2]>,
+    pub indices: Vec<u32>,
+}
+
+/// Wraps a longitude difference into ±180°.
+fn wrap_lon(d: f64) -> f64 {
+    (d + 540.0).rem_euclid(360.0) - 180.0
+}
+
+impl Globe {
+    /// The longitude of the centre of view.
+    fn center_lon(&self) -> f64 {
+        self.toward[1].atan2(self.toward[0]).to_degrees()
+    }
+
+    /// Longitude/latitude points spread over what a `w × h` view shows: a grid over the view, the
+    /// limb and any pole in sight.
+    fn visible_points(&self, w: f64, h: f64) -> Vec<Coord> {
+        const N: usize = 32;
+        let mut out = Vec::with_capacity((N + 1) * (N + 1) + 64);
+        for i in 0..=N {
+            for j in 0..=N {
+                if let Some(c) = self.inverse(w * i as f64 / N as f64, h * j as f64 / N as f64) {
+                    out.push(c);
+                }
+            }
+        }
+        let on_screen = |x: f64, y: f64| x >= 0.0 && y >= 0.0 && x <= w && y <= h;
+        let r = self.disc_radius() * 0.999;
+        for k in 0..64 {
+            let a = std::f64::consts::TAU * k as f64 / 64.0;
+            let (x, y) = (self.cx + r * a.cos(), self.cy + r * a.sin());
+            if on_screen(x, y)
+                && let Some(c) = self.inverse(x, y)
+            {
+                out.push(c);
+            }
+        }
+        for pole in [Coord::new(0.0, 90.0), Coord::new(0.0, -90.0)] {
+            if self.pole_in_view(pole, w, h) {
+                out.extend((-180..=180).step_by(30).map(|lon| Coord::new(f64::from(lon), pole.y)));
+            }
+        }
+        out
+    }
+
+    /// Whether a pole is on the visible side and inside a `w × h` view.
+    fn pole_in_view(&self, pole: Coord, w: f64, h: f64) -> bool {
+        self.forward(pole).is_some_and(|(x, y)| x >= 0.0 && y >= 0.0 && x <= w && y <= h)
+    }
+
+    /// The longitude/latitude boxes a `w × h` view shows, widened by `margin` (a fraction of
+    /// their size) so they keep covering the view for a while as it turns. Each lies within
+    /// ±180° longitude and the Web Mercator latitudes: a view across the antimeridian gets one
+    /// box on either side of it. Empty when the globe is out of sight.
+    pub fn drape_extents(&self, w: f64, h: f64, margin: f64) -> Vec<Extent> {
+        use rustgis_geom::MAX_LAT;
+        let pts = self.visible_points(w, h);
+        if pts.is_empty() {
+            return Vec::new();
+        }
+        let c0 = self.center_lon();
+        let (mut d0, mut d1, mut y0, mut y1) = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
+        for p in &pts {
+            let d = wrap_lon(p.x - c0);
+            d0 = d0.min(d);
+            d1 = d1.max(d);
+            y0 = y0.min(p.y);
+            y1 = y1.max(p.y);
+        }
+        let margin = if margin.is_finite() { margin.clamp(0.0, 4.0) } else { 0.0 };
+        let (px, py) = ((d1 - d0) * margin + 0.5, (y1 - y0) * margin + 0.5);
+        let (y0, y1) = ((y0 - py).max(-MAX_LAT), (y1 + py).min(MAX_LAT));
+        let (lo, hi) = (c0 + d0 - px, c0 + d1 + px);
+        if !(lo.is_finite() && hi.is_finite() && y0 < y1) {
+            return Vec::new();
+        }
+        // A pole in sight brings every longitude into view.
+        let pole = [90.0, -90.0].iter().any(|&lat| self.pole_in_view(Coord::new(0.0, lat), w, h));
+        if pole || hi - lo >= 360.0 {
+            return vec![Extent::new(-180.0, y0, 180.0, y1)];
+        }
+        // Shift so the west edge is within ±180°; the east edge may then pass the antimeridian.
+        let shift = 360.0 * ((lo + 180.0) / 360.0).floor();
+        let (lo, hi) = (lo - shift, hi - shift);
+        if hi <= 180.0 {
+            vec![Extent::new(lo, y0, hi, y1)]
+        } else {
+            vec![Extent::new(lo, y0, 180.0, y1), Extent::new(-180.0, y0, hi - 360.0, y1)]
+        }
+    }
+
+    /// Whether `boxes` (from [`Globe::drape_extents`]) cover everything a `w × h` view shows.
+    pub fn drape_covers(&self, w: f64, h: f64, boxes: &[Extent]) -> bool {
+        use rustgis_geom::MAX_LAT;
+        self.visible_points(w, h).iter().all(|p| {
+            let p = Coord::new(p.x, p.y.clamp(-MAX_LAT, MAX_LAT));
+            boxes.iter().any(|b| b.contains(p))
+        })
+    }
+
+    /// The mesh laying a picture of the Web Mercator box `merc` over the globe. Vertices behind
+    /// the horizon are pulled onto it, and triangles wholly behind it are left out. A box
+    /// reaching the Web Mercator latitude limit is stretched on to the pole, as the globe's
+    /// tiles are.
+    pub fn drape_mesh(&self, merc: &Extent) -> DrapeMesh {
+        use rustgis_geom::merc_to_lonlat;
+        let mut out = DrapeMesh::default();
+        if merc.is_empty() || !(merc.width() > 0.0 && merc.height() > 0.0) || !merc.width().is_finite() || !merc.height().is_finite() {
+            return out;
+        }
+        let ll =
+            Extent::from_points(merc_to_lonlat(Coord::new(merc.min_x, merc.min_y)), merc_to_lonlat(Coord::new(merc.max_x, merc.max_y)));
+        // About 2° cells, at least 16 a side (curvature), at most 192 (vertex count).
+        let cols = ((ll.width() / 2.0).ceil() as usize).clamp(16, 192);
+        let rows = ((ll.height() / 2.0).ceil() as usize).clamp(16, 192);
+        // (latitude, v) of each row of vertices, top first.
+        let edge = std::f64::consts::PI * MERCATOR_R * 0.9999;
+        let mut lats: Vec<(f64, f32)> = Vec::with_capacity(rows + 3);
+        if merc.max_y >= edge {
+            lats.push((90.0, 0.0));
+        }
+        for j in 0..=rows {
+            let t = j as f64 / rows as f64;
+            let y = merc.max_y - merc.height() * t;
+            lats.push((merc_to_lonlat(Coord::new(0.0, y)).y, t as f32));
+        }
+        if merc.min_y <= -edge {
+            lats.push((-90.0, 1.0));
+        }
+        let h = self.horizon();
+        let r = (1.0 - h * h).sqrt();
+        let n = lats.len() * (cols + 1);
+        out.pos.reserve(n);
+        out.uv.reserve(n);
+        let mut hidden = Vec::with_capacity(n);
+        for &(lat, v) in &lats {
+            for i in 0..=cols {
+                let t = i as f64 / cols as f64;
+                let mut p = self.to_view(Coord::new(ll.min_x + ll.width() * t, lat));
+                let behind = p[2] <= h;
+                if behind {
+                    let xy = (p[0] * p[0] + p[1] * p[1]).sqrt().max(1e-12);
+                    p = [p[0] / xy * r, p[1] / xy * r, h];
+                }
+                let (x, y) = self.project(p);
+                out.pos.push([x as f32, y as f32]);
+                out.uv.push([t as f32, v]);
+                hidden.push(behind);
+            }
+        }
+        let stride = cols + 1;
+        for j in 0..lats.len().saturating_sub(1) {
+            for i in 0..cols {
+                let (a, b) = (j * stride + i, j * stride + i + 1);
+                let (c, d) = (a + stride, b + stride);
+                for tri in [[a, b, c], [b, d, c]] {
+                    if tri.iter().any(|&k| hidden.get(k) == Some(&false)) {
+                        out.indices.extend(tri.iter().map(|&k| k as u32));
+                    }
+                }
+            }
+        }
+        out
+    }
+}
+
 /// Great-circle points between `a` and `b` (view-frame unit vectors), at most `step` radians
 /// apart, excluding `a` and including `b`.
 pub fn densify(a: V3, b: V3, step: f64) -> Vec<V3> {
@@ -412,6 +586,70 @@ mod tests {
         Globe::drag_point(&mut cam, (600.0, 200.0), (520.0, 260.0), 800.0, 600.0);
         let (x, y) = Globe::new(&cam, 800.0, 600.0).forward(target).unwrap();
         assert!((x - 520.0).abs() < 1.0 && (y - 260.0).abs() < 1.0, "{x},{y}");
+    }
+
+    #[test]
+    fn drapes_cover_the_view_until_it_turns_past_them() {
+        let (w, h) = (800.0, 600.0);
+        let mut cam = Camera { center: lonlat_to_merc(Coord::new(10.0, 45.0)), res: 2_000.0 };
+        let g = Globe::new(&cam, w, h);
+        let boxes = g.drape_extents(w, h, 0.25);
+        assert_eq!(boxes.len(), 1);
+        assert!(g.drape_covers(w, h, &boxes));
+        assert!(boxes[0].contains(Coord::new(10.0, 45.0)));
+        // A small turn stays inside the margin; a big one leaves it.
+        Globe::drag(&mut cam, 20.0, 0.0, w, h);
+        assert!(Globe::new(&cam, w, h).drape_covers(w, h, &boxes));
+        Globe::drag(&mut cam, 2_000.0, 0.0, w, h);
+        assert!(!Globe::new(&cam, w, h).drape_covers(w, h, &boxes));
+    }
+
+    #[test]
+    fn a_drape_across_the_antimeridian_is_split_and_the_whole_globe_is_one() {
+        let (w, h) = (800.0, 600.0);
+        let g = at(179.8, -18.0, 2_000.0);
+        let boxes = g.drape_extents(w, h, 0.25);
+        assert_eq!(boxes.len(), 2, "{boxes:?}");
+        for b in &boxes {
+            assert!(b.min_x >= -180.0 && b.max_x <= 180.0 && b.min_y >= -rustgis_geom::MAX_LAT, "{b:?}");
+        }
+        assert!(g.drape_covers(w, h, &boxes));
+        // A pole in view: the box spans every longitude.
+        let g = at(0.0, 70.0, 50_000.0);
+        let boxes = g.drape_extents(w, h, 0.25);
+        assert_eq!(boxes.len(), 1);
+        assert!(boxes[0].width() >= 359.9 && boxes[0].max_y > 85.0, "{boxes:?}");
+        assert!(g.drape_covers(w, h, &boxes));
+        // Nothing to drape off the globe or for junk.
+        assert!(at(0.0, 0.0, 20_000.0).drape_extents(0.0, 0.0, f64::NAN).iter().all(|b| !b.is_empty()));
+    }
+
+    #[test]
+    fn the_drape_mesh_lands_on_the_globe() {
+        let g = at(10.0, 45.0, 20_000.0);
+        let world = Extent::new(-180.0, -rustgis_geom::MAX_LAT, 180.0, rustgis_geom::MAX_LAT);
+        let m = g.drape_mesh(&rustgis_geom::extent_to_merc(&world));
+        assert_eq!(m.pos.len(), m.uv.len());
+        assert!(!m.indices.is_empty() && m.indices.len().is_multiple_of(3));
+        assert!(m.indices.iter().all(|&i| (i as usize) < m.pos.len()));
+        assert!(m.pos.iter().flatten().all(|v| v.is_finite()));
+        // Every vertex is on the disc, and the far side's triangles are left out.
+        let (cx, cy) = g.center();
+        let r = g.disc_radius() as f32 + 0.5;
+        assert!(m.pos.iter().all(|p| (p[0] - cx as f32).hypot(p[1] - cy as f32) <= r));
+        let cells = (m.pos.len() / 2) * 2;
+        assert!(m.indices.len() / 3 < cells, "{} triangles", m.indices.len() / 3);
+        // A picture's point lands where the globe puts it: the vertex at a texture position maps
+        // to the screen position of its longitude/latitude.
+        let merc = rustgis_geom::extent_to_merc(&Extent::new(0.0, 40.0, 20.0, 50.0));
+        let m = g.drape_mesh(&merc);
+        let k = m.uv.iter().position(|uv| uv[0] == 0.5 && uv[1] == 0.5).unwrap();
+        let ll = rustgis_geom::merc_to_lonlat(merc.center());
+        let (x, y) = g.forward(ll).unwrap();
+        assert!((m.pos[k][0] - x as f32).abs() < 0.01 && (m.pos[k][1] - y as f32).abs() < 0.01);
+        // Junk boxes give no mesh.
+        assert!(g.drape_mesh(&Extent::EMPTY).indices.is_empty());
+        assert!(g.drape_mesh(&Extent::new(0.0, 0.0, f64::INFINITY, 1.0)).indices.is_empty());
     }
 
     #[test]

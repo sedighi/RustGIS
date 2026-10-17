@@ -119,6 +119,11 @@ pub fn remember_password(dsn: &str, password: &str) {
     passwords().lock().unwrap_or_else(|e| e.into_inner()).insert(dsn.to_string(), password.to_string());
 }
 
+/// The password remembered for a connection this session, if any.
+pub(crate) fn remembered_password(dsn: &str) -> Option<String> {
+    passwords().lock().unwrap_or_else(|e| e.into_inner()).get(dsn).cloned()
+}
+
 /// The remembered password of a query's database, handed to DuckDB's PostgreSQL client in its
 /// environment (`PGPASSWORD`): never in the script, where the process list and DuckDB's errors
 /// would show it.

@@ -48,6 +48,8 @@ pub enum Want {
     Range(u64, u64),
     /// The last `n` bytes (where the file's length isn't known: a GeoParquet footer).
     Tail(u64),
+    /// The whole file: one that can't be read in place ([`READ_WHOLE`]), downloaded instead.
+    Whole,
 }
 
 /// Why a fetch brought no bytes.
@@ -80,6 +82,15 @@ pub fn set_fetcher(f: impl Fn(&str, Want, Done) + Send + Sync + 'static) {
 /// Whether a fetcher is installed.
 pub fn can_fetch() -> bool {
     fetcher().lock().unwrap_or_else(|e| e.into_inner()).is_some()
+}
+
+/// Fetches a whole file through the installed fetcher (a file that can't be read in place).
+pub fn fetch_whole(url: &str, done: Done) {
+    let f = fetcher().lock().unwrap_or_else(|e| e.into_inner()).clone();
+    match f {
+        Some(f) => f(url, Want::Whole, done),
+        None => done(Err(Failed::Other("no fetcher installed".into()))),
+    }
 }
 
 struct Piece {
@@ -449,6 +460,8 @@ fn step<T: Send + 'static>(
             match (w, res) {
                 (Want::Range(a, b), Ok(bytes)) => remote2.insert(a, b - a, bytes),
                 (Want::Tail(n), Ok(bytes)) => remote2.insert_tail(n, bytes),
+                // (Reads ask for ranges and tails; a whole file is all of its bytes from the start.)
+                (Want::Whole, Ok(bytes)) => remote2.insert(0, bytes.len() as u64, bytes),
                 // A request dropped unfetched (the view moved on) is asked for again next round.
                 (_, Err(Failed::Dropped)) => {}
                 // A range past the end of the file.
@@ -598,6 +611,7 @@ pub(crate) mod testing {
             let r = match w {
                 Want::Range(a, b) => f.get(a as usize..(b as usize).min(f.len())).map(<[u8]>::to_vec).unwrap_or_default(),
                 Want::Tail(n) => f.get(f.len().saturating_sub(n as usize)..).map(<[u8]>::to_vec).unwrap_or_default(),
+                Want::Whole => f.to_vec(),
             };
             sent.fetch_add(r.len(), Ordering::Relaxed);
             done(Ok(r));

@@ -23,6 +23,8 @@ pub fn install() {
                     return;
                 }
                 Want::Tail(n) => format!("{DOWNLOAD}{url}{TAIL}{n}"),
+                // Up to the download limit, like a file added by its address.
+                Want::Whole => format!("{DOWNLOAD}{url}"),
             };
             crate::cache::fetch_counted(marked, Box::new(move |r| done(r.map_err(|e| failed(&e)))));
         });

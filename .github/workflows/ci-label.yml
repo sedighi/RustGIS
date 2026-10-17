@@ -1,0 +1,46 @@
+name: CI on label
+
+# A pull request labelled `ci:macos` or `ci:full` is tested on macOS as soon as the label is added
+# (CI and the Python package workflow test it there on later pushes). Windows needs no label: every
+# pull request is tested there.
+# Its own workflow, so a label's run doesn't stand in for the pull request's CI run.
+
+on:
+  pull_request:
+    types: [labeled]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event.label.name }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    name: Platforms
+    if: startsWith(github.event.label.name, 'ci:')
+    runs-on: ubuntu-latest
+    outputs:
+      os: ${{ steps.os.outputs.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/scripts
+      - id: os
+        env:
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          LABEL: ${{ github.event.label.name }}
+        run: echo "os=$(.github/scripts/platforms.sh)" >> "$GITHUB_OUTPUT"
+
+  rust:
+    needs: plan
+    if: needs.plan.outputs.os != '[]'
+    uses: ./.github/workflows/test-rust.yml
+    with:
+      os: ${{ needs.plan.outputs.os }}
+
+  python:
+    needs: plan
+    if: needs.plan.outputs.os != '[]'
+    uses: ./.github/workflows/test-python.yml
+    with:
+      os: ${{ needs.plan.outputs.os }}

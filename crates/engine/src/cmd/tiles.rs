@@ -10,10 +10,14 @@ use crate::{CmdResult, CommandSpec as C, Session};
 /// Commands that make the map fetch from an address they're given (a plugin needs the
 /// `network` permission to run them).
 pub const NETWORK: &[&str] = &[
+    "map.route",
     "map.addTiles",
     "layer.addUrl",
     "service.layers",
     "service.add",
+    "service.import",
+    "service.refresh",
+    "service.groupPlan",
     "service.coverage",
     "catalog.search",
     "stac.collections",

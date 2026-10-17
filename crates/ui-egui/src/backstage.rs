@@ -3,8 +3,9 @@
 use egui::{Align2, CornerRadius, Rect, Sense, Stroke, Ui, pos2, vec2};
 use serde_json::Value;
 
+use crate::chrome::header_layout;
 use crate::theme::{BRAND, Tokens, regular, semibold};
-use crate::{RustGisApp, icons};
+use crate::{RustGisApp, TitlebarMetrics, icons};
 
 const PAGES: [(&str, &str, &str); 6] = [
     ("open", "Start", "logo"),
@@ -15,11 +16,18 @@ const PAGES: [(&str, &str, &str); 6] = [
     ("about", "About", "about"),
 ];
 
+/// Space above the navigation. In a unified title bar the window buttons float over the top-left
+/// corner (there is no header here to clear them), so the Back control starts below the bar.
+fn nav_top_pad(titlebar: Option<TitlebarMetrics>) -> f32 {
+    titlebar.map_or(16.0, |m| header_layout(Some(m)).height)
+}
+
 pub fn show(app: &mut RustGisApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
+    let top = nav_top_pad(app.ui.titlebar).round() as i8;
     egui::Panel::left("backstage_nav")
         .exact_size(210.0)
-        .frame(egui::Frame::NONE.fill(BRAND).inner_margin(egui::Margin::symmetric(0, 16)))
+        .frame(egui::Frame::NONE.fill(BRAND).inner_margin(egui::Margin { left: 0, right: 0, top, bottom: 16 }))
         .show(ui, |ui| {
             let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
             icons::paint(
@@ -160,4 +168,18 @@ fn about(ui: &mut Ui, t: &Tokens) {
     ui.label(
         egui::RichText::new(tl!("Sample data © Natural Earth (public domain). RustGIS is licensed under Apache-2.0.")).color(t.text_dim),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_nav_clears_the_window_buttons_only_in_a_unified_title_bar() {
+        assert_eq!(nav_top_pad(None), 16.0);
+        let short = TitlebarMetrics { height: 28.0, ..TitlebarMetrics::FALLBACK };
+        assert_eq!(nav_top_pad(Some(short)), 34.0, "never less than the header height");
+        let tall = TitlebarMetrics { height: 44.0, ..TitlebarMetrics::FALLBACK };
+        assert_eq!(nav_top_pad(Some(tall)), 44.0);
+    }
 }

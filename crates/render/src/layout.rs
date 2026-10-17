@@ -4,6 +4,7 @@
 use rustgis_data::GeometryType;
 use rustgis_geom::{Coord, Extent};
 use rustgis_map::layout::{ElementKind, FrameShape, Layout, PT_PER_MM, frame_camera};
+use rustgis_map::symbology::LegendEntry;
 use rustgis_map::{Map, Rgba};
 use tiny_skia::{FillRule, Mask, PathBuilder, Pixmap, PixmapPaint, Rect, Stroke, Transform};
 
@@ -49,6 +50,22 @@ pub fn render(layout: &Layout, maps: &mut [Map], dpi: f64, info: &PageInfo) -> O
         })
         .collect();
     let frame = |id: u32| frames.iter().find(|f| f.0 == id);
+    // What each legend's frame draws, worked out before any element is drawn: its map is synced
+    // to that frame's view first, so a streamed layer holds that frame's features whichever order
+    // the frames and legends come in, and whichever other frame showed the map last.
+    let mut shown: Vec<(u32, Vec<(u32, Vec<LegendEntry>)>)> = Vec::new();
+    for e in layout.elements.iter().filter(|e| e.visible) {
+        if let ElementKind::Legend { frame: f, all_classes: false, .. } = &e.kind
+            && !shown.iter().any(|(id, _)| id == f)
+            && let Some(&(_, mi, cam, fw, fh)) = frame(*f)
+            && let Some(map) = maps.get_mut(mi)
+        {
+            let view = View { width: fw, height: fh, pixels_per_point: 1.0, camera: cam };
+            let lonlat = crate::view_lonlat(map, &view);
+            map.sync_sources(&lonlat, true);
+            shown.push((*f, shown_legends(map, map.ground_res_at(&cam) / rustgis_geom::PIXEL_M)));
+        }
+    }
     for e in layout.elements.iter().filter(|e| e.visible) {
         let (x, y, ew, eh) = ((e.x * k) as f32, (e.y * k) as f32, (e.w * k) as f32, (e.h * k) as f32);
         let Some(r) = Rect::from_xywh(x, y, ew.max(1.0), eh.max(1.0)) else { continue };
@@ -61,7 +78,7 @@ pub fn render(layout: &Layout, maps: &mut [Map], dpi: f64, info: &PageInfo) -> O
                 let Some(map) = maps.get_mut(mi) else { continue };
                 // A frame larger than the page budget is drawn at a lower resolution and scaled up.
                 let fppp = ppp.min((MAX_PIXELS / (fw * fh).max(1.0)).sqrt()).max(0.01);
-                let view = View { width: fw, height: fh, pixels_per_point: fppp, camera: cam, dark: false };
+                let view = View { width: fw, height: fh, pixels_per_point: fppp, camera: cam };
                 let Some(mut img) = crate::render_complete(map, &view) else { continue };
                 for l in img.unplaced.iter().chain(&img.labels) {
                     text::draw(&mut img.pixmap, l, fppp as f32);
@@ -120,11 +137,12 @@ pub fn render(layout: &Layout, maps: &mut [Map], dpi: f64, info: &PageInfo) -> O
                     scale_bar(&mut pm, r, map.ground_res_at(&cam), ppp);
                 }
             }
-            ElementKind::Legend { frame: f, title } => {
+            ElementKind::Legend { frame: f, title, all_classes, hide_other } => {
                 if let Some(&(_, mi, ..)) = frame(*f)
                     && let Some(map) = maps.get(mi)
                 {
-                    legend(&mut pm, r, map, title, ppp);
+                    let drawn = (!*all_classes).then(|| shown.iter().find(|(id, _)| id == f).map(|(_, v)| v.as_slice()).unwrap_or(&[]));
+                    legend(&mut pm, r, map, title, drawn, *hide_other, ppp);
                 }
             }
             ElementKind::Text { text: t, size, color, bold } => {
@@ -275,6 +293,17 @@ fn outline_lonlat(pm: &mut Pixmap, map: &Map, view: &View, ring: &[Coord], color
     }
 }
 
+/// Formats a graticule meridian or parallel label.
+///
+/// The Equator and prime meridian are `0°` (neither hemisphere). The antimeridian
+/// is `180°` without an E/W suffix. Other values keep the usual hemisphere letter.
+fn grid_degree_label(v: f64, pos: char, neg: char, step: f64) -> String {
+    let d = if step < 1.0 { format!("{:.2}", v.abs()) } else { format!("{:.0}", v.abs()) };
+    // The stepped loop accumulates `+= step`, so 0 and ±180 can be off by rounding error.
+    let eps = step.abs() * 1e-6;
+    if v.abs() < eps || (v.abs() - 180.0).abs() < eps { format!("{d}°") } else { format!("{d}°{}", if v > 0.0 { pos } else { neg }) }
+}
+
 /// A graticule over a frame, labelled along its bottom and left edges.
 fn draw_grid(pm: &mut Pixmap, map: &Map, view: &View, g: &rustgis_map::layout::Grid) {
     let ppp = view.pixels_per_point as f32;
@@ -316,10 +345,7 @@ fn draw_grid(pm: &mut Pixmap, map: &Map, view: &View, g: &rustgis_map::layout::G
             pm.stroke_path(&p, &paint(g.color, 1.0), &stroke, Transform::identity(), None);
         }
     };
-    let fmt = |v: f64, pos: char, neg: char| {
-        let d = if step < 1.0 { format!("{:.2}", v.abs()) } else { format!("{:.0}", v.abs()) };
-        format!("{d}°{}", if v >= 0.0 { pos } else { neg })
-    };
+    let fmt = |v: f64, pos: char, neg: char| grid_degree_label(v, pos, neg, step);
     let label_color = Rgba::rgb(0x20, 0x20, 0x20);
     let mut lon = (ext.min_x / step).floor() * step;
     let mut n = 0;
@@ -451,7 +477,22 @@ fn scale_bar(pm: &mut Pixmap, r: Rect, ground_per_pt: f64, ppp: f64) {
     text::text_at(pm, &rustgis_geom::format_distance(target), x0 + len, ty, px, dark, false, text::Align::Center, false);
 }
 
-fn legend(pm: &mut Pixmap, r: Rect, map: &Map, title: &str, ppp: f64) {
+/// Each visible layer's legend for what it draws at a scale denominator (#207), by layer id; a
+/// layer that draws nothing there isn't listed. The scale is the one the renderer draws the frame
+/// at (the one its layers' scale ranges and display filters see), not the paper scale `{scale}`
+/// prints, so the legend follows what the frame actually shows.
+fn shown_legends(map: &Map, scale: f64) -> Vec<(u32, Vec<LegendEntry>)> {
+    map.layers
+        .iter()
+        .filter(|l| l.visible && !l.graphics && !l.is_raster())
+        .filter_map(|l| l.shown_legend(scale).map(|entries| (l.id, entries)))
+        .collect()
+}
+
+/// The legend of a frame's map. With `drawn` (from [`shown_legends`]) it shows what the frame
+/// draws: only the layers listed there, with their classes. Without, every class of every visible
+/// layer. `hide_other` leaves `<all other values>` out either way.
+fn legend(pm: &mut Pixmap, r: Rect, map: &Map, title: &str, drawn: Option<&[(u32, Vec<LegendEntry>)]>, hide_other: bool, ppp: f64) {
     let ppp = ppp as f32;
     let dark = Rgba::rgb(0x22, 0x22, 0x22);
     let mut y = r.y();
@@ -465,9 +506,27 @@ fn legend(pm: &mut Pixmap, r: Rect, map: &Map, title: &str, ppp: f64) {
         if y + line > r.y() + r.height() {
             break;
         }
-        let entries = l.renderer.legend();
+        let mut entries = match drawn {
+            Some(d) => match d.iter().find(|(id, _)| *id == l.id) {
+                Some((_, entries)) => entries.clone(),
+                None => continue,
+            },
+            None => l.renderer.legend(),
+        };
+        // The fallback row only (a class that happens to bear its name stays).
+        if hide_other && entries.iter().any(|e| e.fallback) {
+            entries.retain(|e| !e.fallback);
+            // Nothing left to show for this layer: leave it out rather than draw its plain swatch.
+            if entries.is_empty() {
+                continue;
+            }
+        }
         let gt = l.geometry_type();
         if entries.is_empty() {
+            // A Unique Values layer that lists nothing draws nothing visible (#207).
+            if matches!(l.renderer, rustgis_map::Renderer::Unique { .. }) {
+                continue;
+            }
             swatch(pm, r.x(), y, sw, line, gt, &l.renderer.symbol_for(&l.dataset, 0), ppp);
             text::text_at(pm, &l.name, r.x() + sw + 6.0 * ppp, y + line / 2.0, 9.0 * 1.33 * ppp, dark, false, text::Align::Left, false);
             y += line;
@@ -652,6 +711,102 @@ mod tests {
     use super::*;
 
     #[test]
+    fn legends_leave_out_what_the_frame_does_not_draw() {
+        use rustgis_data::{Dataset, Field, FieldType, Geometry, Value};
+        // A layer with one feature, of class "a", classed a, b and c; and an empty layer.
+        let mut map = Map::new("m");
+        let mut d = Dataset::new("pts", GeometryType::Point, vec![Field::new("g", FieldType::Text)]);
+        d.push(Some(Geometry::Point(Coord::new(0.0, 0.0))), vec![Value::Text("a".into())]);
+        let pts = map.add_dataset(d);
+        map.add_dataset(Dataset::new("empty", GeometryType::Point, vec![]));
+        let s = |c| rustgis_map::Symbol::default_for(GeometryType::Point, c);
+        if let Some(l) = map.layers.iter_mut().find(|l| l.id == pts) {
+            let classes = ["a", "b", "c"].iter().zip(0u32..).map(|(k, i)| (k.to_string(), s(i))).collect();
+            l.renderer = rustgis_map::Renderer::Unique {
+                field: "g".into(),
+                classes,
+                other: s(3),
+                ramp: rustgis_map::Ramp::Ember,
+                class_labels: Default::default(),
+                other_label: None,
+            };
+        }
+        // How far down the legend draws, in pixels.
+        let depth = |map: &Map, drawn: Option<&[(u32, Vec<LegendEntry>)]>, hide_other: bool| {
+            let mut pm = Pixmap::new(300, 400).unwrap();
+            pm.fill(tiny_skia::Color::WHITE);
+            legend(&mut pm, Rect::from_xywh(0.0, 0.0, 300.0, 400.0).unwrap(), map, "", drawn, hide_other, 1.0);
+            (0..pm.height()).filter(|&y| (0..pm.width()).any(|x| pm.pixel(x, y).is_some_and(|p| p.red() < 200))).max().unwrap_or(0)
+        };
+        let drawn = shown_legends(&map, 1e6);
+        assert_eq!(drawn.len(), 1, "the empty layer draws nothing: {drawn:?}");
+        let (shown, all) = (depth(&map, Some(&drawn), false), depth(&map, None, false));
+        // The drawn legend is two rows (the layer's heading and "a"); every class makes it six
+        // (b, c, <all other values> and the empty layer's row too). Compared with each other, so
+        // the font and antialiasing don't matter.
+        assert!(shown > 0, "the drawn class is listed");
+        assert!(all >= 2 * shown, "{shown} px of {all}");
+        // Hiding <all other values> takes one row off the full legend, and nothing off the drawn
+        // one, which has none.
+        assert!(depth(&map, None, true) < all);
+        assert_eq!(depth(&map, Some(&drawn), true), shown);
+        // A layer whose drawn features all fall in <all other values>, hidden, is left out rather
+        // than drawn as a plain swatch.
+        if let Some(l) = map.layers.iter_mut().find(|l| l.id == pts)
+            && let rustgis_map::Renderer::Unique { classes, .. } = &mut l.renderer
+        {
+            classes.retain(|(k, _)| k != "a");
+        }
+        let drawn = shown_legends(&map, 1e6);
+        assert!(depth(&map, Some(&drawn), false) > 0, "<all other values> alone is listed");
+        assert_eq!(depth(&map, Some(&drawn), true), 0, "and hidden, the layer is left out");
+        // So is one whose drawn features all fall in a fully transparent <all other values>,
+        // rather than drawn as a plain swatch of its first feature.
+        let set_other_alpha = |map: &mut Map, a: u8| {
+            if let Some(l) = map.layers.iter_mut().find(|l| l.id == pts)
+                && let rustgis_map::Renderer::Unique { other, .. } = &mut l.renderer
+            {
+                other.fill = other.fill.with_alpha(a);
+                other.stroke = other.stroke.with_alpha(a);
+            }
+        };
+        set_other_alpha(&mut map, 0);
+        let drawn = shown_legends(&map, 1e6);
+        assert_eq!(depth(&map, Some(&drawn), false), 0, "the invisible fallback stands for nothing");
+        set_other_alpha(&mut map, 255);
+        // A class that bears the fallback's name is a class: hiding the fallback keeps it.
+        if let Some(l) = map.layers.iter_mut().find(|l| l.id == pts)
+            && let rustgis_map::Renderer::Unique { classes, .. } = &mut l.renderer
+        {
+            classes.push(("a".into(), s(0)));
+            classes.iter_mut().for_each(|(k, _)| {
+                if k == "a" {
+                    *k = rustgis_map::symbology::OTHER_VALUES.into();
+                }
+            });
+        }
+        if let Some(l) = map.layers.iter_mut().find(|l| l.id == pts) {
+            l.dataset.features.iter_mut().for_each(|f| f.attrs = vec![Value::Text(rustgis_map::symbology::OTHER_VALUES.into())]);
+        }
+        let drawn = shown_legends(&map, 1e6);
+        assert!(depth(&map, Some(&drawn), true) > 0, "the class named like the fallback is still listed");
+        // A Graduated layer with no classes still shows its plain swatch, as before #207.
+        if let Some(l) = map.layers.iter_mut().find(|l| l.id == pts) {
+            l.renderer = rustgis_map::Renderer::Graduated {
+                field: "g".into(),
+                breaks: Vec::new(),
+                symbols: Vec::new(),
+                ramp: rustgis_map::Ramp::Ember,
+                method: rustgis_map::ClassMethod::NaturalBreaks,
+                min: 0.0,
+                class_labels: Default::default(),
+            };
+        }
+        map.layers.retain(|l| l.id == pts);
+        assert!(depth(&map, None, false) > 0, "the empty Graduated layer is listed");
+    }
+
+    #[test]
     fn hairline_rectangles_draw_thin() {
         // A filled 0.15 mm rule at 300 dpi is under two pixels tall, not a 1 mm bar (#211).
         let mut l = Layout::new("Layout", 50.0, 20.0);
@@ -664,5 +819,33 @@ mod tests {
         let x = pm.width() / 2;
         let inked = (0..pm.height()).filter(|&y| pm.pixel(x, y).is_some_and(|p| p.red() < 250)).count();
         assert!((1..=3).contains(&inked), "{inked} rows inked");
+    }
+
+    #[test]
+    fn grid_degree_label_omits_hemisphere_on_zero_and_antimeridian() {
+        // #210: Equator / prime meridian are 0°, antimeridian is 180°, not 0°N/0°E/180°E.
+        assert_eq!(grid_degree_label(0.0, 'N', 'S', 10.0), "0°");
+        assert_eq!(grid_degree_label(-0.0, 'N', 'S', 10.0), "0°");
+        assert_eq!(grid_degree_label(0.0, 'E', 'W', 10.0), "0°");
+        assert_eq!(grid_degree_label(180.0, 'E', 'W', 10.0), "180°");
+        assert_eq!(grid_degree_label(-180.0, 'E', 'W', 10.0), "180°");
+        assert_eq!(grid_degree_label(10.0, 'N', 'S', 10.0), "10°N");
+        assert_eq!(grid_degree_label(-10.0, 'N', 'S', 10.0), "10°S");
+        assert_eq!(grid_degree_label(20.0, 'E', 'W', 10.0), "20°E");
+        assert_eq!(grid_degree_label(-20.0, 'E', 'W', 10.0), "20°W");
+        assert_eq!(grid_degree_label(0.5, 'N', 'S', 0.25), "0.50°N");
+        assert_eq!(grid_degree_label(0.0, 'N', 'S', 0.25), "0.00°");
+        // Accumulated decimal steps miss 0 and 180 by rounding error.
+        let mut v = -0.5;
+        for _ in 0..5 {
+            v += 0.1;
+        }
+        assert_ne!(v, 0.0);
+        assert_eq!(grid_degree_label(v, 'N', 'S', 0.1), "0.00°");
+        let mut v = 179.5;
+        for _ in 0..5 {
+            v += 0.1;
+        }
+        assert_eq!(grid_degree_label(v, 'E', 'W', 0.1), "180.00°");
     }
 }

@@ -1,4 +1,4 @@
-//! Data › Project (New Report), Publish › Report and Data, and Publish › Save As (Report
+//! Publish › Report (New Report) and Data, and Publish › Save As (Report
 //! File, Report Template) and Output (Export Report): reports on a layer's records.
 
 use std::collections::{BTreeMap, HashMap};
@@ -34,7 +34,7 @@ fn need_report(s: &Session) -> Option<&'static str> {
 
 pub fn commands() -> Vec<C> {
     vec![
-        C::new("report.new", "New Report", "Data › Project", new_report).params(
+        C::new("report.new", "New Report", "Publish › Report", new_report).params(
             r#"{"layer"?: name (default: the selected layer), "name"?, "title"?, "fields"?: [names] (default: all), "where"?: SQL, "selectedOnly"?: bool, "groups"?: [fields], "sort"?: field, "descending"?: bool, "page"?: "letter"|"a4"|…, "orientation"?: "portrait"|"landscape"}"#,
         ),
         C::new("report.update", "Report Properties", "Report", update).when(need_report).params(
@@ -232,7 +232,7 @@ pub fn commands() -> Vec<C> {
             .view()
             .when(need_report)
             .params(r#"{"report"?, "path": "*.rgisrpttemplate"}"#),
-        C::new("report.open", "Import Report", "Data › Project", open).params(
+        C::new("report.open", "Import Report", "Publish › Report", open).params(
             r#"{"path"?: "*.rgisreport|*.rgisrpttemplate", "text"?: report JSON, "data"?: base64 file, "layer"?: the layer a template reports on (default: the selected layer)}"#,
         ),
     ]

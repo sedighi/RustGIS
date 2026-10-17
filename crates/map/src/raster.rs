@@ -460,6 +460,8 @@ pub fn enhancement_lut(brightness: f64, contrast: f64, gamma: f64) -> [u8; 256] 
 pub struct Colorizer<'a> {
     style: &'a RasterStyle,
     norms: Vec<Normalizer>,
+    /// Each band's byte for the whole values 0–255 (8-bit images), looked up instead of computed.
+    bytes: Vec<[u8; 256]>,
     lut: [u8; 256],
     plain: bool,
     ramp_lut: Vec<[u8; 4]>,
@@ -470,7 +472,7 @@ impl<'a> Colorizer<'a> {
     /// `view_stats` are statistics of the pixels in view, one per renderer band, for DRA.
     pub fn new(style: &'a RasterStyle, r: &'a Raster, view_stats: Option<&[BandStats]>) -> Colorizer<'a> {
         let bands = style.renderer.bands();
-        let norms = bands
+        let norms: Vec<Normalizer> = bands
             .iter()
             .enumerate()
             .map(|(i, b)| {
@@ -490,11 +492,22 @@ impl<'a> Colorizer<'a> {
             _ => &[],
         };
         let plain = style.brightness == 0.0 && style.contrast == 0.0 && (style.gamma - 1.0).abs() < 1e-9;
-        Colorizer { style, norms, lut: enhancement_lut(style.brightness, style.contrast, style.gamma), plain, ramp_lut, palette }
+        let bytes = norms.iter().map(|n| std::array::from_fn(|i| Self::normalize(n, i as f32))).collect();
+        Colorizer { style, norms, bytes, lut: enhancement_lut(style.brightness, style.contrast, style.gamma), plain, ramp_lut, palette }
+    }
+
+    fn normalize(n: &Normalizer, v: f32) -> u8 {
+        (n.t(v as f64) * 255.0).round() as u8
     }
 
     fn byte(&self, band: usize, v: f32) -> u8 {
-        self.norms.get(band).map(|n| (n.t(v as f64) * 255.0).round() as u8).unwrap_or(0)
+        if (0.0..=255.0).contains(&v)
+            && v.fract() == 0.0
+            && let Some(b) = self.bytes.get(band).and_then(|l| l.get(v as usize))
+        {
+            return *b;
+        }
+        self.norms.get(band).map(|n| Self::normalize(n, v)).unwrap_or(0)
     }
 
     fn enhance(&self, c: [u8; 4]) -> [u8; 4] {

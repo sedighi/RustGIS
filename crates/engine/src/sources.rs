@@ -295,7 +295,7 @@ pub fn added_by(id: &str, p: &Value) -> Option<Source> {
             }
             Some(src("tiles", url, text(p, "name"), Value::Object(extra)))
         }
-        "service.add" => {
+        "service.add" | "service.import" => {
             let mut extra = serde_json::Map::new();
             for k in ["layer", "type"] {
                 if let Some(v) = text(p, k) {

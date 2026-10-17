@@ -12,7 +12,7 @@ use crate::{CmdResult, CommandSpec as C, Session};
 pub fn commands() -> Vec<C> {
     vec![
         C::new("map.effects", "View Effects", "View › Effects", effects).params(
-            r#"{"sunTime"?: seconds since 1970|"now"|null (illumination), "weather"?: "none"|"haze"|"fog"|"rain"|"snow", "vignette"?, "edges"?: bool (visual effects), "tiltShift"?, "grain"?: bool (camera effects), "brightness"?, "contrast"?, "saturation"?: -100..100, "sepia"?: 0..100 (post-processing), "reset"?: bool}"#,
+            r#"{"sunTime"?: seconds since 1970|"now"|null (illumination), "weather"?: "none"|"haze"|"fog"|"rain"|"snow", "vignette"?, "edges"?, "stars"?: bool (visual effects; stars around the globe), "tiltShift"?, "grain"?: bool (camera effects), "brightness"?, "contrast"?, "saturation"?: -100..100, "sepia"?: 0..100 (post-processing), "reset"?: bool}"#,
         ),
         C::new("map.colorVision", "Color Vision Simulator", "View › Accessibility", |s, p| {
             let m = ps(p, "mode").ok_or("mode is required")?;
@@ -86,6 +86,9 @@ pub fn commands() -> Vec<C> {
             let next = match ps(p, "mode").ok_or("mode is required")? {
                 "global" => rustgis_map::Projection::Globe,
                 "local" => {
+                    if !rustgis_map::projection::local_views_supported() {
+                        return Err("local views aren't available in the web app".to_string());
+                    }
                     let c = s.map().center_lonlat();
                     rustgis_map::Projection::from_code(&format!("local:{:.4},{:.4}", c.x, c.y))?
                 }
@@ -95,7 +98,7 @@ pub fn commands() -> Vec<C> {
             m.set_projection(next);
             Ok(json!({"projection": m.projection.code(), "label": m.projection.label()}))
         })
-        .params(r#"{"mode": "global" (a globe)|"local" (a flat view centred here)}"#),
+        .params(r#"{"mode": "global" (a globe)|"local" (a flat view centred here; not in the web app)}"#),
         C::new("map.walk", "Walk", "Home › Navigate", walk).view().params(r#"{"forward"?: steps, "right"?: steps, "up"?: steps (first-person navigation)}"#),
     ]
 }
@@ -125,8 +128,13 @@ fn effects(s: &mut Session, p: &Value) -> CmdResult {
             o => return Err(format!("unknown weather '{o}'")),
         };
     }
-    for (k, slot) in [("vignette", &mut fx.vignette), ("edges", &mut fx.edges), ("tiltShift", &mut fx.tilt_shift), ("grain", &mut fx.grain)]
-    {
+    for (k, slot) in [
+        ("vignette", &mut fx.vignette),
+        ("edges", &mut fx.edges),
+        ("stars", &mut fx.stars),
+        ("tiltShift", &mut fx.tilt_shift),
+        ("grain", &mut fx.grain),
+    ] {
         if let Some(v) = b(p, k) {
             *slot = v;
         }

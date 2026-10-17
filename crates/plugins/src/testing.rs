@@ -13,6 +13,9 @@
 //! - `e` (error): fails with "nope".
 //! - `m` (make, a tool): returns a point layer "Made" and a message.
 //! - `x` (select, a tool): selects rows 0 and 2 of the layer "Cities".
+//! - `r` (read, a tool with a `file` parameter, declared with the `files` permission): returns
+//!   what `m` does. A request carrying files has `files` before `id` (byte 15 is then the `"`
+//!   closing `"files"`), so it's answered the same way.
 
 use std::io::Write;
 
@@ -52,6 +55,8 @@ const WAT: &str = r#"
     (if (i32.eq (local.get $c) (i32.const 103)) (then (return (i64.const 0x7fff000000000010))))
     (if (i32.eq (local.get $c) (i32.const 111)) (then (drop (memory.grow (i32.const 65000))) unreachable))
     (if (i32.eq (local.get $c) (i32.const 109)) (then (return (call $reply (i32.const 256) (i32.const 195)))))
+    (if (i32.or (i32.eq (local.get $c) (i32.const 114)) (i32.eq (local.get $c) (i32.const 34)))
+      (then (return (call $reply (i32.const 256) (i32.const 195)))))
     (if (i32.eq (local.get $c) (i32.const 120)) (then (return (call $reply (i32.const 1024) (i32.const 52)))))
     (call $reply (i32.const 128) (i32.const 16)))
 )
@@ -64,7 +69,7 @@ pub fn wasm() -> Vec<u8> {
 
 /// A manifest for the test module, with the given id and permissions.
 pub fn manifest(id: &str, permissions: &[&str]) -> String {
-    serde_json::json!({
+    let mut m = serde_json::json!({
         "id": id,
         "name": format!("Test {id}"),
         "version": "1.0.0",
@@ -87,13 +92,35 @@ pub fn manifest(id: &str, permissions: &[&str]) -> String {
             {"id": "x", "name": "Select Two", "params": [{"name": "input", "label": "Input", "kind": "layer"}]}
         ],
         "i18n": {"de": {"Hello": "Hallo"}}
-    })
-    .to_string()
+    });
+    // A file parameter needs `files`.
+    if permissions.contains(&"files")
+        && let Some(tools) = m["tools"].as_array_mut()
+    {
+        tools.push(serde_json::json!({"id": "r", "name": "Read File", "params": [
+            {"name": "input", "label": "Input", "kind": "layer"},
+            {"name": "model", "label": "Model", "kind": "file", "required": true, "extensions": ["nc", "nc4"]}
+        ]}));
+    }
+    m.to_string()
 }
 
 /// A `.rgplugin` package of the test module.
 pub fn package(id: &str, permissions: &[&str]) -> Vec<u8> {
     zip_of(&[("plugin.json", manifest(id, permissions).as_bytes()), ("plugin.wasm", &wasm())])
+}
+
+/// A skills package (no code) with the given skills, each a `SKILL.md` naming and describing it.
+pub fn skills_package(id: &str, skills: &[&str]) -> Vec<u8> {
+    let manifest = serde_json::json!({"id": id, "name": format!("Skills {id}"), "version": "1.0.0", "runtime": "skills", "skills": skills})
+        .to_string();
+    let texts: Vec<(String, String)> = skills
+        .iter()
+        .map(|s| (format!("skills/{s}/SKILL.md"), format!("---\nname: {s}\ndescription: The {s} skill.\n---\n\n# {s}\nDo {s}.\n")))
+        .collect();
+    let mut files: Vec<(&str, &[u8])> = vec![("plugin.json", manifest.as_bytes())];
+    files.extend(texts.iter().map(|(p, t)| (p.as_str(), t.as_bytes())));
+    zip_of(&files)
 }
 
 /// A zip archive of `files` (name, bytes), stored uncompressed.
@@ -106,4 +133,128 @@ pub fn zip_of(files: &[(&str, &[u8])]) -> Vec<u8> {
         }
     }
     w.finish().map(|c| c.into_inner()).unwrap_or_default()
+}
+
+/// The argument that tells a test binary, started as a process plugin, to act as one (see
+/// [`serve_if_child`]). It doubles as a test filter that matches no test.
+const CHILD_MARK: &str = "rustgis-plugin-child-mode";
+
+/// `run` for a process plugin played by this test binary: it starts the test named `test` (in
+/// the crate's tests, it calls [`serve_if_child`]) and nothing else.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn child_run(test: &str) -> Vec<String> {
+    let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default();
+    [exe.as_str(), test, CHILD_MARK, "--exact", "--nocapture", "--test-threads=1"].iter().map(|s| s.to_string()).collect()
+}
+
+/// A manifest for the process test plugin: the test module's commands and tools, run by `run`.
+/// With `files`, its tool `r` takes a file.
+pub fn process_manifest(id: &str, permissions: &[&str], run: &[String]) -> String {
+    let mut m: serde_json::Value = serde_json::from_str(&manifest(id, permissions)).unwrap_or_default();
+    m["runtime"] = serde_json::json!("process");
+    m["run"] = serde_json::json!(run);
+    if let Some(c) = m["commands"].as_array_mut() {
+        c.push(serde_json::json!({"id": "n", "label": "Noisy"}));
+        c.push(serde_json::json!({"id": "c", "label": "Crash"}));
+    }
+    if let Some(t) = m["tools"].as_array_mut() {
+        t.push(serde_json::json!({"id": "w", "name": "Work Forever", "params": []}));
+    }
+    m.to_string()
+}
+
+/// In a test binary started by a process test plugin ([`child_run`]): answers one request as the
+/// test module does, then exits. Elsewhere it returns at once.
+///
+/// - `h` logs "hi" and returns `{"hello": "world"}`; `f` sends its params as a host request
+///   and returns the reply; `e` fails with "nope"; `n` prints a line that isn't JSON and a JSON object that isn't a message first;
+///   `c` writes "boom" to its error output and exits without answering; `s` never answers;
+///   `g` starts another copy of itself that never answers, logs its process id and never
+///   answers either.
+/// - Tools: `m` returns the layer "Made"; `x` selects rows 0 and 2 of "Cities"; `r` returns the
+///   names of the files it was given as its messages; `w` logs "working", reports
+///   progress "step 1 of 3" and never answers; `m` reports progress "making" first.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn serve_if_child() {
+    use serde_json::{Value, json};
+    use std::io::{BufRead, Write};
+    if !std::env::args().any(|a| a == CHILD_MARK) {
+        return;
+    }
+    let mut out = std::io::stdout();
+    // The test harness has printed "test … " without a line end: start a line of our own.
+    let _ = writeln!(out);
+    let mut input = std::io::stdin().lock();
+    let mut line = String::new();
+    let _ = input.read_line(&mut line);
+    let req: Value = serde_json::from_str(&line).unwrap_or_default();
+    let params = req.get("params").cloned().unwrap_or_default();
+    let reply = match req.get("id").and_then(Value::as_str).and_then(|s| s.chars().next()) {
+        Some('h') => {
+            let _ = writeln!(out, "{}", json!({"log": "hi"}));
+            json!({"ok": {"hello": "world"}})
+        }
+        Some('f') => {
+            let _ = writeln!(out, "{}", json!({"call": {"op": params["op"], "params": params["params"]}}));
+            let _ = out.flush();
+            let mut answer = String::new();
+            let _ = input.read_line(&mut answer);
+            serde_json::from_str(&answer).unwrap_or_else(|_| json!({"error": "no answer"}))
+        }
+        Some('n') => {
+            let _ = writeln!(out, "a library printing");
+            let _ = writeln!(out, "{}", json!({"library": "a JSON object of its own"}));
+            json!({"ok": {"n": 1}})
+        }
+        Some('c') => {
+            eprintln!("boom");
+            std::process::exit(3);
+        }
+        Some('w') => {
+            let _ = writeln!(out, "{}", json!({"log": "working"}));
+            let _ = writeln!(out, "{}", json!({"progress": "step 1 of 3"}));
+            let _ = out.flush();
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+        Some('s') => loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        },
+        Some('g') => {
+            let argv = child_run(&std::env::args().nth(1).unwrap_or_default());
+            let spawned = argv.split_first().and_then(|(exe, args)| {
+                std::process::Command::new(exe)
+                    .args(args)
+                    .stdin(std::process::Stdio::piped())
+                    .stdout(std::process::Stdio::null())
+                    .spawn()
+                    .ok()
+            });
+            if let Some(mut grandchild) = spawned {
+                if let Some(mut stdin) = grandchild.stdin.take() {
+                    let _ = writeln!(stdin, "{}", json!({"id": "s", "params": {}}));
+                }
+                let _ = writeln!(out, "{}", json!({"log": grandchild.id().to_string()}));
+                let _ = out.flush();
+            }
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+        Some('m') => {
+            let _ = writeln!(out, "{}", json!({"progress": "making"}));
+            json!({"ok": {"layers": [{"name": "Made", "geojson": {"type": "FeatureCollection", "features": [
+            {"type": "Feature", "properties": {"n": 1}, "geometry": {"type": "Point", "coordinates": [1, 2]}}]}}], "messages": ["made"]}})
+        }
+        Some('x') => json!({"ok": {"selection": {"layer": "Cities", "rows": [0, 2]}}}),
+        Some('r') => {
+            let names: Vec<Value> = req["files"].as_object().map(|f| f.values().map(|v| v["name"].clone()).collect()).unwrap_or_default();
+            json!({"ok": {"layers": [], "messages": names}})
+        }
+        _ => json!({"error": "nope"}),
+    };
+    let _ = writeln!(out, "{reply}");
+    let _ = out.flush();
+    std::process::exit(0);
 }

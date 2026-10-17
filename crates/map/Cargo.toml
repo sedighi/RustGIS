@@ -15,6 +15,11 @@ serde = { workspace = true }
 base64 = { workspace = true }
 web-time = { workspace = true }
 proj4rs = { workspace = true }
-crs-definitions = { workspace = true }
 roxmltree = { workspace = true }
 serde_json = { workspace = true }
+
+# Local views (`local:lon,lat`, map.viewMode "local") are azimuthal equidistant: proj4rs' `aeqd`, whose
+# geodesic routines are C that needs libm (`remainder`, `remquo`), which wasm32-unknown-unknown lacks. So
+# they are native-only; in the browser the projection is refused rather than drawn in Web Mercator.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+proj4rs = { workspace = true, features = ["aeqd"] }

@@ -2,8 +2,10 @@
 
 ## Selection and queries
 
-**Home › Select** picks features by clicking or dragging a box (Shift adds, Ctrl removes).
-**Select By Attributes** takes a SQL clause and checks it as you type; **Select By Location**
+**Home › Select** picks features by clicking or dragging a box (Shift adds, Ctrl removes). It
+takes only features that are drawn, in selectable layers: a definition query or a display filter
+hiding a feature keeps it out, and a click picks the feature drawn on top among the selectable
+layers. **Select By Attributes** takes a SQL clause and checks it as you type; **Select By Location**
 picks features that touch another layer's features or lie within a search distance of them (or,
 inverted, those that don't). Selected features draw in
 cyan and are highlighted in the attribute table, and the selection is synced both ways. Switch,
@@ -80,6 +82,10 @@ them by category only. Find Tools searches them.
 - Raster inputs are passed as their own files; vector layers (or their selection) are written
   in the first raster input's coordinate system, or the UTM zone around the data, so distances
   and areas are in metres. Data spanning more than 40° of longitude stays in degrees.
+- Tools that take several layers (a composite's bands, a mosaic's tiles) list them in order:
+  **Add** picks a layer, and ▲ ▼ change its place (the order of the bands, for a composite). From
+  the command line, name them separated by `;`: `"inputs":"red;green;blue"`. In the desktop app
+  a file not open as a layer can be added too: type its path below the list and press Enter.
 - Raster outputs are kept inside the project, so they save and reopen with it. Text and table
   reports appear in the tool's messages.
 - LiDAR and other inputs RustGIS doesn't open as layers take a file path, read like Add Data

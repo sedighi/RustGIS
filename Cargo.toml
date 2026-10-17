@@ -4,7 +4,7 @@ members = ["crates/*", "apps/*", "xtask"]
 default-members = ["crates/*", "apps/rustgis", "apps/rustgis-cli", "xtask"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "Apache-2.0"
 rust-version = "1.90"
@@ -27,8 +27,8 @@ rustgis-assistant = { path = "crates/assistant" }
 # foundation
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-sha2 = "0.10"
+serde_json = { version = "1", features = ["raw_value"] }
+sha2 = "0.11"
 log = "0.4"
 # std::time that also works in the browser (std panics on wasm32-unknown-unknown).
 web-time = "1"
@@ -38,19 +38,24 @@ geo = "0.33"
 shapefile = "0.9"
 csv = "1"
 tiny-skia = "0.12"
+# GPU map backend: vertex data shared with wgpu in ui-egui (derive only; unsafe stays forbidden).
+bytemuck = { version = "1", features = ["derive"] }
+# GPU map backend: polygon/line tessellation for the GPU scene (same major as SpatialOS's 1.x).
+lyon = "1"
 image = { version = "0.25", default-features = false, features = ["png"] }
 ab_glyph = "0.2"
 # Rasters: GeoTIFF decoding/encoding, and coordinate systems by EPSG code (pure Rust, except the
 # Zstandard decoder `rustgis-data` turns on, C that clang compiles for the browser build too).
 tiff = "0.11"
 # The tests' Zstandard-compressed GeoTIFFs (the version the tiff crate decodes with).
-zstd = { version = "0.13", default-features = false }
+zstd = { version = "0.14", default-features = false }
 proj4rs = { version = "0.2", default-features = false }
 crs-definitions = { version = "0.6", default-features = false, features = ["proj4"] }
-base64 = "0.22"
+base64 = "0.23"
 # Deflate for PDF image streams.
 miniz_oxide = "0.8"
 roxmltree = "0.21"
+url = "2.5.8"
 epaint_default_fonts = "0.36"
 # Vector data providers: GeoParquet (pure Rust, so the browser reads it too), FlatGeobuf and
 # GeoPackage (SQLite, desktop only).
@@ -63,6 +68,11 @@ bytes = "1"
 flatgeobuf = { version = "6", default-features = false }
 geozero = { version = "0.15", default-features = false, features = ["with-wkb"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
+# PostgreSQL/PostGIS, in pure Rust: the client, and TLS through rustls (ring, as ureq has it).
+postgres = { version = "0.19", default-features = false }
+tokio-postgres-rustls = { version = "0.14", default-features = false, features = ["ring"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1"
 # Excel and OpenDocument spreadsheets, in pure Rust (the browser too).
 calamine = { version = "0.36", default-features = false }
 laz = { version = "0.13", default-features = false }
@@ -73,10 +83,12 @@ ruzstd = { version = "0.9", default-features = false, features = ["std"] }
 
 # ui
 egui = "0.36"
+egui-wgpu = "0.36"
 egui_extras = { version = "0.36", default-features = false }
 eframe = { version = "0.36", default-features = false }
 egui_kittest = "0.36"
 rfd = "0.17"
+pollster = "0.4"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

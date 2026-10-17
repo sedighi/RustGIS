@@ -215,7 +215,7 @@ mod tests {
 
     fn pixel(map: &mut Map) -> [u8; 4] {
         let camera = Camera { center: lonlat_to_merc(Coord::new(10.0, 50.0)), res: 2000.0 };
-        let view = View { width: 200.0, height: 100.0, pixels_per_point: 1.0, camera, dark: false };
+        let view = View { width: 200.0, height: 100.0, pixels_per_point: 1.0, camera };
         let png = crate::render_png(map, &view).unwrap();
         let pm = tiny_skia::Pixmap::decode_png(&png).unwrap();
         let p = pm.pixel(100, 50).unwrap();
@@ -246,7 +246,7 @@ mod tests {
         m.projection = Projection::WebMercator;
         m.tiles = vec![TileLayer::new("Gone", TileKind::Style, "https://tiles.test/missing.json")];
         let camera = Camera { center: lonlat_to_merc(Coord::new(10.0, 50.0)), res: 2000.0 };
-        let view = View { width: 200.0, height: 100.0, pixels_per_point: 1.0, camera, dark: false };
+        let view = View { width: 200.0, height: 100.0, pixels_per_point: 1.0, camera };
         let r = crate::render_complete(&mut m, &view).unwrap();
         assert!(!r.tiles_pending);
         assert_eq!(r.tile_errors.len(), 1, "{:?}", r.tile_errors);

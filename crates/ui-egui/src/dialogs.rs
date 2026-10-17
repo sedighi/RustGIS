@@ -105,6 +105,9 @@ impl Dialogs {
             "calculateField" => "calculateField",
             "definitionQuery" => "definitionQuery",
             "renameLayer" => "renameLayer",
+            "renameMap" => "renameMap",
+            "renameLayout" => "renameLayout",
+            "renameServiceGroup" => "renameServiceGroup",
             "coordinateSystem" => "coordinateSystem",
             "graphicText" => "graphicText",
             "camera" => "camera",
@@ -150,7 +153,7 @@ impl Dialogs {
                 self.a = format!("{:.4}", c.x);
                 self.b = format!("{:.4}", c.y);
             }
-            "bookmark" => self.text = format!("Bookmark {}", s.map().bookmarks.len() + 1),
+            "bookmark" => self.text = rustgis_engine::cmd::navigate::new_bookmark_name(s.map()),
             "camera" => {
                 let c = s.map().center_lonlat();
                 self.a = format!("{:.5}", c.x);
@@ -210,12 +213,23 @@ pub fn show(app: &mut RustGisApp, ctx: &egui::Context) {
         "zarr" => "Add Zarr Variable",
         "exportLayer" => "Export Features",
         "saveProject" => "Save Project As",
+        "renameMap" => "Rename Map",
+        "renameLayout" => "Rename Layout",
+        "renameServiceGroup" => "Rename Service Group",
         _ => "Rename Layer",
     };
     let t = Tokens::get(ctx);
     let mut open = true;
     let mut close = false;
-    egui::Window::new(tl!(title)).id(egui::Id::new("dialog")).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, vec2(0.0, -40.0)).show(ctx, |ui| {
+    // Opens centred and can be moved; each dialog remembers where it was put.
+    egui::Window::new(tl!(title))
+        .id(egui::Id::new(("dialog", which)))
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(false)
+        .pivot(Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center() + vec2(0.0, -40.0))
+        .show(ctx, |ui| {
         ui.set_width(match which {
             "coordinateSystem" | "zarr" => 660.0,
             "addTiles" | "addUrl" | "addService" | "stac" | "s3" | "sourcecoop" | "opendata" | "addDatabase" => 560.0,
@@ -313,7 +327,17 @@ pub fn show(app: &mut RustGisApp, ctx: &egui::Context) {
             "bookmark" => {
                 ui.label(tl!("Name"));
                 ui.add(egui::TextEdit::singleline(&mut app.dialogs.text).desired_width(f32::INFINITY));
-                close = buttons(app, ui, "Create", |app| app.run("bookmark.add", json!({"name": app.dialogs.text})).map(|_| ()));
+                // What the place is (#351); Enter creates the bookmark, Shift+Enter starts a line.
+                ui.label(tl!("Description"));
+                let hint = tl!("Optional. Shift+Enter starts a new line.");
+                // Only Shift+Enter breaks the line: a plain Enter would add one where the cursor
+                // is in the same frame the dialog takes it to create the bookmark.
+                let new_line = egui::KeyboardShortcut::new(egui::Modifiers::SHIFT, egui::Key::Enter);
+                let edit = egui::TextEdit::multiline(&mut app.dialogs.a).hint_text(hint).desired_rows(3).return_key(new_line);
+                ui.add(edit.desired_width(f32::INFINITY));
+                close = buttons(app, ui, "Create", |app| {
+                    app.run("bookmark.add", json!({"name": app.dialogs.text, "description": app.dialogs.a})).map(|_| ())
+                });
             }
             "addField" => {
                 egui::Grid::new("af").num_columns(2).spacing(vec2(10.0, 8.0)).show(ui, |ui| {
@@ -352,6 +376,31 @@ pub fn show(app: &mut RustGisApp, ctx: &egui::Context) {
                 close = buttons(app, ui, "Apply", |app| app.run("layer.definitionQuery", json!({"where": app.dialogs.text})).map(|_| ()));
             }
             "saveProject" => close = save_project(app, ui),
+            // `a` is the map or layout being renamed; an empty or unchanged name just closes.
+            "renameMap" | "renameLayout" => {
+                ui.label(tl!("Name"));
+                ui.add(egui::TextEdit::singleline(&mut app.dialogs.text).desired_width(f32::INFINITY));
+                close = buttons(app, ui, "Rename", |app| {
+                    let (old, new) = (app.dialogs.a.clone(), app.dialogs.text.trim().to_string());
+                    if new.is_empty() || new == old {
+                        return Ok(());
+                    }
+                    let r = if which == "renameMap" {
+                        app.run("map.rename", json!({"map": old, "name": new}))
+                    } else {
+                        app.run("layout.rename", json!({"layout": old, "newName": new}))
+                    };
+                    r.map(|_| ())
+                });
+            }
+            "renameServiceGroup" => {
+                ui.label(tl!("Name"));
+                ui.add(egui::TextEdit::singleline(&mut app.dialogs.text).desired_width(f32::INFINITY));
+                close = buttons(app, ui, "Rename", |app| {
+                    let group = app.dialogs.layer.parse::<u32>().map_err(|e| e.to_string())?;
+                    app.run("service.group", json!({"group":group,"name":app.dialogs.text})).map(|_| ())
+                });
+            }
             _ => {
                 ui.label(tl!("Name"));
                 ui.add(egui::TextEdit::singleline(&mut app.dialogs.text).desired_width(f32::INFINITY));
@@ -640,16 +689,19 @@ fn add_service(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
     }
     // The service: connecting, an error, or its layers.
     let mut add: Option<Value> = None;
+    let mut import = None;
     if let Some(conn) = &app.ui.service {
         ui.separator();
         if let Some(e) = &conn.error {
             ui.colored_label(t.red, e);
-        } else if let Some(v) = &conn.listing {
+        }
+        if let Some(v) = &conn.listing {
             let kind = v.get("kind").and_then(Value::as_str).unwrap_or("");
             let title = v.get("title").and_then(Value::as_str).unwrap_or("");
             // Borrowed, not cloned: the dialog draws every frame.
             let none = Vec::new();
             let layers = v.get("layers").and_then(Value::as_array).unwrap_or(&none);
+            let grouped = kind.starts_with("OGC API");
             ui.label(
                 egui::RichText::new(crate::i18n::fmt(
                     "{kind} {title}: {count} layers",
@@ -660,6 +712,20 @@ fn add_service(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
             for n in v.get("notes").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
                 ui.label(egui::RichText::new(n).small().weak());
             }
+            if grouped && layers.iter().any(|l| l["offer"]["type"] == "features") {
+                ui.horizontal(|ui| {
+                    ui.label(tl!("Name"));
+                    ui.text_edit_singleline(&mut app.ui.service_group_name);
+                    let ready = conn.pending.is_none() && conn.error.is_none() && app.ui.service_import.is_none();
+                    if ui.add_enabled(ready, egui::Button::new(tl!("Import All"))).clicked() {
+                        let mut p = json!({"url":conn.url,"name":app.ui.service_group_name,"text":conn.text,"documents":conn.documents});
+                        if conn.kind != "auto" {
+                            p["type"] = json!(conn.kind);
+                        }
+                        import = Some(p);
+                    }
+                });
+            }
             if layers.len() > SHOWN_LAYERS {
                 ui.label(
                     egui::RichText::new(crate::i18n::fmt("The first {n} are listed.", &[("n", &SHOWN_LAYERS.to_string())])).small().weak(),
@@ -668,7 +734,7 @@ fn add_service(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
             egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
                 for l in layers.iter().take(SHOWN_LAYERS) {
                     ui.horizontal(|ui| {
-                        if ui.small_button(tl!("Add")).clicked() {
+                        if !(grouped && l["offer"]["type"] == "features") && ui.small_button(tl!("Add")).clicked() {
                             add = Some(l.clone());
                         }
                         let name = l.get("name").and_then(Value::as_str).unwrap_or("");
@@ -683,12 +749,24 @@ fn add_service(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
                     });
                 }
             });
-        } else {
+        }
+        if let Some(pending) = &conn.pending {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label(crate::i18n::fmt("Connecting to {url}…", &[("url", &conn.url)]));
+                ui.label(crate::i18n::fmt("Connecting to {url}…", &[("url", pending)]));
             });
         }
+    }
+    if let Some(p) = import
+        && let Err(e) = app.run("ui.importService", p)
+    {
+        app.dialogs.error = Some(e);
+    }
+    if app.ui.service_import.is_some() {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label(tl!("Downloading…"));
+        });
     }
     if let (Some(l), Some(conn)) = (add, &app.ui.service) {
         let (url, kind, text) = (conn.url.clone(), conn.kind, conn.text.clone().unwrap_or_default());
@@ -702,7 +780,7 @@ fn add_service(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
         } else if offer.get("type").and_then(Value::as_str) == Some("coverage") {
             // A coverage: its description first, off the frame (poll_describe asks for it).
             let describe = offer.get("describe").and_then(Value::as_str).unwrap_or("").to_string();
-            let mut p = json!({"url": url, "layer": name, "text": text, "name": title});
+            let mut p = json!({"url": url, "layer": name, "text": text, "name": title, "documents": conn.documents});
             if kind != "auto" {
                 p["type"] = json!(kind);
             }
@@ -712,7 +790,7 @@ fn add_service(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
             }
             Ok(tl!("Describing"))
         } else {
-            let mut p = json!({"url": url, "layer": name, "text": text});
+            let mut p = json!({"url": url, "layer": name, "text": text, "documents": conn.documents, "source_url": l.get("source_url")});
             if kind != "auto" {
                 p["type"] = json!(kind);
             }
@@ -780,7 +858,6 @@ fn add_url(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
 }
 
 /// Add From Database: an ArcGIS Pro-style Database Connection dialog supporting PostgreSQL,
-/// PostGIS, Esri SDE (st_geometry), and DuckDB files.
 fn add_database(app: &mut RustGisApp, ui: &mut egui::Ui) -> bool {
     let t = Tokens::get(ui.ctx());
     ui.label(

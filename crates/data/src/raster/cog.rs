@@ -36,7 +36,14 @@ pub struct Sparse {
     pos: u64,
     /// The first range a read needed and didn't have.
     missing: Arc<Mutex<Option<(u64, u64)>>>,
+    /// The file's length, when known: reads past it find its end, not a gap.
+    len: Option<u64>,
 }
+
+/// What a container of a file's parts ([`Sparse::container`]) starts with.
+const CONTAINER_MAGIC: &[u8; 16] = b"RustGIS parts 1\n";
+/// The most parts a container may hold.
+const MAX_PARTS: u64 = 1 << 20;
 
 impl Sparse {
     /// The bytes read so far, starting at `at`.
@@ -45,24 +52,91 @@ impl Sparse {
         self
     }
 
+    /// The same bytes, of a file `len` bytes long.
+    pub fn with_len(mut self, len: u64) -> Sparse {
+        self.len = Some(len);
+        self
+    }
+
+    /// Where the next part held after `at` starts, if any.
+    pub fn next_start(&self, at: u64) -> Option<u64> {
+        self.chunks.range(at.saturating_add(1)..).next().map(|(a, _)| *a)
+    }
+
+    /// The parts held, as one file: the file's length, then each part's start, length and bytes
+    /// (read by [`Sparse::from_container`]). A browser keeps the parts of a large GeoTIFF it read
+    /// so, as a raster layer's file and in a saved project, rather than the whole file.
+    pub fn container(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(32 + self.chunks.values().map(|c| c.len() + 16).sum::<usize>());
+        out.extend_from_slice(CONTAINER_MAGIC);
+        out.extend_from_slice(&self.len.unwrap_or(u64::MAX).to_le_bytes());
+        out.extend_from_slice(&(self.chunks.len() as u64).to_le_bytes());
+        for (at, c) in self.chunks.iter() {
+            out.extend_from_slice(&at.to_le_bytes());
+            out.extend_from_slice(&(c.len() as u64).to_le_bytes());
+            out.extend_from_slice(c);
+        }
+        out
+    }
+
+    /// Whether `bytes` are a container of a file's parts.
+    pub fn is_container(bytes: &[u8]) -> bool {
+        bytes.starts_with(CONTAINER_MAGIC)
+    }
+
+    /// The parts a container holds; `None` for anything else or a damaged one.
+    pub fn from_container(bytes: &[u8]) -> Option<Sparse> {
+        fn u64_(rest: &mut &[u8]) -> Option<u64> {
+            let (head, tail) = rest.split_first_chunk::<8>()?;
+            *rest = tail;
+            Some(u64::from_le_bytes(*head))
+        }
+        let mut rest = bytes.strip_prefix(CONTAINER_MAGIC.as_slice())?;
+        let len = u64_(&mut rest)?;
+        let n = u64_(&mut rest)?;
+        if n > MAX_PARTS {
+            return None;
+        }
+        let mut s = Sparse::default();
+        if len != u64::MAX {
+            s.len = Some(len);
+        }
+        for _ in 0..n {
+            let (at, size) = (u64_(&mut rest)?, u64_(&mut rest)?);
+            // A part past the file's end (or the largest offset) is a damaged container.
+            let end = at.checked_add(size)?;
+            if s.len.is_some_and(|len| end > len) {
+                return None;
+            }
+            let size = usize::try_from(size).ok()?;
+            if size > rest.len() {
+                return None;
+            }
+            let (part, tail) = rest.split_at(size);
+            rest = tail;
+            s = s.with(at, part.to_vec());
+        }
+        rest.is_empty().then_some(s)
+    }
+
     /// How many bytes it holds.
     pub fn held(&self) -> u64 {
         self.chunks.values().map(|c| c.len() as u64).sum()
     }
 
     /// A reader of the same bytes from the start, with its own record of what was missing.
-    fn reader(&self) -> Sparse {
-        Sparse { chunks: self.chunks.clone(), pos: 0, missing: Arc::new(Mutex::new(None)) }
+    pub(crate) fn reader(&self) -> Sparse {
+        Sparse { chunks: self.chunks.clone(), pos: 0, missing: Arc::new(Mutex::new(None)), len: self.len }
     }
 
-    fn missing(&self) -> Option<(u64, u64)> {
+    pub(crate) fn missing(&self) -> Option<(u64, u64)> {
         *self.missing.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 
 impl Read for Sparse {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if buf.is_empty() {
+        if buf.is_empty() || self.len.is_some_and(|len| self.pos >= len) {
             return Ok(0);
         }
         let hit = self.chunks.range(..=self.pos).next_back().and_then(|(at, c)| {
@@ -71,15 +145,18 @@ impl Read for Sparse {
         });
         match hit {
             Some(src) => {
-                let n = src.len().min(buf.len());
+                // Never past the file's end, whatever a part holds.
+                let left = self.len.map_or(usize::MAX, |len| usize::try_from(len - self.pos).unwrap_or(usize::MAX));
+                let n = src.len().min(buf.len()).min(left);
                 buf[..n].copy_from_slice(&src[..n]);
-                self.pos += n as u64;
+                self.pos = self.pos.saturating_add(n as u64);
                 Ok(n)
             }
             None => {
                 let mut m = self.missing.lock().unwrap_or_else(|e| e.into_inner());
                 if m.is_none() {
-                    *m = Some((self.pos, self.pos.saturating_add(buf.len() as u64)));
+                    let end = self.pos.saturating_add(buf.len() as u64);
+                    *m = Some((self.pos, self.len.map_or(end, |len| end.min(len))));
                 }
                 Err(std::io::Error::other("rustgis: bytes not read yet"))
             }
@@ -94,7 +171,9 @@ impl Seek for Sparse {
             SeekFrom::Current(d) => self.pos.checked_add_signed(d).ok_or_else(|| std::io::Error::other("seek before the start"))?,
             // The file's length isn't known: the end of what was read stands for it.
             SeekFrom::End(d) => {
-                let end = self.chunks.iter().next_back().map(|(at, c)| at + c.len() as u64).unwrap_or(0);
+                let end = self
+                    .len
+                    .unwrap_or_else(|| self.chunks.iter().next_back().map(|(at, c)| at.saturating_add(c.len() as u64)).unwrap_or(0));
                 end.checked_add_signed(d).ok_or_else(|| std::io::Error::other("seek before the start"))?
             }
         };

@@ -7,7 +7,8 @@
 //! Differences from the desktop app: Open and Add Data use the browser's file picker (GeoJSON,
 //! CSV and `.rgis`; Shapefiles need the desktop app), files can be dropped on the page, and
 //! Save and Export download. URL flags: `?webgl` forces WebGL2; `?blank` starts an empty project;
-//! `?lang=de` sets the interface language; `?embed` runs it inside another page (see `embed.rs`).
+//! `?lang=de` sets the interface language; `?project=<url>` opens a project by its web address;
+//! `?embed` runs it inside another page (see `embed.rs`).
 //! The GeoLibre tools run in the browser through geolibre-rust's WASI runner, loaded on demand
 //! (see `geolibre.rs`).
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
@@ -17,6 +18,8 @@
 mod embed;
 #[cfg(target_arch = "wasm32")]
 mod geolibre;
+#[cfg(target_arch = "wasm32")]
+mod parts;
 #[cfg(target_arch = "wasm32")]
 mod web;
 

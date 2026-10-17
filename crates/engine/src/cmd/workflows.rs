@@ -513,7 +513,7 @@ fn line_of_sight(s: &mut Session, p: &Value) -> CmdResult {
     }
     let id = super::layer::add_dataset(s, ds);
     if let Some(l) = s.map_mut().layer_mut(id)
-        && let Ok(r) = rustgis_map::Renderer::unique(&l.dataset, "visible", rustgis_map::Ramp::default(), l.renderer.base_symbol())
+        && let Ok(r) = rustgis_map::Renderer::unique(&l.dataset, &[], "visible", rustgis_map::Ramp::default(), l.renderer.base_symbol())
     {
         l.renderer = r;
     }

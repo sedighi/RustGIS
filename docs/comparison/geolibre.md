@@ -78,8 +78,8 @@ both.
 
 - **A native program, not a web view.** RustGIS is memory-safe Rust compiled to one native
   program (18–30 MB installers) with no browser engine, JavaScript or Python inside. Large
-  GeoPackage, GeoParquet and FlatGeobuf files are streamed a view at a time rather than loaded
-  into a browser tab's memory, and nothing depends on a web view's limits.
+  GeoPackage, GeoParquet, FlatGeobuf and Shapefile files are streamed a view at a time rather
+  than loaded into a browser tab's memory, and nothing depends on a web view's limits.
 - **Everything is a command.** Every ribbon button, shortcut and pane action is a command with an
   id and JSON parameters, and the same ids run from [`rustgis-cli`](../cli.md), the
   [`rustgis` Python package](../python.md), notebooks, models, the Script pane, the
@@ -120,7 +120,7 @@ both.
 | **Interface** | Ribbon with Command Search | Menus and panels with a command palette and interface levels |
 | **Map engines** | One native renderer (2D map and globe) | MapLibre, Mapbox GL JS, CesiumJS or the ArcGIS Maps SDK |
 | **Formats** | A focused set read natively; more through GDAL when installed | A wide set in the app, some desktop only (File Geodatabase, MBTiles) |
-| **Databases** | DuckDB and PostgreSQL/PostGIS, through DuckDB, on the desktop | DuckDB, PostGIS, SQL Server, Iceberg; PGlite and Sedona in the browser |
+| **Databases** | PostgreSQL/PostGIS, read live, and DuckDB through DuckDB, on the desktop | DuckDB, PostGIS, SQL Server, Iceberg; PGlite and Sedona in the browser |
 | **Geoprocessing** | 1,000+ (GeoLibre and Whitebox) plus built-in vector tools | 1,000+ (GeoLibre and Whitebox) plus the GeoLibre Toolbox |
 | **Editing** | Create, move, rotate, scale, split, merge, snapping; no vertex editing yet | Vertex editing and write-back to sources |
 | **Data design** | Domains, subtypes, attribute rules, relationships, topology | Attribute forms; ArcGIS services' domains and subtypes |

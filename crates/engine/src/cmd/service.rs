@@ -14,21 +14,29 @@ use serde_json::{Value, json};
 use super::ps;
 use crate::{CmdResult, CommandSpec as C, Session};
 
+#[path = "service_group.rs"]
+mod group;
+
+/// The total feature response bytes accepted by a grouped import or refresh.
+pub const MAX_GROUP_BYTES: usize = 64 << 20;
+
 pub fn commands() -> Vec<C> {
-    vec![
+    let mut commands = vec![
         C::new("service.layers", "Service Layers", "Home › Add", layers).view().params(
-            r#"{"url": "a WMS, WMTS or WFS address (GetCapabilities is added), an OGC API /collections address (features, and map and vector tiles) or landing page (its map tiles), or an ArcGIS FeatureServer, MapServer, ImageServer or VectorTileServer", "type"?: "wms"|"wmts"|"wfs"|"ogcapi"|"arcgis" (guessed from the address), "text"?: "the capabilities document, when already fetched"}"#,
+            r#"{"url": "a WMS, WMTS or WFS address (GetCapabilities is added), an OGC API collections address or landing page (its map tiles and linked collections), or an ArcGIS FeatureServer, MapServer, ImageServer or VectorTileServer", "type"?: "wms"|"wmts"|"wfs"|"ogcapi"|"arcgis" (guessed from the address), "text"?: "the capabilities document, when already fetched", "documents"?: [{"url": "a discovered document address", "text": "its fetched JSON"}]} → layers with source_url, and next when supplied documents need another fetch"#,
         ),
         C::new("service.add", "Add Service Layer", "Home › Add", add).params(
-            r#"{"url": "as service.layers", "type"?, "layer": "the layer's name (service.layers lists them)", "name"?: text, "text"?: "the capabilities document, when already fetched", "describe"?: "a WCS coverage's DescribeCoverage document, when already fetched", "tiles"?: "an OGC API layer's tile template, when already read from its tileset (the app's)", "bbox"?: [west, south, east, north] | "view" (the default) | "full" (a WCS coverage's area)}"#,
+            r#"{"url": "as service.layers", "type"?, "layer": "the layer's name (service.layers lists them)", "name"?: text, "text"?: "the capabilities document, when already fetched", "documents"?: "additional fetched documents, as service.layers", "source_url"?: "the listed layer's source_url", "describe"?: "a WCS coverage's DescribeCoverage document, when already fetched", "tiles"?: "an OGC API layer's tile template, when already read from its tileset (the app's)", "bbox"?: [west, south, east, north] | "view" (the default) | "full" (a WCS coverage's area)}"#,
         ),
         C::new("service.coverage", "WCS Coverage Request", "Home › Add", coverage).view().params(
-            r#"{"url": "a WCS address", "type"?: "wcs", "layer": "the coverage's name", "text"?: "the capabilities document, when already fetched", "describe"?: "its DescribeCoverage answer, when already fetched", "bbox"?: [west, south, east, north] | "view" (the default) | "full"} → the GetCoverage address of a GeoTIFF (layer.addUrl adds it)"#,
+            r#"{"url": "a WCS address", "type"?: "wcs", "layer": "the coverage's name", "text"?: "the capabilities document, when already fetched", "documents"?: "additional fetched documents, as service.layers", "source_url"?: "the listed coverage's source_url", "describe"?: "its DescribeCoverage answer, when already fetched", "bbox"?: [west, south, east, north] | "view" (the default) | "full"} → the GetCoverage address of a GeoTIFF (layer.addUrl adds it)"#,
         ),
         C::new("catalog.search", "Search Catalogue", "Home › Add", catalog_search).view().params(
             r#"{"url": "a catalogue's CSW address", "query"?: "words anywhere in the records", "bbox"?: [west, south, east, north] | "view" (none by default), "start"?: "the first record's position (a page's next)", "text"?: "the GetRecords answer, when already fetched"} → records with their service and download links (service.add or layer.addUrl add them)"#,
         ),
-    ]
+    ];
+    commands.extend(group::commands());
+    commands
 }
 
 fn url_of(p: &Value) -> Result<&str, String> {
@@ -40,15 +48,112 @@ fn url_of(p: &Value) -> Result<&str, String> {
     Ok(url)
 }
 
-/// The service at `p`'s address: from its capabilities in `"text"`, or fetched (waiting for them).
-fn capabilities(p: &Value) -> Result<Service, String> {
-    let url = url_of(p)?;
-    let caps = rustgis_data::ogc::capabilities_url(url, ps(p, "type"));
-    let svc = match ps(p, "text") {
-        Some(text) => rustgis_data::ogc::parse(&caps, text.as_bytes()).map_err(|e| format!("{url}: {e}"))?,
-        None => fetch_capabilities(url, &caps)?,
-    };
-    Ok(vet(svc, &caps))
+/// Capability discovery is shared by supplied-document GUI requests and native commands.
+/// Sources stay alongside layers so a landing page and a collection may use the same name.
+#[derive(Default)]
+struct Discovery {
+    service: Service,
+    sources: Vec<String>,
+    next: Option<String>,
+    error: Option<String>,
+    excluded_layers: bool,
+    /// A document left collections out (past its listing limit, or unreadable items links).
+    incomplete: bool,
+}
+
+impl Discovery {
+    fn failed(mut self, error: String) -> Result<Self, String> {
+        if self.service.layers.is_empty() {
+            Err(error)
+        } else {
+            self.error = Some(error.clone());
+            self.service.notes.push(error);
+            self.next = None;
+            Ok(self)
+        }
+    }
+}
+
+const MAX_SERVICE_DOCUMENTS: usize = 4;
+
+fn capabilities(p: &Value) -> Result<Discovery, String> {
+    let original = url_of(p)?;
+    let mut address = rustgis_data::ogc::capabilities_url(original, ps(p, "type"));
+    let supplied = ps(p, "text");
+    let documents = p.get("documents").map(|v| v.as_array().ok_or("documents must be an array")).transpose()?;
+    if let Some(docs) = documents {
+        if supplied.is_none() || docs.len() >= MAX_SERVICE_DOCUMENTS {
+            return Err("documents requires text and at most three additional documents".into());
+        }
+        for doc in docs {
+            if ps(doc, "url").is_none() || ps(doc, "text").is_none() {
+                return Err("each supplied document requires url and text".into());
+            }
+        }
+    }
+    let mut result = Discovery::default();
+    let mut seen = std::collections::HashSet::new();
+    let mut parent = original.to_string();
+    loop {
+        if let Err(e) = crate::render::rustgis_tiles::address::check(&address, Some(&parent)) {
+            return result.failed(e);
+        }
+        if seen.contains(&address) {
+            return result.failed("the service's collections links form a loop".into());
+        }
+        if seen.len() >= MAX_SERVICE_DOCUMENTS {
+            return result.failed("the service's collections discovery exceeds four documents".into());
+        }
+        let parsed = if let Some(root) = supplied {
+            let text = if seen.is_empty() {
+                Some(root)
+            } else {
+                documents.and_then(|docs| docs.iter().find(|d| ps(d, "url") == Some(address.as_str()))).and_then(|d| ps(d, "text"))
+            };
+            let Some(text) = text else {
+                result.next = Some(address);
+                return Ok(result);
+            };
+            rustgis_data::ogc::parse(&address, text.as_bytes())
+        } else {
+            fetch_capabilities(original, &address)
+        };
+        let service = match parsed {
+            Ok(s) => {
+                let before = s.layers.len();
+                result.incomplete |= s.incomplete;
+                let vetted = vet(s, &address);
+                result.excluded_layers |= vetted.layers.len() != before;
+                vetted
+            }
+            Err(e) => return result.failed(e),
+        };
+        seen.insert(address.clone());
+        if result.service.kind.is_empty() {
+            result.service.kind = service.kind.clone();
+            result.service.title = service.title.clone();
+        }
+        // Parsers bound each document's collections/layers; visited documents bound the merge.
+        // Distinct offers may share a name (including generated tile names and collection ids).
+        for layer in service.layers {
+            result.service.layers.push(layer);
+            result.sources.push(address.clone());
+        }
+        result.service.notes.extend(service.notes);
+        let features = result.service.layers.iter().any(|l| matches!(l.offer, Offer::Features { .. }));
+        let tiles = result.service.layers.iter().any(|l| matches!(l.offer, Offer::Tiles { .. } | Offer::VectorTiles { .. }));
+        if result.service.kind.starts_with("OGC API") {
+            result.service.kind = match (features, tiles) {
+                (true, true) => "OGC API Features and Tiles",
+                (_, true) => "OGC API Tiles",
+                _ => "OGC API Features",
+            }
+            .into();
+        }
+        let Some(next) = service.collections_url else { return Ok(result) };
+        parent = address;
+        address = next;
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -145,7 +250,17 @@ pub fn service_json(svc: &Service) -> Value {
 }
 
 pub(crate) fn layers(_s: &mut Session, p: &Value) -> CmdResult {
-    Ok(service_json(&capabilities(p)?))
+    let found = capabilities(p)?;
+    let mut out = service_json(&found.service);
+    if let Some(layers) = out.get_mut("layers").and_then(Value::as_array_mut) {
+        for (layer, source) in layers.iter_mut().zip(found.sources) {
+            layer["source_url"] = json!(source);
+        }
+    }
+    if let Some(next) = found.next {
+        out["next"] = json!(next);
+    }
+    Ok(out)
 }
 
 /// Adds one of a service's layers: map layers as tiles (an overlay), a style as a style, features
@@ -153,12 +268,12 @@ pub(crate) fn layers(_s: &mut Session, p: &Value) -> CmdResult {
 pub(crate) fn add(s: &mut Session, p: &Value) -> CmdResult {
     let url = url_of(p)?.to_string();
     let want = ps(p, "layer").map(str::trim).filter(|l| !l.is_empty()).ok_or("layer is required")?;
-    let svc = capabilities(p)?;
-    let layer = svc
-        .layers
-        .iter()
-        .find(|l| l.name == want)
-        .or_else(|| svc.layers.iter().find(|l| l.name.eq_ignore_ascii_case(want) || l.title.eq_ignore_ascii_case(want)))
+    let found = capabilities(p)?;
+    let candidates =
+        || found.service.layers.iter().zip(&found.sources).filter(|(_, source)| ps(p, "source_url").is_none_or(|s| s == source.as_str()));
+    let (layer, source) = candidates()
+        .find(|(l, _)| l.name == want)
+        .or_else(|| candidates().find(|(l, _)| l.name.eq_ignore_ascii_case(want) || l.title.eq_ignore_ascii_case(want)))
         .ok_or_else(|| format!("{url}: no layer '{want}' (service.layers lists them)"))?;
     let name = ps(p, "name").map(str::trim).filter(|n| !n.is_empty()).unwrap_or(&layer.title).to_string();
     let zoom = |s: &mut Session| {
@@ -169,7 +284,7 @@ pub(crate) fn add(s: &mut Session, p: &Value) -> CmdResult {
     // An OGC API layer's tiles: the template its tileset advertises (given, or read now), else
     // the usual path.
     let advertised = match (&layer.tilesets, ps(p, "tiles")) {
-        (Some(_), Some(t)) => Some(checked_template(&url, t)?),
+        (Some(_), Some(t)) => Some(checked_template(source, t)?),
         (Some(list), None) => advertised_template(list, matches!(layer.offer, Offer::VectorTiles { .. })),
         _ => None,
     };
@@ -269,10 +384,14 @@ fn fetch_describe(c: &Coverage, _: &str) -> Result<rustgis_data::ogc::CoverageIn
 fn coverage(s: &mut Session, p: &Value) -> CmdResult {
     let url = url_of(p)?.to_string();
     let want = ps(p, "layer").map(str::trim).filter(|l| !l.is_empty()).ok_or("layer is required")?;
-    let svc = capabilities(p)?;
-    let layer = svc
+    let found = capabilities(p)?;
+    let layer = found
+        .service
         .layers
         .iter()
+        .zip(&found.sources)
+        .filter(|(_, source)| ps(p, "source_url").is_none_or(|s| s == source.as_str()))
+        .map(|(layer, _)| layer)
         .find(|l| l.name == want || l.name.eq_ignore_ascii_case(want))
         .ok_or_else(|| format!("{url}: no coverage '{want}' (service.layers lists them)"))?;
     let Offer::Coverage(c) = &layer.offer else { return Err(format!("{url}: '{want}' isn't a WCS coverage")) };

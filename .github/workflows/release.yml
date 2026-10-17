@@ -81,9 +81,15 @@ jobs:
           tools="$HOME/.dotnet/tools"
           "$tools/wix" extension add --global WixToolset.UI.wixext/5.0.2
           cygpath -w "$tools" >> "$GITHUB_PATH"
-          if ! command -v makensis > /dev/null && [ ! -x "/c/Program Files (x86)/NSIS/makensis.exe" ]; then
-            choco install nsis -y --no-progress
-          fi
+          # The Chocolatey feed times out now and then (504) and choco still exits 0, so retry
+          # and fail here, not later in package.sh with "makensis not found".
+          nsis="/c/Program Files (x86)/NSIS/makensis.exe"
+          for attempt in 1 2 3 4 5; do
+            command -v makensis > /dev/null || [ -x "$nsis" ] && break
+            [ "$attempt" -gt 1 ] && sleep $((attempt * 20))
+            choco install nsis -y --no-progress || true
+          done
+          command -v makensis > /dev/null || [ -x "$nsis" ] || { echo "::error::NSIS did not install"; exit 1; }
 
       # macOS: import the Developer ID certificate into a throwaway keychain and write the
       # App Store Connect API key for notarization. Skipped when the secrets are absent (a
@@ -137,10 +143,22 @@ jobs:
         run: |
           hdiutil attach -nobrowse -mountpoint "$RUNNER_TEMP/dmg" dist/*.dmg
           codesign --verify --deep --strict --verbose=2 "$RUNNER_TEMP/dmg/RustGIS.app"
+          # stapler validate looks the ticket up in Apple's CloudKit, which drops connections now
+          # and then ("The network connection was lost", error 68): retry before failing.
+          validate() {
+            for attempt in 1 2 3 4 5; do
+              xcrun stapler validate "$1" && return 0
+              [ "$attempt" -lt 5 ] && sleep $((attempt * 15))
+            done
+            return 1
+          }
           if [ -n "${{ steps.macsign.outputs.api_key_path }}" ]; then
             spctl --assess --type execute --verbose=2 "$RUNNER_TEMP/dmg/RustGIS.app"
-            xcrun stapler validate "$RUNNER_TEMP/dmg/RustGIS.app"
-            xcrun stapler validate dist/*.dmg
+            validate "$RUNNER_TEMP/dmg/RustGIS.app"
+            # package.sh stapled the DMG and stapling validates the ticket it attaches, so ask
+            # Gatekeeper here: it reads the stapled ticket locally, as a user's Mac does, instead
+            # of another CloudKit lookup that the Intel runners keep losing.
+            spctl --assess --type open --context context:primary-signature --verbose=2 dist/*.dmg
           fi
           hdiutil detach "$RUNNER_TEMP/dmg"
 

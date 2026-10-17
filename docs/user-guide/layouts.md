@@ -4,7 +4,7 @@
 
 ![A landscape A4 page layout with a map frame, title, legend, north arrow and scale bar, and the Publish tab open](https://assets.rustgis.app/images/layout.webp)
 
-Data › New Layout adds a page layout (Letter to A0, landscape or portrait) with a map frame,
+Home › New Layout adds a page layout (Letter to A0, landscape or portrait) with a map frame,
 title, legend, north arrow, scale bar and a dynamic credits line. Layouts open as tabs next to
 the maps; while one is open, its groups lead the Publish tab:
 
@@ -14,7 +14,17 @@ the maps; while one is open, its groups lead the Publish tab:
   **Grid** draws a labelled graticule over a frame; **Extent Indicator** outlines another frame's
   extent (an overview map).
 - **Map surrounds**: north arrow, scale bar, legend, table frame (a layer's attribute table) and
-  chart frame (a bar chart of a numeric field), plus a neatline or backdrop.
+  chart frame (a bar chart of a numeric field), plus a neatline or backdrop. A legend shows what
+  its frame draws: only layers with a feature at the frame's scale (through their definition
+  query, display filters and scale range) and, for Unique Values, only the classes those features
+  have, with `<all other values>` only when some feature falls in it and its symbol is not fully
+  transparent. Graduated Colors and
+  Proportional Symbols list their classes as they are (they are taken from the kept features when
+  the symbology is applied). A layer that draws
+  nothing there, such as an empty one, is left out, in layouts saved before this too. Tick **All
+  classes** in its properties (`"allClasses": true`) to list every class of every visible layer
+  instead, and **Hide other values** (`"hideOther": true`) to leave `<all other values>` out of
+  the legend in either mode (the features it stands for are still drawn).
 - **Text** and **Dynamic Text**: `{date}`, `{time}`, `{scale}`, `{map}`, `{crs}`, `{page}`,
   `{pages}`, `{pageName}` and `{layout}` fill in when the page is drawn. **Picture** places a PNG
   or JPEG.

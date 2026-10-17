@@ -22,3 +22,9 @@ log = { workspace = true }
 [target.'cfg(windows)'.build-dependencies]
 tiny-skia = { workspace = true }
 embed-resource = "3"
+
+# macOS: reads the native title bar's geometry (window buttons, height) so the header can sit in it.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSWindow", "NSButton", "NSControl", "NSView", "NSResponder"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSUserDefaults"] }

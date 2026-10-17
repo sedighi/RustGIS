@@ -714,7 +714,7 @@ fn subtypes(s: &mut Session, p: &Json) -> CmdResult {
     // Unique values by subtype code.
     if symbolize {
         let base = l.renderer.base_symbol();
-        l.renderer = rustgis_map::Renderer::unique(&l.dataset, &fname, rustgis_map::Ramp::default(), base)?;
+        l.renderer = rustgis_map::Renderer::unique(&l.dataset, &[], &fname, rustgis_map::Ramp::default(), base)?;
     }
     let n = subs.len();
     l.design.subtypes = Some(Subtypes { field: fname, subtypes: subs });

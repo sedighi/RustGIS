@@ -17,7 +17,6 @@ struct Key {
     rev: u64,
     cam: (i64, i64, i64),
     size: [usize; 2],
-    dark: bool,
     /// Rendered at reduced resolution while the globe was moving.
     draft: bool,
     /// The tile cache's generation (0 for a map without tile layers).
@@ -68,7 +67,20 @@ pub struct MapView {
     texture: Option<egui::TextureHandle>,
     key: Option<Key>,
     tex_camera: Camera,
+    /// The size (points) of the view the texture was drawn for: larger than the map while it
+    /// moves, so zooming out and panning have more of it to show.
+    tex_size: (f64, f64),
+    /// Where the texture sits on screen this frame.
+    tex_rect: Rect,
+    /// How long the last frame drawn mid-motion took (ms), and the share of full resolution it
+    /// was drawn at: the next is spaced out by it, and drawn finer or coarser to take about 40 ms.
+    motion_cost: (f64, f64),
     labels: Vec<PlacedLabel>,
+    /// On the globe, where each label stands on the Earth, so it follows the globe as it turns
+    /// and zooms until the next frame places them again.
+    label_lonlat: Vec<Option<Coord>>,
+    /// The camera the labels were placed for.
+    label_camera: Camera,
     last_interaction: f64,
     drag: Option<(Pos2, DragKind)>,
     sketch: Vec<Coord>,
@@ -79,7 +91,11 @@ pub struct MapView {
     /// The magnifying lens follows the pointer.
     pub magnifier: bool,
     pub popup: Option<Popup>,
+    /// A map or layout waiting for the user to confirm its deletion.
+    pub deleting: Option<Deletion>,
     pub pointer_lonlat: Option<Coord>,
+    /// Where the map's context menu was opened: the pointer leaves the map for the menu.
+    pub menu_lonlat: Option<Coord>,
     pub dms: bool,
     pub render_ms: u64,
     pub notices_seen: usize,
@@ -102,6 +118,26 @@ pub struct MapView {
     tile_errors: std::collections::HashSet<String>,
     /// When the map last rendered (seconds).
     last_render: f64,
+    /// The map drawn flat and laid over the globe while it moves.
+    drape: crate::globe_drape::GlobeDrape,
+    /// Shooting stars around the globe.
+    comets: crate::comets::Comets,
+    /// GPU map backend: pipelines (built lazily from the render state), the uploaded scene,
+    /// and egui's wgpu render state handed over by the host app.
+    pub(crate) gpu_renderer: Option<std::sync::Arc<crate::mapgpu::GpuMapRenderer>>,
+    pub(crate) gpu_frame: Option<std::sync::Arc<crate::mapgpu::SceneBuffers>>,
+    /// The GPU scene's offscreen MSAA target, shared with the paint callback across frames.
+    pub(crate) gpu_target: std::sync::Arc<std::sync::Mutex<Option<crate::mapgpu::SceneTarget>>>,
+    /// The last side-by-side map's GPU scene (its key, buffers and labels), when the second
+    /// map rendered on the GPU.
+    pub(crate) split_gpu: Option<([f64; 8], std::sync::Arc<crate::mapgpu::SceneBuffers>, Vec<PlacedLabel>)>,
+    /// The split map's offscreen MSAA target (its own slot — main and split differ in size).
+    pub(crate) gpu_target_split: std::sync::Arc<std::sync::Mutex<Option<crate::mapgpu::SceneTarget>>>,
+    pub(crate) render_state: Option<egui_wgpu::RenderState>,
+    /// The GPU map backend, for now gated on the RUSTGIS_GPU environment variable.
+    pub gpu_enabled: bool,
+    /// Rolling map-frame timestamps (for the status-bar FPS readout).
+    frame_times: std::collections::VecDeque<f64>,
 }
 
 impl Default for MapView {
@@ -110,7 +146,12 @@ impl Default for MapView {
             texture: None,
             key: None,
             tex_camera: Camera::world(),
+            tex_size: (0.0, 0.0),
+            tex_rect: Rect::NOTHING,
+            motion_cost: (0.0, 1.0),
             labels: Vec::new(),
+            label_lonlat: Vec::new(),
+            label_camera: Camera::world(),
             last_interaction: -10.0,
             drag: None,
             sketch: Vec::new(),
@@ -118,7 +159,9 @@ impl Default for MapView {
             split_mode: false,
             magnifier: false,
             popup: None,
+            deleting: None,
             pointer_lonlat: None,
+            menu_lonlat: None,
             dms: false,
             render_ms: 0,
             notices_seen: 0,
@@ -131,14 +174,55 @@ impl Default for MapView {
             attribution: Vec::new(),
             tile_errors: std::collections::HashSet::new(),
             last_render: -10.0,
+            drape: Default::default(),
+            comets: Default::default(),
+            gpu_renderer: None,
+            gpu_frame: None,
+            gpu_target: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            split_gpu: None,
+            gpu_target_split: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            render_state: None,
+            gpu_enabled: std::env::var_os("RUSTGIS_GPU").is_some(),
+            frame_times: std::collections::VecDeque::new(),
         }
     }
 }
 
 impl MapView {
+    /// egui's wgpu render state from the host (`frame.wgpu_render_state()`), for the GPU map
+    /// backend. Cheap to call every frame: the state is Arc-backed and pipelines build lazily.
+    pub fn set_render_state(&mut self, rs: Option<egui_wgpu::RenderState>) {
+        self.render_state = rs;
+    }
+
+    /// Records one drawn map frame (the status bar's FPS readout reads the rolling window).
+    fn record_frame(&mut self, now: f64) {
+        self.frame_times.push_back(now);
+        while self.frame_times.len() > 240 {
+            self.frame_times.pop_front();
+        }
+        while self.frame_times.front().is_some_and(|t| *t < now - 2.0) {
+            self.frame_times.pop_front();
+        }
+    }
+
+    /// Frames drawn in the last second; `None` when the map is idle (egui repaints on demand,
+    /// so no frames means nothing is moving — distinct from "0 fps" when moving).
+    pub(crate) fn fps(&self, now: f64) -> Option<usize> {
+        let live = self.frame_times.back().is_some_and(|t| *t > now - 0.5);
+        live.then(|| self.frame_times.iter().filter(|t| **t > now - 1.0).count())
+    }
+    /// Forces a re-render on the next frame; also drops the GPU frame (the backend toggle
+    /// relies on it).
     pub fn invalidate(&mut self) {
         self.key = None;
+        self.gpu_frame = None;
     }
+    /// The camera the last full render was drawn with (diagnostics and tests).
+    pub fn full_frame_camera(&self) -> Camera {
+        self.tex_camera
+    }
+
     /// How long the last map draw took, in milliseconds.
     pub fn render_ms(&self) -> u64 {
         self.render_ms
@@ -170,7 +254,7 @@ pub fn show(app: &mut RustGisApp, ui: &mut Ui) {
     }
     animate(app, ui);
     // Side by side: the other map on the right, following this one when views are linked.
-    if let Some(other) = app.ws.split.filter(|i| *i != app.session.project.active_map && *i < app.session.project.maps.len()) {
+    if let Some(other) = split_map(app).filter(|i| *i != app.session.project.active_map) {
         let full = ui.available_rect_before_wrap();
         let right = Rect::from_min_max(pos2(full.center().x + 1.0, full.min.y), full.max);
         split_view(app, ui, other, right, &t);
@@ -214,32 +298,58 @@ fn split_view(app: &mut RustGisApp, ui: &mut Ui, other: usize, rect: Rect, t: &T
     let ppp = ui.ctx().pixels_per_point();
     let revision = app.session.revision;
     let Some(m) = app.session.project.maps.get_mut(other) else { return };
-    let view = View { width: w, height: h, pixels_per_point: ppp as f64, camera: m.camera, dark: t.dark };
+    let view = View { width: w, height: h, pixels_per_point: ppp as f64, camera: m.camera };
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 0.0, c32(m.basemap.palette().0));
-    let key = [
-        other as f64,
-        revision as f64,
-        m.camera.center.x,
-        m.camera.center.y,
-        m.camera.res,
-        w,
-        h,
-        f64::from(ppp) + if t.dark { 100.0 } else { 0.0 },
-    ];
-    if app.map.split.as_ref().is_none_or(|(k, _, _)| *k != key)
-        && let Some(r) = rustgis_engine::render::render(m, &view)
-    {
-        let img = egui::ColorImage::from_rgba_premultiplied([r.pixmap.width() as usize, r.pixmap.height() as usize], r.pixmap.data());
-        match app.map.split.take() {
-            Some((_, mut tex, _)) => {
-                tex.set(img, egui::TextureOptions::LINEAR);
-                app.map.split = Some((key, tex, r.labels));
+    let key = [other as f64, revision as f64, m.camera.center.x, m.camera.center.y, m.camera.res, w, h, f64::from(ppp)];
+    let gpu_ok = app.map.gpu_enabled
+        && !m.projection.is_globe()
+        && m.view.effects.is_none()
+        && m.view.color_vision == rustgis_engine::map::view::ColorVision::Normal;
+    // Fresh GPU scene? Keep it. Stale? Rebuild. Either way `rendered_gpu` tracks whether the
+    // split map draws from `split_gpu` this frame.
+    let mut rendered_gpu = gpu_ok && app.map.split_gpu.as_ref().is_some_and(|(k, _, _)| *k == key);
+    if gpu_ok && !rendered_gpu {
+        if app.map.gpu_renderer.is_none()
+            && let Some(rs) = &app.map.render_state
+        {
+            app.map.gpu_renderer = Some(std::sync::Arc::new(crate::mapgpu::GpuMapRenderer::new(rs)));
+        }
+        if let (Some(r), Some(rs)) = (&app.map.gpu_renderer, &app.map.render_state)
+            && let Some(rustgis_engine::render::RenderOutput::Gpu(scene)) =
+                rustgis_engine::render::render_backend(m, &view, rustgis_engine::render::Backend::Gpu)
+        {
+            // None = the scene exceeds the device's limits: the CPU path below renders it.
+            if let Some(bufs) = crate::mapgpu::SceneBuffers::from_scene(&rs.device, &rs.queue, r, &scene, m.camera, [w, h], ppp) {
+                app.map.split_gpu = Some((key, std::sync::Arc::new(bufs), scene.labels));
+                rendered_gpu = true;
             }
-            None => app.map.split = Some((key, ui.ctx().load_texture("split_map", img, egui::TextureOptions::LINEAR), r.labels)),
         }
     }
-    if let Some((_, tex, labels)) = &app.map.split {
+    if !rendered_gpu {
+        app.map.split_gpu = None;
+        if app.map.split.as_ref().is_none_or(|(k, _, _)| *k != key)
+            && let Some(r) = rustgis_engine::render::render(m, &view)
+        {
+            let img = egui::ColorImage::from_rgba_premultiplied([r.pixmap.width() as usize, r.pixmap.height() as usize], r.pixmap.data());
+            match app.map.split.take() {
+                Some((_, mut tex, _)) => {
+                    tex.set(img, egui::TextureOptions::LINEAR);
+                    app.map.split = Some((key, tex, r.labels));
+                }
+                None => app.map.split = Some((key, ui.ctx().load_texture("split_map", img, egui::TextureOptions::LINEAR), r.labels)),
+            }
+        }
+    }
+    if let (Some((_, bufs, labels)), Some(gr)) = (&app.map.split_gpu, &app.map.gpu_renderer) {
+        painter.add(egui_wgpu::Callback::new_paint_callback(
+            rect,
+            crate::mapgpu::SceneCallback { renderer: gr.clone(), buffers: bufs.clone(), target: app.map.gpu_target_split.clone() },
+        ));
+        for l in labels {
+            draw_label(&painter, l, pos2(rect.min.x + l.x, rect.min.y + l.y));
+        }
+    } else if let Some((_, tex, labels)) = &app.map.split {
         painter.image(tex.id(), rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
         for l in labels {
             draw_label(&painter, l, pos2(rect.min.x + l.x, rect.min.y + l.y));
@@ -279,6 +389,7 @@ fn main_view(app: &mut RustGisApp, ui: &mut Ui, t: &Tokens) {
     }
     let ppp = ui.ctx().pixels_per_point();
     let time = now(ui);
+    app.map.record_frame(time);
 
     interact(app, ui, &resp, rect);
 
@@ -300,19 +411,29 @@ fn main_view(app: &mut RustGisApp, ui: &mut Ui, t: &Tokens) {
 
     // Render when the map changed and we're not in the middle of a pan/zoom: meanwhile the flat
     // map's last frame is shifted and scaled. The globe can't be faked that way (turning and
-    // zooming in perspective aren't shifts and scales), so while it moves it redraws every frame
-    // at reduced resolution, then once in full when it settles.
+    // zooming in perspective aren't shifts and scales): while it moves, the map drawn flat is
+    // draped over the sphere (see `globe_drape`), or failing that it redraws every frame at
+    // reduced resolution; it is drawn exactly once it settles.
     let cam = app.session.map().camera;
     let globe_view = app.session.map().projection == Projection::Globe;
     let dragging = app.map.drag.is_some_and(|(_, k)| k == DragKind::Pan);
     let moving = dragging || time - app.map.last_interaction < 0.18;
-    let draft = globe_view && moving;
+    let draped = if globe_view && moving {
+        let key = crate::globe_drape::DrapeKey { rev: app.session.revision, sources: rustgis_engine::map::source::generation() };
+        let tiles = if app.session.map().tiles.is_empty() { 0 } else { rustgis_engine::render::rustgis_tiles::cache::generation() };
+        app.map.drape.prepare(ui.ctx(), app.session.map_mut(), key, tiles, w, h, ppp, time)
+    } else {
+        if !globe_view {
+            app.map.drape.clear();
+        }
+        false
+    };
+    let draft = globe_view && moving && !draped;
     let render_ppp = if draft { (ppp * 0.6).max(0.5) } else { ppp };
     let key = Key {
         rev: app.session.revision,
         cam: ((cam.center.x * 100.0) as i64, (cam.center.y * 100.0) as i64, (cam.res * 1000.0) as i64),
         size: [(w as f32 * ppp).round() as usize, (h as f32 * ppp).round() as usize],
-        dark: t.dark,
         draft,
         tiles: 0,
         sources: rustgis_engine::map::source::generation(),
@@ -337,7 +458,7 @@ fn main_view(app: &mut RustGisApp, ui: &mut Ui, t: &Tokens) {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
         }
     }
-    let interacting = !globe_view && moving;
+    let interacting = moving && (!globe_view || draped);
     if globe_view && moving {
         // Wake up once the motion has settled, for the full-resolution frame.
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
@@ -345,31 +466,145 @@ fn main_view(app: &mut RustGisApp, ui: &mut Ui, t: &Tokens) {
     if globe_view && !moving && app.map.key.is_some_and(|k| k.draft) {
         ui.ctx().request_repaint();
     }
+    // The GPU backend draws flat, effect-free frames; it re-renders on every change (no
+    // texture-shift trick — meshes re-project in the vertex shader).
+    let gpu_ok = app.map.gpu_enabled
+        && !globe_view
+        && app.session.map().view.effects.is_none()
+        && app.session.map().view.color_vision == rustgis_engine::map::view::ColorVision::Normal;
+    // GPU fast path: during pan/zoom (or a camera animation) with an all-GPU scene (no CPU
+    // image runs — rasters and tiles don't re-project), only the camera changes, so rewrite
+    // the per-draw uniforms instead of re-tessellating. `key` and `tex_camera` stay at the
+    // last full render: the scene's contents (extent culling, the 0.35 px decimation, label
+    // placement) are baked for that camera, so once the motion settles the still-stale key
+    // makes the branch below do one full re-render.
     let stale = app.map.key != Some(key);
-    if stale && (!interacting || app.map.texture.is_none() || app.map.key.is_some_and(|k| k.rev != key.rev || k.size != key.size)) {
+    let cam_only = app.map.key.is_some_and(|k| (Key { cam: k.cam, ..key }) == k);
+    let mut fast_engaged = false;
+    if stale
+        && gpu_ok
+        && (interacting || app.ws.playing.is_some())
+        && cam_only
+        && let (Some(gf), Some(rs)) = (&app.map.gpu_frame, &app.map.render_state)
+        && !gf.has_images
+    {
+        gf.set_camera(&rs.queue, &cam);
+        fast_engaged = true;
+    }
+    let stale = app.map.key != Some(key);
+    // While the flat map moves on the CPU its last frame is shifted and scaled, until that no
+    // longer covers the view (zooming out, panning past its edge) or stretches it blurry
+    // (zooming in). Then a frame is drawn mid-motion: for a gap, over twice the width and height,
+    // so the next steps are covered too (as MapLibre keeps showing the tiles around the view);
+    // when stretched, at the view. Frames are drawn coarser while they're slow, and sharpening
+    // ones spaced out by how long the last took, so the motion between them stays smooth.
+    let motion = (stale && interacting && !gpu_ok && !globe_view && app.map.texture.is_some())
+        .then(|| {
+            let r = tex_rect(app, cam, rect, false);
+            let stretch = r.width() as f64 / app.map.tex_size.0.max(1.0);
+            let (ms, k) = app.map.motion_cost;
+            let (vw, vh, most, least) = if !r.expand(0.5).contains_rect(rect) {
+                // A gap is filled at once: each such frame covers zooming out twice as far, so
+                // they can't come often.
+                (w * 2.0, h * 2.0, 0.5, 0.2)
+            } else if stretch > 1.3 && time - app.map.last_render >= motion_gap(ms) {
+                (w, h, 1.0, 0.4)
+            } else {
+                return None;
+            };
+            let k = if ms > 0.0 { k * (40.0 / ms).sqrt().clamp(0.7, 1.4) } else { 1.0 };
+            Some((vw, vh, ppp * (k * most).clamp(least, most) as f32))
+        })
+        .flatten();
+    let (vw, vh, vppp) = motion.unwrap_or((w, h, render_ppp));
+    if stale
+        && !fast_engaged
+        && (motion.is_some()
+            || gpu_ok
+            || !interacting
+            || app.map.texture.is_none()
+            || app.map.key.is_some_and(|k| k.rev != key.rev || k.size != key.size))
+    {
         let t0 = web_time::Instant::now();
-        let view = View { width: w, height: h, pixels_per_point: render_ppp as f64, camera: cam, dark: t.dark };
-        if let Some(r) = rustgis_engine::render::render(app.session.map_mut(), &view) {
-            let size = [r.pixmap.width() as usize, r.pixmap.height() as usize];
-            let img = egui::ColorImage::from_rgba_premultiplied(size, r.pixmap.data());
-            match &mut app.map.texture {
-                Some(tex) => tex.set(img, egui::TextureOptions::LINEAR),
-                None => app.map.texture = Some(ui.ctx().load_texture("map", img, egui::TextureOptions::LINEAR)),
+        let view = View { width: w, height: h, pixels_per_point: render_ppp as f64, camera: cam };
+        let mut rendered_gpu = false;
+        if gpu_ok {
+            if app.map.gpu_renderer.is_none()
+                && let Some(rs) = &app.map.render_state
+            {
+                app.map.gpu_renderer = Some(std::sync::Arc::new(crate::mapgpu::GpuMapRenderer::new(rs)));
             }
-            app.map.labels = r.labels;
-            app.map.labels.splice(0..0, r.unplaced);
-            app.map.attribution = r.attribution;
-            app.map.last_render = time;
-            for e in r.tile_errors {
-                if app.map.tile_errors.insert(e.clone()) {
-                    app.session.notify(e, true);
+            // A scene over the device's limits (huge buffers, oversized images) is declined
+            // here too: the CPU block below renders the frame instead.
+            if let (Some(r), Some(rs)) = (&app.map.gpu_renderer, &app.map.render_state)
+                && let Some(rustgis_engine::render::RenderOutput::Gpu(scene)) =
+                    rustgis_engine::render::render_backend(app.session.map_mut(), &view, rustgis_engine::render::Backend::Gpu)
+                && let Some(bufs) = crate::mapgpu::SceneBuffers::from_scene(&rs.device, &rs.queue, r, &scene, cam, [w, h], render_ppp)
+            {
+                app.map.gpu_frame = Some(std::sync::Arc::new(bufs));
+                app.map.labels = scene.labels;
+                app.map.labels.splice(0..0, scene.unplaced);
+                app.map.label_lonlat = Vec::new();
+                app.map.label_camera = cam;
+                app.map.attribution = scene.attribution;
+                app.map.last_render = time;
+                for e in scene.tile_errors {
+                    if app.map.tile_errors.insert(e.clone()) {
+                        app.session.notify(e, true);
+                    }
                 }
+                app.map.tex_camera = cam;
+                app.map.tex_size = (w, h);
+                app.map.key = Some(key);
+                rendered_gpu = true;
             }
-            app.map.tex_camera = cam;
-            app.map.key = Some(key);
+        }
+        // The CPU path, unchanged — also the fallback when the GPU backend declines a frame
+        // (render_backend's own compatibility guard, or a scene over the device's limits), or
+        // no render state arrived yet.
+        if !rendered_gpu {
+            app.map.gpu_frame = None;
+            let view = View { width: vw, height: vh, pixels_per_point: vppp as f64, camera: cam };
+            if let Some(r) = rustgis_engine::render::render(app.session.map_mut(), &view) {
+                let size = [r.pixmap.width() as usize, r.pixmap.height() as usize];
+                let img = egui::ColorImage::from_rgba_premultiplied(size, r.pixmap.data());
+                match &mut app.map.texture {
+                    Some(tex) => tex.set(img, egui::TextureOptions::LINEAR),
+                    None => app.map.texture = Some(ui.ctx().load_texture("map", img, egui::TextureOptions::LINEAR)),
+                }
+                // A globe drawn roughly mid-motion keeps the last labels, which it would re-place
+                // differently every frame.
+                if !draft {
+                    app.map.labels = r.labels;
+                    app.map.labels.splice(0..0, r.unplaced);
+                    app.map.label_lonlat = match globe_view {
+                        true => {
+                            let g = Globe::new(&cam, w, h);
+                            app.map.labels.iter().map(|l| g.inverse(l.x as f64, l.y as f64)).collect()
+                        }
+                        false => Vec::new(),
+                    };
+                    app.map.label_camera = cam;
+                }
+                app.map.attribution = r.attribution;
+                app.map.last_render = time;
+                for e in r.tile_errors {
+                    if app.map.tile_errors.insert(e.clone()) {
+                        app.session.notify(e, true);
+                    }
+                }
+                app.map.tex_camera = cam;
+                app.map.tex_size = (vw, vh);
+                // Mid-motion the frame stands in for the real one, which follows once it settles.
+                app.map.key = Some(Key { draft: key.draft || motion.is_some(), ..key });
+            }
         }
         app.map.render_ms = t0.elapsed().as_millis() as u64;
-        if app.map.camera_moved {
+        if let Some((_, _, p)) = motion {
+            let k = (p / ppp) as f64 / if vw > w { 0.5 } else { 1.0 };
+            app.map.motion_cost = (t0.elapsed().as_secs_f64() * 1000.0, k);
+            ui.ctx().request_repaint();
+        } else if app.map.camera_moved {
             app.session.record_extent();
             app.map.camera_moved = false;
         }
@@ -382,41 +617,87 @@ fn main_view(app: &mut RustGisApp, ui: &mut Ui, t: &Tokens) {
     // Behind the (possibly shifted or shrunk) last frame: the map's own background, so zooming
     // out never shows a band of window colour around it.
     let basemap = app.session.map().basemap;
-    let backdrop = c32(if globe_view { rustgis_engine::render::globe_space(t.dark, basemap) } else { basemap.palette().0 });
-    painter.rect_filled(rect, 0.0, backdrop);
-    let old = app.map.tex_camera;
-    let e0 = old.extent(w, h);
-    let to_screen = |c: &Camera, x: f64, y: f64| {
-        let (sx, sy) = c.to_screen(Coord::new(x, y), w, h);
-        pos2(rect.min.x + sx as f32, rect.min.y + sy as f32)
-    };
-    let tex_rect = if globe_view {
-        // Where the old frame's centre now is, at the new zoom.
-        let (old_g, new_g) = (Globe::new(&old, w, h), Globe::new(&cam, w, h));
-        let s = (new_g.radius() / old_g.radius()) as f32;
-        match new_g.forward(old.center_lonlat()) {
-            Some((x, y)) if s.is_finite() => Rect::from_center_size(pos2(rect.min.x + x as f32, rect.min.y + y as f32), rect.size() * s),
-            _ => rect,
-        }
+    if draped {
+        app.map.drape.paint(ui.ctx(), &painter, rect, app.session.map(), ppp);
+    } else if globe_view {
+        app.map.drape.paint_space(ui.ctx(), &painter, rect, app.session.map(), ppp);
     } else {
-        Rect::from_min_max(to_screen(&cam, e0.min_x, e0.max_y), to_screen(&cam, e0.max_x, e0.min_y))
-    };
-    if let Some(tex) = &app.map.texture {
+        painter.rect_filled(rect, 0.0, c32(basemap.palette().0));
+    }
+    let old = app.map.tex_camera;
+    let tex_rect = tex_rect(app, cam, rect, globe_view);
+    app.map.tex_rect = tex_rect;
+    // A fresh GPU frame (re-rendered whenever the key changed, so its camera is the current
+    // one: tex_rect == rect and labels sit unshifted) draws inside egui's wgpu pass. The GPU
+    // backend only serves flat maps, so the globe's drape never meets it.
+    if let (Some(gf), Some(gr)) = (&app.map.gpu_frame, &app.map.gpu_renderer) {
+        painter.add(egui_wgpu::Callback::new_paint_callback(
+            rect,
+            crate::mapgpu::SceneCallback { renderer: gr.clone(), buffers: gf.clone(), target: app.map.gpu_target.clone() },
+        ));
+    } else if let Some(tex) = app.map.texture.as_ref().filter(|_| !draped) {
         painter.image(tex.id(), tex_rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
     }
-    // Labels (moved with the texture; hidden while zooming, and while the globe moves, where
-    // re-placing them every frame would make them flicker).
-    let zooming = (old.res / cam.res - 1.0).abs() > 0.002;
-    let hide_labels = zooming || (globe_view && moving);
-    if !hide_labels {
-        let dx = tex_rect.min.x - rect.min.x;
-        let dy = tex_rect.min.y - rect.min.y;
+    // Shooting stars, while space shows around the globe.
+    let g = Globe::new(&cam, w, h);
+    let (gx, gy) = g.center();
+    let space = [(0.0, 0.0), (w, 0.0), (0.0, h), (w, h)].iter().any(|&(x, y)| (x - gx).hypot(y - gy) > g.disc_radius());
+    if globe_view && space && app.session.map().view.effects.stars {
+        let wait = app.map.comets.paint(&painter, rect, &g, time);
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(wait.clamp(0.0, 60.0)));
+    } else {
+        app.map.comets.clear();
+    }
+    // Labels stay on screen while the map moves, at their own size, as MapLibre keeps them
+    // (rather than vanishing until it settles): on the flat map they move with the texture,
+    // spreading apart or closing up as it zooms; on the globe each follows its place on the
+    // Earth, and those turned behind the horizon drop out.
+    let placed = app.map.label_camera;
+    if globe_view && (placed.center != cam.center || placed.res != cam.res) {
+        let g = Globe::new(&cam, w, h);
+        for (l, c) in app.map.labels.iter().zip(&app.map.label_lonlat) {
+            if let Some((x, y)) = c.and_then(|c| g.forward(c)) {
+                draw_label(&painter, l, rect.min + vec2(x as f32, y as f32));
+            }
+        }
+    } else {
+        let s = if globe_view { 1.0 } else { (old.res / cam.res) as f32 };
         for l in &app.map.labels {
-            draw_label(&painter, l, pos2(rect.min.x + l.x + dx, rect.min.y + l.y + dy));
+            draw_label(&painter, l, tex_rect.min + vec2(l.x, l.y) * s);
         }
     }
     overlays(app, ui, &painter, rect, &t);
     popup(app, ui, rect);
+}
+
+/// The least time (s) between frames drawn mid-motion, for frames taking `ms` to draw: quick
+/// ones as often as 30 a second, slower ones further apart so the motion between them stays
+/// smooth.
+fn motion_gap(ms: f64) -> f64 {
+    let s = ms.min(300.0) / 1000.0;
+    (if ms <= 60.0 { s * 1.5 } else { s * 3.0 }).max(1.0 / 30.0)
+}
+
+/// Where the map's last frame (drawn for `tex_camera`) lies on screen for the camera `cam`.
+fn tex_rect(app: &RustGisApp, cam: Camera, rect: Rect, globe_view: bool) -> Rect {
+    let (w, h) = (rect.width() as f64, rect.height() as f64);
+    let old = app.map.tex_camera;
+    if globe_view {
+        // Where the old frame's centre now is, at the new zoom.
+        let (old_g, new_g) = (Globe::new(&old, w, h), Globe::new(&cam, w, h));
+        let s = (new_g.radius() / old_g.radius()) as f32;
+        return match new_g.forward(old.center_lonlat()) {
+            Some((x, y)) if s.is_finite() => Rect::from_center_size(pos2(rect.min.x + x as f32, rect.min.y + y as f32), rect.size() * s),
+            _ => rect,
+        };
+    }
+    let (tw, th) = if app.map.tex_size.0 > 0.0 { app.map.tex_size } else { (w, h) };
+    let e0 = old.extent(tw, th);
+    let to_screen = |x: f64, y: f64| {
+        let (sx, sy) = cam.to_screen(Coord::new(x, y), w, h);
+        pos2(rect.min.x + sx as f32, rect.min.y + sy as f32)
+    };
+    Rect::from_min_max(to_screen(e0.min_x, e0.max_y), to_screen(e0.max_x, e0.min_y))
 }
 
 fn draw_label(p: &egui::Painter, l: &PlacedLabel, at: Pos2) {
@@ -464,6 +745,16 @@ fn lonlat_to_screen(app: &RustGisApp, rect: Rect, c: Coord) -> Option<Pos2> {
     Some(pos2(rect.min.x + x as f32, rect.min.y + y as f32))
 }
 
+/// Centres the map on a place as it moves along (a simulated drive), keeping the zoom; the map
+/// treats it like a pan, shifting its last frame between redraws.
+pub(crate) fn follow(app: &mut RustGisApp, c: Coord, time: f64) {
+    let m = app.session.map_mut();
+    if let Some(at) = m.to_map(c) {
+        m.camera.center = at;
+        app.map.last_interaction = time;
+    }
+}
+
 /// Pans the flat map, or turns the globe, by a screen offset.
 fn pan(app: &mut RustGisApp, dx: f64, dy: f64, w: f64, h: f64) {
     let m = app.session.map_mut();
@@ -491,6 +782,10 @@ fn interact(app: &mut RustGisApp, ui: &mut Ui, resp: &egui::Response, rect: Rect
     app.map.pointer_lonlat = hover.and_then(|p| screen_to_lonlat(app, rect, p));
     let tool = app.session.tool;
 
+    // A place for Directions waits for a click.
+    if hover.is_some() && app.ui.nav.picking.is_some() && app.ui.right == Some(crate::RightPane::Directions) {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+    }
     // Wheel zoom about the pointer.
     if let Some(p) = hover {
         let scroll = ui.input(|i| i.smooth_scroll_delta.y + i.zoom_delta().ln() * 300.0);
@@ -697,6 +992,18 @@ fn interact(app: &mut RustGisApp, ui: &mut Ui, resp: &egui::Response, rect: Rect
             app.map.popup = None;
             return;
         };
+        // Directions waiting for a place, or a click on another route, takes the click.
+        let nav = &app.ui.nav;
+        let other = (nav.routes.len() > 1 && app.ui.right == Some(crate::RightPane::Directions))
+            .then(|| {
+                (0..nav.routes.len())
+                    .filter(|&k| k != nav.chosen)
+                    .find(|&k| nav.routes.get(k).is_some_and(|r| crate::navui::near(r, p, |c| lonlat_to_screen(app, rect, c))))
+            })
+            .flatten();
+        if crate::navui::click(app, c, other) {
+            return;
+        }
         // A workflow waiting for map points takes the click.
         if let Some(pick) = &mut app.workflow.pick
             && pick.points.len() < pick.needed
@@ -765,8 +1072,11 @@ fn interact(app: &mut RustGisApp, ui: &mut Ui, resp: &egui::Response, rect: Rect
             }
         }
     }
+    if resp.secondary_clicked() {
+        app.map.menu_lonlat = app.map.pointer_lonlat;
+    }
     resp.context_menu(|ui| {
-        let c = app.map.pointer_lonlat;
+        let c = app.map.menu_lonlat;
         if ui.button(tl!("Zoom In")).clicked() {
             let _ = app.run("map.zoomIn", Value::Null);
             ui.close();
@@ -780,6 +1090,16 @@ fn interact(app: &mut RustGisApp, ui: &mut Ui, resp: &egui::Response, rect: Rect
             ui.close();
         }
         ui.separator();
+        if let Some(c) = c {
+            if ui.button(tl!("Directions From Here")).clicked() {
+                crate::navui::seed(app, Some(0), c);
+                ui.close();
+            }
+            if ui.button(tl!("Directions To Here")).clicked() {
+                crate::navui::seed(app, None, c);
+                ui.close();
+            }
+        }
         if let Some(c) = c
             && ui.button(tl!("Copy Coordinates")).clicked()
         {
@@ -913,14 +1233,17 @@ fn overlays(app: &mut RustGisApp, ui: &mut Ui, p: &egui::Painter, rect: Rect, t:
             p.line_segment([c + a, c + b], Stroke::new(2.0, Color32::from_black_alpha(160)));
         }
     }
-    // The magnifier: twice the map under the pointer, in a lens beside it.
+    // The magnifier: twice the map under the pointer, in a lens beside it. It samples the CPU
+    // texture, which GPU frames don't update — hide the lens while the GPU backend is drawing.
     if app.map.magnifier
+        && app.map.gpu_frame.is_none()
         && let (Some(tex), Some(ptr)) = (&app.map.texture, ui.input(|i| i.pointer.hover_pos()).filter(|p| rect.contains(*p)))
     {
         let r = 70.0;
         let centre = pos2((ptr.x + r + 24.0).min(rect.max.x - r - 4.0), (ptr.y - r - 24.0).max(rect.min.y + r + 4.0));
-        let uv_c = vec2((ptr.x - rect.min.x) / rect.width(), (ptr.y - rect.min.y) / rect.height());
-        let half = vec2(r / 2.0 / rect.width(), r / 2.0 / rect.height());
+        let tr = if app.map.tex_rect.is_positive() { app.map.tex_rect } else { rect };
+        let uv_c = vec2((ptr.x - tr.min.x) / tr.width(), (ptr.y - tr.min.y) / tr.height());
+        let half = vec2(r / 2.0 / tr.width(), r / 2.0 / tr.height());
         let mut mesh = egui::Mesh::with_texture(tex.id());
         let n = 48;
         let centre_uv = pos2(uv_c.x, uv_c.y);
@@ -940,6 +1263,11 @@ fn overlays(app: &mut RustGisApp, ui: &mut Ui, p: &egui::Painter, rect: Rect, t:
         p.add(egui::Shape::mesh(mesh));
         p.circle_stroke(centre, r, Stroke::new(2.5, t.accent));
         p.circle_stroke(ptr, 6.0, Stroke::new(1.5, t.accent));
+    }
+    // Directions: the routes, places and a simulated drive, while its pane is open (Save as
+    // Layer keeps a route).
+    if app.ui.right == Some(crate::RightPane::Directions) {
+        crate::navui::paint(&app.ui.nav, p, rect, t, |c| lonlat_to_screen(app, rect, c));
     }
     // Points picked for a workflow.
     if let Some(pick) = &app.workflow.pick {
@@ -1095,6 +1423,13 @@ fn overlays(app: &mut RustGisApp, ui: &mut Ui, p: &egui::Painter, rect: Rect, t:
         p.rect_filled(bg, CornerRadius::same(12), Color32::from_black_alpha(160));
         p.galley(bg.center() - g.size() / 2.0, g, Color32::WHITE);
     }
+    // The place or coordinate the search box went to.
+    if let Some((c, name)) = &app.ui.search.marker
+        && let Some(sp) = lonlat_to_screen(app, rect, *c)
+        && rect.contains(sp)
+    {
+        crate::searchbox::paint_marker(p, sp, name, t);
+    }
     scale_bar(app, p, rect, t);
     north_arrow(p, rect, t);
     // Attribution.
@@ -1169,6 +1504,9 @@ fn popup(app: &mut RustGisApp, ui: &mut Ui, rect: Rect) {
     let index = pp.index.min(results.saturating_sub(1));
     let info = if results > 1 { pp.info["results"][index].clone() } else { pp.info.clone() };
     let mut step: Option<usize> = None;
+    let mut zoom = false;
+    // The feature shown, as its layer id and feature id (a raster pixel has neither).
+    let shown = info["layerId"].as_u64().and_then(|id| u32::try_from(id).ok()).zip(info["fid"].as_u64());
     let layer = info["layer"].as_str().unwrap_or("").to_string();
     let mut attrs = info["attributes"].as_object().cloned().unwrap_or_default();
     // A picture value (a photo's thumbnail) shows as the picture, not as its text.
@@ -1225,6 +1563,15 @@ fn popup(app: &mut RustGisApp, ui: &mut Ui, rect: Rect) {
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                                 if ui.add(egui::Button::new(tl!("×")).frame(false)).clicked() {
                                     close = true;
+                                }
+                                // A feature (not a raster pixel): zoom to it.
+                                if shown.is_some() {
+                                    let (r, resp) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::click());
+                                    let ink = if resp.hovered() { t.text } else { t.icon };
+                                    crate::icons::paint(ui.painter(), r, "zoom_sel", ink, t.accent);
+                                    if resp.on_hover_text(tl!("Zoom To")).clicked() {
+                                        zoom = true;
+                                    }
                                 }
                                 // Several features identified: step through them.
                                 if results > 1 {
@@ -1309,10 +1656,39 @@ fn popup(app: &mut RustGisApp, ui: &mut Ui, rect: Rect) {
     if let Some(l) = new_limit {
         ui.ctx().data_mut(|d| d.insert_temp(limit_id, l));
     }
+    // Zooms to the feature shown, found by its id, as Zoom To Selection does: the selection and
+    // the undo history are left as they are.
+    if let (true, Some((id, fid))) = (zoom, shown) {
+        let extent = app
+            .session
+            .map()
+            .layer(id)
+            .and_then(|l| l.dataset.features.iter().find(|f| f.id == fid))
+            .and_then(|f| f.geometry.as_ref())
+            .map(|g| g.extent());
+        if let Some(e) = extent.filter(|e| !e.is_empty()) {
+            app.session.zoom_to(&e);
+        }
+    }
     if close {
         app.map.popup = None;
     } else if let (Some(i), Some(pp)) = (step, &mut app.map.popup) {
         pp.index = i;
+        // The feature shown is the one selected, as after the click. Not through `select.rows`:
+        // browsing a pop-up mustn't fill the undo history; the new revision redraws the map.
+        // Found again by its feature id: a streamed layer may have read another window since the
+        // click, moving the feature to another row (or out of the layer: then nothing is selected).
+        let shown = pp.info["results"].get(i).and_then(|r| Some((u32::try_from(r["layerId"].as_u64()?).ok()?, r["fid"].as_u64()?)));
+        let found = shown.and_then(|(id, fid)| {
+            let row = app.session.map().layer(id)?.dataset.features.iter().position(|f| f.id == fid)?;
+            Some((id, row))
+        });
+        if let Some((id, row)) = found {
+            rustgis_engine::cmd::select::set(&mut app.session, id, vec![row], rustgis_engine::cmd::select::Mode::New);
+        } else {
+            app.session.map_mut().clear_selection();
+        }
+        app.session.revision = app.session.revision.wrapping_add(1);
     }
 }
 
@@ -1404,11 +1780,16 @@ fn view_tabs(app: &mut RustGisApp, ui: &mut Ui, t: &Tokens) {
     let mut x = r.min.x + 6.0;
     let names: Vec<String> = app.session.project.maps.iter().map(|m| m.name.clone()).collect();
     let active = if app.session.active_layout.is_some() { usize::MAX } else { app.session.project.active_map };
+    // A tab's close button asks to delete its map or layout.
+    let mut close: Option<Deletion> = None;
     for (i, n) in names.iter().enumerate() {
-        let w = crate::widgets::text_w(ui, n, regular(12.0)) + 46.0;
+        let w = crate::widgets::text_w(ui, n, regular(12.0)) + 46.0 + TAB_CLOSE_W;
         let tr = Rect::from_min_size(pos2(x, r.min.y + 4.0), vec2(w, r.height() - 4.0));
         let resp = ui.interact(tr, egui::Id::new(("maptab", i)), Sense::click());
         let is = i == active;
+        // A project keeps at least one map (`map.remove` refuses the last).
+        let last = names.len() < 2;
+        let tip = if last { tl!("A project keeps at least one map") } else { tl!("Delete Map") };
         if is {
             ui.painter().rect_filled(tr, CornerRadius { nw: 6, ne: 6, sw: 0, se: 0 }, t.ribbon);
             ui.painter().rect_filled(
@@ -1416,7 +1797,7 @@ fn view_tabs(app: &mut RustGisApp, ui: &mut Ui, t: &Tokens) {
                 CornerRadius { nw: 6, ne: 6, sw: 0, se: 0 },
                 t.accent,
             );
-        } else if resp.hovered() {
+        } else if resp.contains_pointer() {
             ui.painter().rect_filled(tr, CornerRadius { nw: 6, ne: 6, sw: 0, se: 0 }, t.hover);
         }
         icons::paint(ui.painter(), Rect::from_center_size(pos2(tr.min.x + 15.0, tr.center().y), vec2(15.0, 15.0)), "map", t.icon, t.accent);
@@ -1427,6 +1808,10 @@ fn view_tabs(app: &mut RustGisApp, ui: &mut Ui, t: &Tokens) {
             if is { semibold(12.0) } else { regular(12.0) },
             if is { t.text } else { t.text_dim },
         );
+        // Over the tab's fill, so painted after it.
+        if tab_close(ui, t, tr, egui::Id::new(("maptab_close", i)), is, !last, tip) {
+            close = Some(Deletion::Map(n.clone()));
+        }
         if resp.clicked() && !is {
             let _ = app.run("layout.close", Value::Null);
             let _ = app.run("map.activate", json!({"name": n}));
@@ -1437,7 +1822,7 @@ fn view_tabs(app: &mut RustGisApp, ui: &mut Ui, t: &Tokens) {
     // Layouts, after the maps.
     let layouts: Vec<String> = app.session.project.layouts.iter().map(|l| l.name.clone()).collect();
     for (i, n) in layouts.iter().enumerate() {
-        let w = crate::widgets::text_w(ui, n, regular(12.0)) + 46.0;
+        let w = crate::widgets::text_w(ui, n, regular(12.0)) + 46.0 + TAB_CLOSE_W;
         let tr = Rect::from_min_size(pos2(x, r.min.y + 4.0), vec2(w, r.height() - 4.0));
         let resp = ui.interact(tr, egui::Id::new(("layouttab", i)), Sense::click());
         let is = app.session.active_layout == Some(i);
@@ -1448,7 +1833,7 @@ fn view_tabs(app: &mut RustGisApp, ui: &mut Ui, t: &Tokens) {
                 CornerRadius { nw: 6, ne: 6, sw: 0, se: 0 },
                 t.accent,
             );
-        } else if resp.hovered() {
+        } else if resp.contains_pointer() {
             ui.painter().rect_filled(tr, CornerRadius { nw: 6, ne: 6, sw: 0, se: 0 }, t.hover);
         }
         icons::paint(
@@ -1465,6 +1850,10 @@ fn view_tabs(app: &mut RustGisApp, ui: &mut Ui, t: &Tokens) {
             if is { semibold(12.0) } else { regular(12.0) },
             if is { t.text } else { t.text_dim },
         );
+        // Over the tab's fill, so painted after it.
+        if tab_close(ui, t, tr, egui::Id::new(("layouttab_close", i)), is, true, tl!("Delete Layout")) {
+            close = Some(Deletion::Layout(n.clone()));
+        }
         if resp.clicked() && !is {
             let _ = app.run("layout.activate", json!({"name": n}));
             app.ui.tab = "Publish".into();
@@ -1480,6 +1869,114 @@ fn view_tabs(app: &mut RustGisApp, ui: &mut Ui, t: &Tokens) {
     if resp.on_hover_text(tl!("New Map")).clicked() {
         let _ = app.run("map.new", Value::Null);
     }
+    if close.is_some() {
+        app.map.deleting = close;
+    }
+}
+
+/// A map or a layout, by name, to delete once the user confirms ([`confirm_delete`]).
+#[derive(Clone)]
+pub enum Deletion {
+    Map(String),
+    Layout(String),
+}
+
+/// Asks before deleting the map or layout in `app.map.deleting` (tab close buttons, the
+/// Browser): a whole map or layout goes in one click. The commands themselves never ask.
+pub fn confirm_delete(app: &mut RustGisApp, ctx: &egui::Context) {
+    let Some(d) = app.map.deleting.clone() else { return };
+    // Gone meanwhile (a command, the assistant), or the last map now: nothing left to ask.
+    let p = &app.session.project;
+    let possible = match &d {
+        Deletion::Map(n) => p.maps.len() > 1 && p.maps.iter().any(|m| m.name.eq_ignore_ascii_case(n)),
+        Deletion::Layout(n) => p.layouts.iter().any(|l| l.name.eq_ignore_ascii_case(n)),
+    };
+    if !possible {
+        app.map.deleting = None;
+        return;
+    }
+    let t = Tokens::get(ctx);
+    let title = match &d {
+        Deletion::Map(n) => crate::i18n::fmt("Delete the map {name}?", &[("name", n)]),
+        Deletion::Layout(n) => crate::i18n::fmt("Delete the layout {name}?", &[("name", n)]),
+    };
+    let undo = crate::widgets::shortcut_text(app, "edit.undo");
+    let mut decision = None;
+    egui::Modal::new(egui::Id::new("confirm_delete")).show(ctx, |ui| {
+        ui.set_width(360.0);
+        ui.label(egui::RichText::new(title).font(semibold(15.0)));
+        if !undo.is_empty() {
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new(crate::i18n::fmt("You can undo this with {shortcut}.", &[("shortcut", &undo)])).color(t.text_dim));
+        }
+        ui.add_space(10.0);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+            if crate::widgets::dialog_button(ui, tl!("Delete"), Some(t.red), vec2(84.0, 28.0)).clicked() {
+                decision = Some(true);
+            }
+            if crate::widgets::dialog_button(ui, tl!("Cancel"), None, vec2(84.0, 28.0)).clicked()
+                || ui.input(|i| i.key_pressed(egui::Key::Escape))
+            {
+                decision = Some(false);
+            }
+        });
+    });
+    match decision {
+        Some(true) => {
+            app.map.deleting = None;
+            match d {
+                Deletion::Map(n) => delete_map(app, &n),
+                Deletion::Layout(n) => {
+                    let _ = app.run("layout.remove", json!({"name": n}));
+                }
+            }
+        }
+        Some(false) => app.map.deleting = None,
+        None => {}
+    }
+}
+
+/// The map shown side by side, while its name finds one (a deleted or renamed map's doesn't).
+pub(crate) fn split_map(app: &RustGisApp) -> Option<usize> {
+    let n = app.ws.split.as_deref()?;
+    app.session.project.maps.iter().position(|m| m.name.eq_ignore_ascii_case(n))
+}
+
+/// Deletes a map (`map.remove`); the popup goes with the active map, even behind an open layout.
+pub(crate) fn delete_map(app: &mut RustGisApp, name: &str) {
+    let p = &app.session.project;
+    let was_active = p.maps.get(p.active_map).is_some_and(|m| m.name.eq_ignore_ascii_case(name));
+    if app.run("map.remove", json!({"name": name})).is_ok() && was_active {
+        app.map.popup = None;
+    }
+}
+
+/// Room a view tab keeps at its right for the close button.
+const TAB_CLOSE_W: f32 = 18.0;
+
+/// A view tab's close button (×), shown on the tab in view and on the one under the pointer;
+/// `enabled: false` dims it and only explains why (`tip`). True when clicked.
+fn tab_close(ui: &mut Ui, t: &Tokens, tab: Rect, id: egui::Id, in_view: bool, enabled: bool, tip: &str) -> bool {
+    // Hidden, it takes no clicks either: they open the tab (a touch screen has no hover).
+    if !(in_view || ui.rect_contains_pointer(tab)) {
+        return false;
+    }
+    let cr = Rect::from_center_size(pos2(tab.max.x - 13.0, tab.center().y), vec2(16.0, 16.0));
+    // Added after the tab, so it sits on top: its click (even dimmed) doesn't also open the tab.
+    let resp = ui.interact(cr, id, Sense::click());
+    if enabled && resp.hovered() {
+        ui.painter().rect_filled(cr, CornerRadius::same(3), t.pressed);
+    }
+    let ink = if !enabled {
+        t.text_disabled
+    } else if resp.hovered() {
+        t.text
+    } else {
+        t.text_dim
+    };
+    icons::paint(ui.painter(), cr.shrink(3.0), "close", ink, t.accent);
+    let resp = resp.on_hover_text(tip);
+    enabled && resp.clicked()
 }
 
 #[cfg(test)]
@@ -1497,5 +1994,26 @@ mod picture_tests {
         assert!(bomb.len() < 4 << 20, "{}", bomb.len());
         assert!(super::decode_picture(&bomb).is_err());
         assert!(super::decode_picture(b"not a picture").is_err());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fps_counts_the_last_second_and_idle_is_none() {
+        let mut mv = MapView::default();
+        assert_eq!(mv.fps(0.0), None, "no frames yet");
+        for i in 0..10 {
+            mv.record_frame(i as f64 * 0.05);
+        }
+        assert_eq!(mv.fps(0.46), Some(10), "all ten frames inside the window");
+        // A second burst later: the first burst has aged out of the 1 s window.
+        for i in 0..10 {
+            mv.record_frame(1.2 + i as f64 * 0.05);
+        }
+        assert_eq!(mv.fps(1.7), Some(10), "only the new burst counts");
+        assert_eq!(mv.fps(2.3), None, "idle (no frame in 500 ms)");
     }
 }

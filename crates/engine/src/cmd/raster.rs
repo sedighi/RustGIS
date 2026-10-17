@@ -14,9 +14,9 @@ use crate::{CmdResult, CommandSpec as C, Session};
 
 /// Largest file opened from its contents (a browser upload): 512 MiB, or 256 MiB in the browser.
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) const MAX_UPLOAD_BYTES: usize = 512 << 20;
+pub const MAX_UPLOAD_BYTES: usize = 512 << 20;
 #[cfg(target_arch = "wasm32")]
-pub(crate) const MAX_UPLOAD_BYTES: usize = 256 << 20;
+pub const MAX_UPLOAD_BYTES: usize = 256 << 20;
 
 pub(crate) fn need_raster(s: &Session) -> Option<&'static str> {
     match s.active_layer.and_then(|id| s.map().layer(id)) {

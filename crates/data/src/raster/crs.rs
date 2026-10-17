@@ -1,12 +1,20 @@
 //! Coordinate reference systems for rasters, by EPSG code or by definition.
 //!
 //! WGS 84 longitude/latitude and Web Mercator are handled directly; any other EPSG code is
-//! looked up in a built-in table of PROJ definitions and transformed with a pure-Rust PROJ port,
-//! so the browser build works too. A file's own (user-defined) projection, such as the Albers of
-//! the NLCD land cover, is a [`Crs::Custom`]: its PROJ definition, kept in a table for the run.
+//! looked up in a built-in table of PROJ definitions ([`epsg_proj4`]) and transformed with a
+//! pure-Rust PROJ port, so the browser build works too. A file's own (user-defined) projection,
+//! such as the Albers of the NLCD land cover, is a [`Crs::Custom`]: its PROJ definition, kept in a
+//! table for the run.
 
 use rustgis_geom::{Coord, lonlat_to_merc, merc_to_lonlat};
 use serde::{Deserialize, Serialize};
+
+/// The PROJ definition of an EPSG code: from the `crs-definitions` table, or from the built-in
+/// table of the codes it lacks (EPSG 9020–20003, [`super::epsg_gap`]). `None` for a code that is
+/// neither.
+pub fn epsg_proj4(code: u16) -> Option<&'static str> {
+    crs_definitions::from_code(code).map(|d| d.proj4).or_else(|| super::epsg_gap::proj4(code))
+}
 
 /// A raster's coordinate system. Saved as its EPSG code, or a custom one as its definition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -122,7 +130,7 @@ impl Crs {
             3857 | 900_913 | 102_100 | 102_113 | 3785 => Some(Crs::WebMercator),
             c => {
                 let c = u16::try_from(c).ok()?;
-                crs_definitions::from_code(c).map(|_| Crs::Epsg(c))
+                epsg_proj4(c).map(|_| Crs::Epsg(c))
             }
         }
     }
@@ -169,7 +177,7 @@ impl Crs {
         match self {
             Crs::LonLat => true,
             Crs::WebMercator => false,
-            Crs::Epsg(c) => crs_definitions::from_code(c).is_some_and(|d| d.proj4.contains("+proj=longlat")),
+            Crs::Epsg(c) => epsg_proj4(c).is_some_and(|d| d.contains("+proj=longlat")),
             Crs::Custom(_) => self.custom_def().is_some_and(|d| d.proj4.contains("+proj=longlat")),
         }
     }
@@ -181,8 +189,8 @@ impl Crs {
                 Crs::LonLat => Kind::LonLat,
                 Crs::WebMercator => Kind::Merc,
                 Crs::Epsg(c) => {
-                    let def = crs_definitions::from_code(c).ok_or_else(|| format!("unknown coordinate system EPSG:{c}"))?;
-                    let native = proj4rs::Proj::from_proj_string(def.proj4).map_err(|e| format!("EPSG:{c}: {e}"))?;
+                    let def = epsg_proj4(c).ok_or_else(|| format!("unknown coordinate system EPSG:{c}"))?;
+                    let native = proj4rs::Proj::from_proj_string(def).map_err(|e| format!("EPSG:{c}: {e}"))?;
                     let wgs84 = proj4rs::Proj::from_proj_string("+proj=longlat +datum=WGS84 +no_defs").map_err(|e| e.to_string())?;
                     Kind::Proj { native: Box::new(native), wgs84: Box::new(wgs84), geographic: self.is_geographic() }
                 }
@@ -285,5 +293,65 @@ mod tests {
         let p = m.from_lonlat(Coord::new(10.0, 20.0)).unwrap();
         let q = m.to_lonlat(p).unwrap();
         assert!((q.x - 10.0).abs() < 1e-9 && (q.y - 20.0).abs() < 1e-9);
+    }
+
+    /// Projects `lonlat` with EPSG `code` and checks it against `want` (metres, or degrees for
+    /// a geographic system), then back.
+    fn check(code: u32, lonlat: (f64, f64), want: (f64, f64), tolerance: f64) {
+        let crs = Crs::from_epsg(code).unwrap_or_else(|| panic!("EPSG:{code} unknown"));
+        assert_eq!(crs, Crs::Epsg(code as u16));
+        assert_eq!(crs.label(), format!("EPSG:{code}"));
+        let t = crs.transformer().unwrap_or_else(|e| panic!("EPSG:{code}: {e}"));
+        let p = t.from_lonlat(Coord::new(lonlat.0, lonlat.1)).unwrap();
+        assert!((p.x - want.0).abs() < tolerance && (p.y - want.1).abs() < tolerance, "EPSG:{code}: {p:?}, want {want:?}");
+        let back = t.to_lonlat(p).unwrap();
+        assert!((back.x - lonlat.0).abs() < 1e-7 && (back.y - lonlat.1).abs() < 1e-7, "EPSG:{code}: {back:?}");
+    }
+
+    /// EPSG codes 9020–20003 come from the built-in gap table (opengeos/RustGIS#198); the
+    /// expected coordinates are pyproj's (PROJ 9.8, EPSG dataset v12.029).
+    #[test]
+    fn codes_crs_definitions_lacks() {
+        // SIRGAS-Chile 2016 / UTM zone 19S: Santiago de Chile.
+        check(9155, (-70.65, -33.45), (346_642.695, 6_297_606.833), 0.01);
+        assert!(!Crs::from_epsg(9155).unwrap().is_geographic());
+        // SIRGAS-Chile 2016 / UTM zone 18S (Valdivia), and the 2013 realisation's zones.
+        check(9154, (-73.0, -40.0), (670_725.494, 5_570_327.027), 0.01);
+        check(9149, (-73.0, -40.0), (670_725.494, 5_570_327.027), 0.01);
+        check(9150, (-70.65, -33.45), (346_642.695, 6_297_606.833), 0.01);
+        // SIRGAS-Chile 2013 and 2016 themselves are in degrees.
+        for code in [9148, 9153] {
+            assert!(Crs::from_epsg(code).unwrap().is_geographic(), "EPSG:{code}");
+            check(code, (-70.65, -33.45), (-70.65, -33.45), 1e-9);
+        }
+        // MAGNA-SIRGAS 2018 / Origen-Nacional (Colombia): Bogotá.
+        check(9377, (-74.08, 4.65), (4_880_256.854, 2_071_911.388), 0.01);
+        assert_eq!(Crs::parse("EPSG:9377"), Ok(Crs::Epsg(9377)));
+        assert_eq!(Crs::parse("urn:ogc:def:crs:EPSG::9377"), Ok(Crs::Epsg(9377)));
+        // VN-2000 / TM-3 103-00: its datum shift (+towgs84) is applied.
+        check(9205, (103.065, 21.855), (506_521.959, 2_417_609.479), 1.0);
+        // NAD27 / US National Atlas Equal Area: Washington, DC, without NAD27's datum shift
+        // (the grids `+datum=NAD27` stands for, which proj4rs can't load; see epsg_gap.rs).
+        check(9311, (-77.04, 38.89), (1_958_685.805, -405_348.265), 0.01);
+        // EPSG:10622 (an orthographic) has no implementation, so it is left out rather than
+        // listed and refused.
+        assert_eq!(Crs::from_epsg(10622), None);
+    }
+
+    /// Every entry in the gap table is wanted (upstream still lacks it), in order, and usable.
+    #[test]
+    fn gap_table_is_sound() {
+        let defs = super::super::epsg_gap::DEFS;
+        assert!(defs.len() > 400, "{}", defs.len());
+        for pair in defs.windows(2) {
+            assert!(pair[0].0 < pair[1].0, "out of order at EPSG:{}", pair[1].0);
+        }
+        for &(code, def) in defs {
+            assert!(crs_definitions::from_code(code).is_none(), "crs-definitions has EPSG:{code} now: drop it from the table");
+            assert_eq!(epsg_proj4(code), Some(def));
+            let crs = Crs::from_epsg(u32::from(code)).unwrap_or_else(|| panic!("EPSG:{code}"));
+            assert_eq!(crs.is_geographic(), def.contains("+proj=longlat"), "EPSG:{code}");
+            crs.transformer().unwrap_or_else(|e| panic!("EPSG:{code}: {e}"));
+        }
     }
 }

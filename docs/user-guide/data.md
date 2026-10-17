@@ -11,7 +11,7 @@ Formats](data-formats.md).
 | Delimited text (`.csv`, `.tsv`, `.txt`) with x/y columns in any coordinate system, or WKT geometry | Yes | Yes |
 | Shapefile (`.shp` + `.dbf`, or zipped in a `.zip`) | Yes (the web app opens zips) | Yes (`share.exportLayer`) |
 | GeoPackage (`.gpkg`, every feature table) | Yes | Yes (desktop) |
-| GeoParquet (`.parquet`, `.geoparquet`, WKB geometry) | Yes (zstd-compressed files on the desktop only) | Yes |
+| GeoParquet (`.parquet`, `.geoparquet`, WKB geometry) | Yes | Yes |
 | FlatGeobuf (`.fgb`) | Yes | Yes (`share.exportLayer`) |
 | KML/KMZ (with their styles), GPX | Yes | Yes |
 | Spreadsheets (`.xlsx`, `.xls`, `.ods`), GeoRSS feeds, LandXML, encoded polylines | Yes | No |
@@ -19,7 +19,8 @@ Formats](data-formats.md).
 | LiDAR point clouds: LAS, LAZ, COPC (an evenly spread sample) | Yes | No |
 | Geotagged photos (JPEG with EXIF GPS): points with their thumbnails | Yes | No |
 | Through GDAL: File Geodatabase (`.gdb` folder), AutoCAD DWG, MapInfo TAB, OpenStreetMap XML… | Yes (desktop, when GDAL is installed) | No |
-| DuckDB databases (`.duckdb`, `.ddb`), PostgreSQL/PostGIS databases and SQL queries | Yes (desktop, when DuckDB is installed) | No |
+| PostgreSQL/PostGIS databases, read live (large tables a view at a time) | Yes (desktop) | No |
+| DuckDB databases (`.duckdb`, `.ddb`) and SQL queries | Yes (desktop, when DuckDB is installed) | No |
 | KML, GPX, CSV with WKT geometry | No | Yes (Analyze › Workflows › Data Interop) |
 | GeoTIFF and cloud-optimised GeoTIFF (`.tif`, `.tiff`) | Yes | Yes |
 | ASCII grid (`.asc`, with an optional `.prj`) | Yes | No |
@@ -110,22 +111,43 @@ column becomes a layer (`"layer"` picks one).
 
 ### PostgreSQL and PostGIS
 
-**Home › Add Data › Database…** (`layer.addDatabase`) connects to a PostgreSQL database through
-DuckDB's `postgres` extension (installed the first time, like DuckDB Spatial). The connection is a
-libpq connection string (`host=localhost port=5432 dbname=gis user=postgres`) or a
-`postgresql://user@host/dbname` address; **List Tables** (`info.databaseTables`) shows the tables
-with a geometry column, and every one of them becomes a layer unless one is chosen. PostGIS
-geometries keep their coordinate system (`"crs"` covers a column that doesn't say one). The
-connection is read only.
+**Home › Add Data › Database…** (`layer.addDatabase`) connects to a PostgreSQL database with
+PostGIS and reads its tables live. RustGIS talks to the server itself (nothing else to install;
+TLS as libpq does it). `sslmode=prefer` (the default) and `require` encrypt the connection but
+don't check the server's certificate, so they don't protect against a server in the middle:
+use `verify-full` (or `verify-ca`, which here checks the host name too) on networks you don't
+trust. The certificate is checked against `sslrootcert` (a private authority's PEM file) or the
+web's roots. `disable` turns TLS off. The connection is a libpq connection string
+(`host=localhost port=5432 dbname=gis user=postgres`) or a `postgresql://user@host/dbname`
+address; what it leaves out comes from `PGHOST`, `PGPORT`, `PGUSER` and `PGDATABASE`, as with
+libpq. **List Tables** (`info.databaseTables`) shows the tables and views with a geometry or
+geography column, and every one of them becomes a layer unless one is chosen (`table`,
+`schema.table`, or `table:column` for one of several geometry columns). The connection is read
+only.
+
+A table of more than 100,000 rows (or any, with `"stream": true`) is read in place a view at a
+time, like a large GeoParquet: the view's box is matched against the column's spatial index, and
+when more rows match than a view draws, an evenly spread sample of them is numbered on the server,
+so only those cross the network. Smaller tables are loaded whole, so they can be edited. The
+server converts geometry to longitude/latitude (`ST_Transform`, so every coordinate system in its
+`spatial_ref_sys` works) and curves to lines; give `"crs"` (such as `EPSG:2263`) for a column whose
+geometry doesn't say its coordinate system. A column of mixed geometry types becomes a layer per
+type, and empty tables (such as the TIGER geocoder's) are left out. Features keep their ids between
+views: the table's integer primary key, else the row's place in the table (the rows of a view or
+a partitioned table without a key are numbered as read, so theirs can change between views).
 
 The password is kept until RustGIS closes and never written to the project, which names the
-connection without it; it reaches DuckDB in its environment (`PGPASSWORD`), never on its command
-line. Without one, libpq's own `PGPASSWORD` or `~/.pgpass` serve. A project keeps the table's
-result from when it was added, but never connects to the server on its own (a project file could
-name any host, and libpq would hand it your credentials): when the result is gone, add the table
-again. A connection's table is converted afresh each time it is added (the database can change at
-any time), and
-`layer.addSql` takes a connection as its `"database"` too, so a query names its tables plainly:
+connection without it. Without one, `PGPASSWORD` or libpq's password file (`~/.pgpass`, or
+`%APPDATA%\postgresql\pgpass.conf`) serve when you add a table. A project keeps a streamed
+table's connection and reads it again when it opens, sending only a password given in this
+session: a project file could name any host, and must never get your own credentials. When the
+server wants a password, connect again with **Add Data › Database…** (the layer reads again when
+the project is next opened). A small table's features are kept in the project as they were when
+added.
+
+`layer.addSql` takes a connection as its `"database"` too, through DuckDB's `postgres` extension
+(installed the first time, like DuckDB Spatial), so a query names its tables plainly; the password
+reaches DuckDB in its environment (`PGPASSWORD`), never on its command line:
 
 ```sh
 rustgis-cli run --cmd 'layer.addSql={"sql":"SELECT name, geom FROM roads WHERE lanes > 2","database":"postgres:host=localhost dbname=gis user=postgres","password":"…"}'
@@ -350,13 +372,19 @@ database is kept without its password. The commands `sources.list`, `sources.sav
 
 ## Large files
 
-GeoPackage, GeoParquet and FlatGeobuf files with more than 100,000 features are read in place
-rather than loaded whole, so files far larger than memory open in a moment. The layer reads the
-features in view, using the file's own spatial index (the GeoPackage R-tree, the FlatGeobuf
-packed R-tree, GeoParquet row-group bounding boxes), in the background as the map moves. When a
+GeoPackage, GeoParquet, FlatGeobuf and (on the desktop) Shapefile files with more than 100,000
+features are read in place rather than loaded whole, so files far larger than memory open in a
+moment. The layer reads the features in view, using the file's own spatial index (the GeoPackage
+R-tree, the FlatGeobuf packed R-tree, GeoParquet row-group bounding boxes; for a Shapefile, the
+shapes' bounding boxes, read once when it opens), in the background as the map moves. When a
 view holds more than 250,000 features (100,000 in the web app), the layer draws an evenly spread
 sample of them and its tooltip in Layers says so: zoom in to see them all. Smaller files load
 whole; `layer.addData` with `"stream": true` or `false` overrides the choice.
+
+On the desktop, a GeoJSON FeatureCollection larger than 32 MB is read the same way, with no size
+limit: opening reads the file once, keeping each feature's place in it and its bounding box (a
+file over 256 MB through a buffer, so it is never held whole), and each view parses just the
+features it shows. A single feature, a bare geometry or TopoJSON is loaded whole.
 
 A streamed layer works like any other for symbology, labels, pop-ups, selection and the
 attribute table (which lists the features read for the view). Geoprocessing tools read the whole
@@ -392,6 +420,14 @@ so reading it takes as long as decoding the whole file once. A cloud-optimised G
 web address is read in place instead, a tile at a time (see [Files on the
 web](data-formats.md#files-on-the-web)).
 
+The web app opens a picked or dropped file of up to 256 MB whole. A larger GeoTIFF is read a part
+at a time instead: its header, then only the tiles of the overview it opens from. A
+cloud-optimised file opens however large it is, as long as those parts fit in 256 MB (a 436 MB
+EnMAP hyperspectral scene reads about 20 MB, the 1.6 GB NLCD land cover about 14 MB).
+The parts read are what a saved project keeps. A file that isn't cloud-optimised (in strips, or
+without overviews) needs most of itself, and past 256 MB the web app says to open it in the
+desktop app.
+
 With a raster layer selected in Layers, the **Style** and **Data** tabs show its groups:
 
 | Tab › Group | Controls |
@@ -417,13 +453,15 @@ their coordinates (CF time units as dates, the `noleap` and `360_day` model cale
 a few at a time, in the background.
 
 Stores are read in pure Rust, in the web app as well as on the desktop: Zarr 2 with consolidated
-metadata (`.zmetadata`, as xarray writes) and Zarr 3 (`zarr.json`), chunks compressed with blosc
-(LZ4, zlib or zstd, byte-shuffled), zlib, gzip, zstd or LZ4, of integer or float values, in C or
-Fortran order. Fill values, `_FillValue` and `missing_value` are no data; `scale_factor` and
-`add_offset` are applied. The coordinates must be evenly spaced (a curvilinear grid isn't read);
+metadata (`.zmetadata`, as xarray writes) and Zarr 3 (`zarr.json`, sharded arrays too), chunks
+compressed with blosc (LZ4, zlib or zstd, byte- or bit-shuffled), zlib, gzip, zstd or LZ4, of
+integer or float values, in C or Fortran order. A sharded array's shards are fetched whole.
+`_FillValue`, `missing_value` and a Zarr 2 array's fill value are no data; a Zarr 3 array's fill
+value isn't: chunks never written are left empty, but chunks missing from inside a shard show the
+fill value. `scale_factor` and `add_offset` are applied. The coordinates must be evenly spaced (a curvilinear grid isn't read);
 longitude/latitude grids of 0–360° are turned to -180–180°, and projected ones take their
 coordinate system from the variable's grid mapping (`crs_wkt`, `spatial_ref`, an EPSG code) or
-`"crs"`. Sharded Zarr 3 arrays, bit-shuffled and blosclz-compressed chunks aren't read yet, and
+`"crs"`. Blosclz-compressed and transposed chunks and shards inside shards aren't read yet, and
 say so. A store by web address must allow the browser to fetch it (CORS) for the web app;
 Google Cloud's CMIP6 bucket does, ARCO-ERA5's doesn't (the desktop reads both).
 
@@ -442,16 +480,17 @@ RustGIS saves pieces of a project as files you can share and reuse:
 
 | Item | Extension | Made with | Opened with |
 | --- | --- | --- | --- |
-| Map file (a map with its data) | `.rgismap` | Publish › Save As › Map File | Data › Import |
+| Map file (a map with its data) | `.rgismap` | Publish › Save As › Map File | Home › Import |
 | Layer file (a layer with its symbology) | `.rgislyr` | Publish › Save As › Layer File | Add Data |
 | Styles (saved symbology) | `.rgisstyle` | Style › Styles › New Style, then Publish › Save As › Style Items | Style › Styles › Add Style File |
 | [Color ramps](cartography.md#custom-color-ramps) | `.rgisramp` (also reads QGIS `.xml`/`.qml`, GDAL color `.txt` and GMT `.cpt`) | Publish › Save As › Color Ramps, or by hand | Style › Styles › Add Color Ramp File |
-| Project template (the setup without features) | `.rgistemplate` | Data › Templates, or Publish › Save As | Data › Templates › Open Custom Template |
+| Project template (the setup without features) | `.rgistemplate` | Home › Templates, or Publish › Save As | Home › Templates › Open Custom Template |
 | Project package (everything, rasters included) | `.rgispkg` | Publish › Package › Project | Project › Open |
-| Map package / mobile map package | `.rgismpk` | Publish › Package › Map or Mobile Map | Data › Import |
+| Map package / mobile map package | `.rgismpk` | Publish › Package › Map or Mobile Map | Home › Import |
 | Results package (geoprocessing history and outputs) | `.rgisgpk` | Publish › Package › Results | any zip tool |
-| Task (guided command steps) | `.rgistask` | Data › Task, Publish › Save As › Task Item | Data › Task › Import Task |
-| Layout | `.rgislayout` | Publish › Save Layout File | Data › New Publish › Import Layout |
+| Task (guided command steps) | `.rgistask` | Home › Task, Publish › Save As › Task Item | Home › Task › Import Task |
+| Bookmarks (as longitude, latitude and scale) | `.rgisbookmarks` | Home › Navigate › Bookmarks › Export Bookmarks | Home › Navigate › Bookmarks › Import Bookmarks |
+| Layout | `.rgislayout` | Publish › Save Layout File | Home › New Layout › Import Layout |
 
 Packages are zip files. A mobile map package keeps only the visible layers and simplifies their
 geometry, for phones and tablets. Styles can also be imported from the layers of a layer file,

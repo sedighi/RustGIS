@@ -743,3 +743,279 @@ fn flatgeobuf_stand_in_is_a_feature() {
     let body = &fgb::STAND_IN_FOR_TESTS[4..];
     assert!(flatgeobuf::size_prefixed_root_as_feature(fgb::STAND_IN_FOR_TESTS.as_slice()).is_ok(), "{body:?}");
 }
+
+/// Writes a dataset as a Shapefile at `path` (its `.shp`), with the other files beside it.
+fn write_shapefile(ds: &Dataset, path: &Path) {
+    let (parts, _) = crate::io::shapefile_parts(ds).unwrap();
+    for (ext, bytes) in parts {
+        std::fs::write(path.with_extension(ext), bytes).unwrap();
+    }
+}
+
+/// The points as a Shapefile.
+fn points_shapefile(path: &Path) {
+    let mut ds =
+        Dataset::new("grid", GeometryType::Point, vec![Field::new("name", FieldType::Text), Field::new("value", FieldType::Integer)]);
+    for (c, name, v) in points() {
+        ds.push(Some(Geometry::Point(c)), vec![Value::Text(name), Value::Int(v)]);
+    }
+    write_shapefile(&ds, path);
+}
+
+#[test]
+fn shapefile_read_in_place() {
+    let p = dir().join("grid.shp");
+    points_shapefile(&p);
+    let src = open_path(&p, None).unwrap();
+    assert_eq!(src.info().format, "Shapefile");
+    check(src.as_ref(), false);
+    assert_eq!(shp::record_count(&p), Some(600));
+}
+
+#[test]
+fn shapefile_in_place_matches_one_read_whole() {
+    let d = dir().join("shp-whole");
+    std::fs::create_dir_all(&d).unwrap();
+    let mut lines =
+        Dataset::new("roads", GeometryType::Polyline, vec![Field::new("len", FieldType::Double), Field::new("ok", FieldType::Boolean)]);
+    lines.push(
+        Some(Geometry::Line(vec![vec![Coord::new(0.0, 0.0), Coord::new(1.5, 2.25)], vec![Coord::new(3.0, 3.0), Coord::new(4.0, 5.0)]])),
+        vec![Value::Float(2.5), Value::Bool(true)],
+    );
+    lines.push(Some(Geometry::Line(vec![vec![Coord::new(-7.0, 8.0), Coord::new(9.0, -10.0)]])), vec![Value::Null, Value::Bool(false)]);
+    let mut multi = Dataset::new("pairs", GeometryType::Point, vec![Field::new("name", FieldType::Text)]);
+    multi.push(Some(Geometry::MultiPoint(vec![Coord::new(1.0, 1.0), Coord::new(2.0, 2.0)])), vec![Value::Text("pair".into())]);
+    multi.push(Some(Geometry::MultiPoint(vec![Coord::new(-3.0, 4.0)])), vec![Value::Text("one".into())]);
+    for ds in [export_sample(), lines, multi] {
+        let p = d.join(format!("{}.shp", ds.name));
+        write_shapefile(&ds, &p);
+        let (whole, _) = crate::io::read_path(&p).unwrap();
+        let (inplace, report) = materialize(open_path(&p, None).unwrap().as_ref()).unwrap();
+        assert!(report.messages.is_empty(), "{:?}", report.messages);
+        assert_eq!(inplace.geometry_type, whole.geometry_type, "{}", ds.name);
+        assert_eq!(inplace.fields, whole.fields, "{}", ds.name);
+        assert_eq!(inplace.features, whole.features, "{}", ds.name);
+    }
+}
+
+#[test]
+fn shapefile_in_place_reprojects_from_its_prj() {
+    let d = dir().join("shp-utm");
+    std::fs::create_dir_all(&d).unwrap();
+    let p = d.join("paris.shp");
+    let mut ds = Dataset::new("paris", GeometryType::Point, vec![Field::new("name", FieldType::Text)]);
+    // Paris in UTM zone 31N.
+    ds.push(Some(Geometry::Point(Coord::new(451_219.33, 5_411_550.20))), vec![Value::Text("paris".into())]);
+    write_shapefile(&ds, &p);
+    let utm = r#"PROJCS["WGS_1984_UTM_Zone_31N",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["False_Easting",500000.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",3.0],PARAMETER["Scale_Factor",0.9996],PARAMETER["Latitude_Of_Origin",0.0],UNIT["Meter",1.0]]"#;
+    std::fs::write(p.with_extension("prj"), utm).unwrap();
+    let src = open_path(&p, None).unwrap();
+    let e = src.info().extent;
+    assert!((e.min_x - 2.335).abs() < 1e-6 && (e.min_y - 48.855).abs() < 1e-6, "{e:?}");
+    assert!(src.info().notes.is_empty(), "{:?}", src.info().notes);
+    // A longitude/latitude extent finds it; one beside it doesn't.
+    let near = src.read(&Request { extent: Some(Extent::new(2.0, 48.5, 2.5, 49.0)), limit: 10 }).unwrap();
+    let c = near.features.first().and_then(|f| f.geometry.as_ref()).and_then(Geometry::label_point).unwrap();
+    assert!((c.x - 2.335).abs() < 1e-6 && (c.y - 48.855).abs() < 1e-6, "{c:?}");
+    assert!(src.read(&Request { extent: Some(Extent::new(3.0, 48.5, 3.5, 49.0)), limit: 10 }).unwrap().features.is_empty());
+    // Without the .prj the coordinates are taken as they are, and that's said.
+    std::fs::remove_file(p.with_extension("prj")).unwrap();
+    let src = open_path(&p, None).unwrap();
+    assert!(src.info().notes.iter().any(|n| n.contains("not longitude/latitude")), "{:?}", src.info().notes);
+}
+
+#[test]
+fn damaged_shapefiles_are_errors_or_skips_not_panics() {
+    let d = dir().join("shp-junk");
+    std::fs::create_dir_all(&d).unwrap();
+    let good = d.join("good.shp");
+    write_shapefile(&export_sample(), &good);
+    let (shp, dbf) = (std::fs::read(&good).unwrap(), std::fs::read(good.with_extension("dbf")).unwrap());
+    let p = d.join("cut.shp");
+    let read_all = |p: &Path| {
+        if let Ok(s) = open_path(p, None) {
+            let _ = s.read(&Request::all());
+            let _ = s.read(&Request { extent: Some(Extent::new(-10.0, -10.0, 10.0, 10.0)), limit: 1 });
+        }
+    };
+    std::fs::write(p.with_extension("dbf"), &dbf).unwrap();
+    for n in 0..shp.len() {
+        std::fs::write(&p, &shp[..n]).unwrap();
+        read_all(&p);
+    }
+    // Every byte of the shapes flipped in turn.
+    for i in 100..shp.len() {
+        let mut bad = shp.clone();
+        bad[i] ^= 0xA5;
+        std::fs::write(&p, &bad).unwrap();
+        read_all(&p);
+    }
+    std::fs::write(&p, &shp).unwrap();
+    for n in 0..dbf.len() {
+        std::fs::write(p.with_extension("dbf"), &dbf[..n]).unwrap();
+        read_all(&p);
+    }
+    std::fs::remove_file(p.with_extension("dbf")).unwrap();
+    assert!(open_path(&p, None).is_err());
+}
+
+/// Reads every Shapefile under `RUSTGIS_SAMPLE_SHAPEFILES` both ways, in place and whole, and
+/// compares them: `cargo test --release -p rustgis-data -- --ignored shapefile_samples --nocapture`.
+#[test]
+#[ignore]
+fn shapefile_samples() {
+    let Ok(dir) = std::env::var("RUSTGIS_SAMPLE_SHAPEFILES") else { return };
+    fn walk(d: &Path, out: &mut Vec<PathBuf>) {
+        for e in std::fs::read_dir(d).into_iter().flatten().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                walk(&p, out);
+            } else if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("shp")) {
+                out.push(p);
+            }
+        }
+    }
+    let mut paths = Vec::new();
+    walk(Path::new(&dir), &mut paths);
+    paths.sort();
+    let mut differ = Vec::new();
+    for p in paths {
+        let t = std::time::Instant::now();
+        let whole = crate::io::read_path(&p);
+        let whole_t = t.elapsed();
+        let t = std::time::Instant::now();
+        let inplace = open_path(&p, None).and_then(|s| materialize(s.as_ref()));
+        let inplace_t = t.elapsed();
+        let (Ok((whole, _)), Ok((inplace, _))) = (&whole, &inplace) else {
+            println!("{}: whole {:?} / in place {:?}", p.display(), whole.as_ref().err(), inplace.as_ref().err());
+            continue;
+        };
+        let same_geometry = whole.features.iter().zip(&inplace.features).all(|(a, b)| a.geometry == b.geometry);
+        let same = whole.features == inplace.features && whole.fields == inplace.fields;
+        println!(
+            "{}: {} features, whole {whole_t:?}, in place {inplace_t:?}; same={same} (geometry {same_geometry}, fields {})",
+            p.display(),
+            whole.features.len(),
+            whole.fields == inplace.fields
+        );
+        if !same_geometry || whole.features.len() != inplace.features.len() {
+            differ.push(p.display().to_string());
+        }
+    }
+    assert!(differ.is_empty(), "{differ:?}");
+}
+
+#[test]
+fn shapefile_in_place_keeps_large_whole_numbers_exact() {
+    let d = dir().join("shp-ids");
+    std::fs::create_dir_all(&d).unwrap();
+    let p = d.join("ids.shp");
+    let mut ds = Dataset::new("ids", GeometryType::Point, vec![Field::new("id", FieldType::Integer)]);
+    for i in 0..5 {
+        ds.push(Some(Geometry::Point(Coord::new(i as f64, 0.0))), vec![Value::Int(i)]);
+    }
+    write_shapefile(&ds, &p);
+    // The id column (18 digits, no decimals) as another program writes it: values past f64's
+    // exact integers, whole ones written with a point or exponent, and one that isn't whole.
+    let mut dbf = std::fs::read(p.with_extension("dbf")).unwrap();
+    let (header, row) = (u16::from_le_bytes([dbf[8], dbf[9]]) as usize, u16::from_le_bytes([dbf[10], dbf[11]]) as usize);
+    for (i, text) in ["123456789012345678", "-98765432109876543", "12.0", "1e3", "12.5"].iter().enumerate() {
+        let at = header + i * row + 1;
+        dbf[at..at + 18].copy_from_slice(format!("{text:>18}").as_bytes());
+    }
+    std::fs::write(p.with_extension("dbf"), &dbf).unwrap();
+    let src = open_path(&p, None).unwrap();
+    assert_eq!(src.info().fields[0].ty, FieldType::Integer);
+    let got: Vec<Value> = src.read(&Request::all()).unwrap().features.into_iter().map(|f| f.attrs[0].clone()).collect();
+    assert_eq!(
+        got,
+        vec![
+            Value::Int(123_456_789_012_345_678),
+            Value::Int(-98_765_432_109_876_543),
+            Value::Int(12),
+            Value::Int(1000),
+            Value::Float(12.5)
+        ]
+    );
+}
+
+#[test]
+fn geojson_read_in_place() {
+    let mut ds =
+        Dataset::new("grid", GeometryType::Point, vec![Field::new("name", FieldType::Text), Field::new("value", FieldType::Integer)]);
+    for (c, name, v) in points() {
+        ds.push(Some(Geometry::Point(c)), vec![Value::Text(name), Value::Int(v)]);
+    }
+    let p = dir().join("grid.geojson");
+    crate::io::write_path(&ds, &p).unwrap();
+    let src = open_path(&p, None).unwrap();
+    assert_eq!(src.info().format, "GeoJSON");
+    check(src.as_ref(), false);
+}
+
+#[test]
+fn geojson_in_place_matches_one_read_whole() {
+    let d = dir().join("geojson-whole");
+    std::fs::create_dir_all(&d).unwrap();
+    // Types widened over features, a feature with geometry that can't be read (its properties
+    // still count), one without geometry, mixed kinds, nested values and repeated keys.
+    let mixed = r#"{"features":[
+        {"type":"Feature","properties":{"a":1,"b":null,"n":{"x":[1,2]}},"geometry":{"type":"Point","coordinates":[1,2]}},
+        {"type":"Feature","properties":{"a":2.5,"c":"x"},"geometry":{"type":"Nope"}},
+        {"type":"Feature","properties":{"c":true,"d":null},"geometry":null},
+        {"type":"Feature","properties":{"a":3},"geometry":{"type":"Polygon","coordinates":[[[0,0],[4,0],[4,4],[0,0]],[[1,1],[2,1],[2,2],[1,1]]]}},
+        {"type":"Feature","properties":{"b":"t"},"geometry":{"type":"MultiLineString","coordinates":[[[0,0],[1,1]],[[5,5],[6,7]]]}},
+        null,
+        {"type":"Feature","properties":{},"geometry":{"type":"MultiPoint","coordinates":[[9,9],[8,8]]}}
+    ],"type":"FeatureCollection","name":"m"}"#;
+    let docs = [("mixed.geojson", mixed.to_string()), ("parcels.json", crate::io::to_geojson(&export_sample()).to_string())];
+    for ((file, text), in_memory) in docs.iter().flat_map(|d| [(d, crate::io::MAX_BYTES), (d, 0)]) {
+        let p = d.join(file);
+        std::fs::write(&p, text).unwrap();
+        let (whole, whole_report) = crate::io::read_geojson(text, "x").unwrap();
+        // Scanned in memory, and through a buffer, as a file too large to hold is.
+        let src = geojson::GeoJsonSource::open_with(&p, "x", in_memory).unwrap();
+        let (inplace, report) = materialize(&src).unwrap();
+        assert_eq!(inplace.fields, whole.fields, "{file}");
+        assert_eq!(inplace.geometry_type, whole.geometry_type, "{file}");
+        assert_eq!(inplace.features, whole.features, "{file}");
+        assert_eq!(report.messages.len(), whole_report.messages.len(), "{file}: {:?}", report.messages);
+        // Extent reads skip features without geometry, and find each by its box.
+        let b = src.read(&Request { extent: Some(Extent::new(0.5, 0.5, 1.5, 2.5)), limit: 100 }).unwrap();
+        assert!(b.features.iter().all(|f| f.geometry.is_some()), "{file}");
+    }
+    // Not a FeatureCollection, or not GeoJSON: not read in place.
+    for (file, text) in [
+        ("one.geojson", r#"{"type":"Feature","properties":{},"geometry":{"type":"Point","coordinates":[1,2]}}"#),
+        ("bare.geojson", r#"{"type":"Point","coordinates":[1,2]}"#),
+        ("topo.json", r#"{"type":"Topology","objects":{},"arcs":[]}"#),
+        ("list.json", "[1, 2]"),
+        ("trailing.geojson", r#"{"type":"FeatureCollection","features":[]} {"#),
+    ] {
+        let p = d.join(file);
+        std::fs::write(&p, text).unwrap();
+        assert!(open_path(&p, None).is_err() && geojson::GeoJsonSource::open_with(&p, "x", 0).is_err(), "{file}");
+    }
+}
+
+#[test]
+fn damaged_geojson_is_an_error_not_a_panic() {
+    let d = dir().join("geojson-junk");
+    std::fs::create_dir_all(&d).unwrap();
+    let text = crate::io::to_geojson(&export_sample()).to_string();
+    let p = d.join("cut.geojson");
+    for n in 0..text.len() {
+        std::fs::write(&p, &text.as_bytes()[..n]).unwrap();
+        for in_memory in [crate::io::MAX_BYTES, 0] {
+            if let Ok(s) = geojson::GeoJsonSource::open_with(&p, "x", in_memory) {
+                let _ = s.read(&Request::all());
+            }
+        }
+    }
+    // A file that changes after it's opened: features are skipped, not misread or a panic.
+    std::fs::write(&p, &text).unwrap();
+    let src = open_path(&p, None).unwrap();
+    std::fs::write(&p, &text.as_bytes()[..text.len() / 2]).unwrap();
+    let b = src.read(&Request::all()).unwrap();
+    assert!(b.skipped > 0);
+}

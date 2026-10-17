@@ -1,6 +1,7 @@
 //! L2: the map model — layers with symbology and labels, the camera, colour ramps and basemaps.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod antimeridian;
 pub mod camera;
 pub mod color;
 pub mod design;
@@ -8,6 +9,7 @@ pub mod effects;
 pub mod globe;
 pub mod graphics;
 pub mod layout;
+pub mod lod;
 pub mod palette;
 pub mod presentation;
 pub mod projection;
@@ -143,8 +145,19 @@ pub struct Layer {
     /// Set for streamed layers, whose `dataset` holds the features of the last view read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<source::SourceLayer>,
+    /// Shared, like the features: an undo snapshot or other copy of the layer doesn't copy it.
     #[serde(skip)]
-    projected: Vec<Option<Geometry>>,
+    projected: std::sync::Arc<Vec<Option<Geometry>>>,
+    /// Each projected geometry's extent, for culling without walking its vertices.
+    #[serde(skip)]
+    projected_extents: std::sync::Arc<Vec<Extent>>,
+    /// The projected geometry's line and ring vertices (those thinning can drop).
+    #[serde(skip)]
+    projected_vertices: usize,
+    /// Thinned copies of the projected geometry by level, the latest used first (see [`lod`]);
+    /// `None` for a level that draws from the full geometry, thinning saving too little there.
+    #[serde(skip)]
+    thinned: std::sync::Arc<Vec<(i32, Option<std::sync::Arc<Vec<Option<Geometry>>>>)>>,
     #[serde(skip)]
     projected_rev: u64,
     /// The projection the cache is in.
@@ -186,7 +199,10 @@ impl Layer {
             design: design::Design::default(),
             raster: None,
             source: None,
-            projected: Vec::new(),
+            projected: Default::default(),
+            projected_extents: Default::default(),
+            projected_vertices: 0,
+            thinned: Default::default(),
             projected_rev: u64::MAX,
             projected_for: String::new(),
             geometry_rev: 0,
@@ -219,7 +235,8 @@ impl Layer {
         };
         let mut ds = Dataset::new(name, ty, fields);
         ds.windowed = true;
-        ds.source = source.path.clone().or_else(|| source.file_name.clone());
+        ds.source =
+            source.path.clone().or_else(|| source.file_name.clone()).or_else(|| source.postgis.as_ref().map(|p| p.database.clone()));
         let mut l = Layer::new(id, ds);
         l.source = Some(source);
         l
@@ -247,6 +264,15 @@ impl Layer {
                 return src.is_pending();
             }
         }
+        // A project that lists no fields for a streamed layer (one written by another app, which
+        // can't know which columns the reader takes) gets the source's: reads keep the attributes
+        // in that order, and a renderer on a field finds it.
+        if self.dataset.fields.is_empty()
+            && let Some(info) = self.source.as_ref().and_then(|s| s.info())
+        {
+            self.dataset.fields = info.fields.clone();
+        }
+        let Some(src) = &mut self.source else { return false };
         // A failed read leaves nothing drawn for it (its error shows in Layers), not the
         // previous view's features.
         match src.poll(block) {
@@ -273,7 +299,7 @@ impl Layer {
         let ids: std::collections::HashSet<u64> =
             self.selection.iter().filter_map(|r| self.dataset.features.get(*r)).map(|f| f.id).collect();
         let fields = self.dataset.fields.len();
-        self.dataset.features = features;
+        self.dataset.features = features.into();
         for f in &mut self.dataset.features {
             f.attrs.resize(fields, rustgis_data::Value::Null);
         }
@@ -308,7 +334,10 @@ impl Layer {
             return Err(format!("the layer has more features than the {max} read at once"));
         }
         ds.name = self.dataset.name.clone();
-        ds.fields = self.dataset.fields.clone();
+        // (A project that lists no fields keeps the source's, as `sync_source` gives it.)
+        if !self.dataset.fields.is_empty() {
+            ds.fields = self.dataset.fields.clone();
+        }
         ds.source = self.dataset.source.clone();
         Ok(ds)
     }
@@ -328,11 +357,20 @@ impl Layer {
 
     /// Copies of every geometry in a map projection's coordinates (`key` names the projection),
     /// rebuilt lazily when the geometry or the projection changes. Points a projection can't show
-    /// become NaN, which the renderer skips.
+    /// become NaN, which the renderer skips; features across a world projection's edge are cut
+    /// there ([`projection::Flat::project`]). There is one entry per feature, row for row, but its
+    /// parts and vertices needn't match the source's (a cut feature has more parts, and a point
+    /// the projection can't use breaks a line): hit-testing and snapping use the shape, never a
+    /// vertex index, which only the source geometry has.
     pub fn projected_in(&mut self, flat: &projection::Flat, key: &str) -> &[Option<Geometry>] {
         if self.projected_rev != self.geometry_rev || self.projected.len() != self.dataset.features.len() || self.projected_for != key {
-            let f = |c: Coord| flat.forward_checked(c).unwrap_or(Coord::new(f64::NAN, f64::NAN));
-            self.projected = self.dataset.features.iter().map(|ft| ft.geometry.as_ref().map(|g| g.map_coords(&f))).collect();
+            let projected: Vec<Option<Geometry>> =
+                self.dataset.features.iter().map(|ft| ft.geometry.as_ref().map(|g| flat.project(g))).collect();
+            self.projected_extents =
+                std::sync::Arc::new(projected.iter().map(|g| g.as_ref().map_or(Extent::EMPTY, Geometry::extent)).collect());
+            self.projected_vertices = projected.iter().flatten().map(lod::thinnable).sum();
+            self.projected = std::sync::Arc::new(projected);
+            self.thinned = Default::default();
             self.projected_rev = self.geometry_rev;
             self.projected_for = key.to_string();
         }
@@ -344,6 +382,47 @@ impl Layer {
         self.projected_in(&projection::Flat::Mercator, "mercator")
     }
 
+    /// The projected geometry (see [`Layer::projected_in`]) as drawn at a tolerance in projection
+    /// units: a thinned copy at the level just under it (see [`lod`]), made on first use, or the
+    /// geometry itself for a small layer. Read it back with [`Layer::thinned_cache`].
+    pub fn thinned_in(&mut self, flat: &projection::Flat, key: &str, tol: f64) -> &[Option<Geometry>] {
+        self.projected_in(flat, key);
+        let Some(level) = lod::level(tol).filter(|_| self.projected_vertices > lod::THIN_ABOVE) else { return &self.projected };
+        let levels = std::sync::Arc::make_mut(&mut self.thinned);
+        match levels.iter().position(|(l, _)| *l == level) {
+            Some(i) => {
+                let hit = levels.remove(i);
+                levels.insert(0, hit);
+            }
+            None => {
+                let t = lod::tolerance(level);
+                let copy: Vec<Option<Geometry>> = self.projected.iter().map(|g| g.as_ref().map(|g| lod::thin(g, t))).collect();
+                // The saving counts against every vertex the copy holds, points included.
+                let all: usize = self.projected.iter().flatten().map(lod::vertices).sum();
+                let kept: usize = copy.iter().flatten().map(lod::vertices).sum();
+                let worth = (kept as f64) <= all as f64 * (1.0 - lod::MIN_SAVING);
+                levels.insert(0, (level, worth.then(|| std::sync::Arc::new(copy))));
+                levels.truncate(lod::LEVELS_KEPT);
+            }
+        }
+        self.thinned_cache(tol)
+    }
+
+    /// The geometry from the last [`Layer::thinned_in`] call at this tolerance, without making
+    /// it: the full projected geometry when there is no thinned copy for it.
+    pub fn thinned_cache(&self, tol: f64) -> &[Option<Geometry>] {
+        let level = lod::level(tol).filter(|_| self.projected_vertices > lod::THIN_ABOVE);
+        match level.and_then(|level| self.thinned.iter().find(|(l, _)| *l == level)) {
+            Some((_, Some(g))) if g.len() == self.projected.len() => g,
+            _ => &self.projected,
+        }
+    }
+
+    /// Each projected geometry's extent, row for row with [`Layer::projected_cache`].
+    pub fn projected_extents(&self) -> &[Extent] {
+        &self.projected_extents
+    }
+
     /// The Web Mercator copies from the last [`Layer::projected`] call, without refreshing them:
     /// call `projected` first (it needs `&mut self`) whenever the geometry may have changed.
     pub fn projected_cache(&self) -> &[Option<Geometry>] {
@@ -352,7 +431,10 @@ impl Layer {
 
     /// Drops the projected geometry cache (the feature cache).
     pub fn clear_cache(&mut self) {
-        self.projected = Vec::new();
+        self.projected = Default::default();
+        self.projected_extents = Default::default();
+        self.projected_vertices = 0;
+        self.thinned = Default::default();
         self.projected_rev = u64::MAX;
         self.projected_for.clear();
     }
@@ -370,6 +452,36 @@ impl Layer {
     /// Whether the layer draws at a scale denominator.
     pub fn in_scale_range(&self, scale: f64) -> bool {
         self.min_scale.is_none_or(|m| scale <= m) && self.max_scale.is_none_or(|m| scale >= m)
+    }
+
+    /// Rows drawn at a scale denominator: those passing the definition query and every display
+    /// filter that applies at that scale (a filter that no longer reads is skipped).
+    pub fn drawn_rows(&self, scale: f64) -> Vec<bool> {
+        let mut rows = self.visible_rows();
+        for f in self.display_filters.iter().filter(|f| f.applies(scale)) {
+            if let Ok(e) = rustgis_data::query::parse(&f.where_, &self.dataset) {
+                for (r, keep) in rows.iter_mut().enumerate() {
+                    *keep = *keep && rustgis_data::query::eval(&e, &self.dataset, r);
+                }
+            }
+        }
+        rows
+    }
+
+    /// The legend rows for what this layer draws at a scale denominator (#207): the classes of the
+    /// features its definition query and display filters keep. `None` when it draws nothing there
+    /// (out of its scale range, or no feature kept, as in an empty layer), so a legend can leave it out.
+    pub fn shown_legend(&self, scale: f64) -> Option<Vec<symbology::LegendEntry>> {
+        if !self.in_scale_range(scale) {
+            return None;
+        }
+        // Nothing to filter: every feature is drawn, and no row list needs building.
+        let query = self.definition_query.as_deref().is_some_and(|q| !q.trim().is_empty());
+        if !query && self.display_filters.is_empty() {
+            return (!self.dataset.features.is_empty()).then(|| self.renderer.legend_for(&self.dataset, &[]));
+        }
+        let rows = self.drawn_rows(scale);
+        rows.contains(&true).then(|| self.renderer.legend_for(&self.dataset, &rows))
     }
 
     /// Rows passing the definition query (all rows when none or invalid).
@@ -426,6 +538,15 @@ impl Layer {
 pub struct Bookmark {
     pub name: String,
     pub camera: Camera,
+    /// What the place is, in the user's words (#351).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
+}
+
+impl Bookmark {
+    pub fn new(name: impl Into<String>, camera: Camera) -> Self {
+        Bookmark { name: name.into(), camera, description: String::new() }
+    }
 }
 
 /// What [`Map::layer_mark`] records.
@@ -435,11 +556,34 @@ pub struct LayerMark {
     next: u32,
 }
 
+/// Feature collections imported together from one OGC service. Children remain ordinary
+/// layers, sharing rendering, legends, tables and editing with file imports.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ServiceGroup {
+    pub id: u32,
+    pub name: String,
+    pub url: String,
+    pub kind: String,
+    #[serde(default = "yes")]
+    pub expanded: bool,
+    pub children: Vec<ServiceChild>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ServiceChild {
+    pub layer: u32,
+    /// The collection identifier, independent of its display name.
+    pub collection: String,
+    pub source_url: String,
+}
+
 /// A map: an ordered list of layers (index 0 draws on top), a basemap and a camera.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Map {
     pub name: String,
     pub layers: Vec<Layer>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub service_groups: Vec<ServiceGroup>,
     pub basemap: Basemap,
     /// Web tile basemaps and overlays over the basemap and under the layers (index 0 on top).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -489,7 +633,7 @@ pub enum PopupMode {
     Topmost,
     /// Every visible layer's feature under the pointer.
     Visible,
-    /// The topmost feature of a selectable layer.
+    /// Every selectable layer's features under the pointer.
     Selectable,
     /// Only the layer selected in the Layers pane.
     SelectedInContents,
@@ -542,6 +686,7 @@ impl Map {
         Map {
             name: name.into(),
             layers: Vec::new(),
+            service_groups: Vec::new(),
             basemap: Basemap::Paper,
             tiles: Vec::new(),
             camera: Camera::world(),
@@ -560,9 +705,26 @@ impl Map {
         }
     }
 
+    /// A nonzero id no layer or service group has: past the highest in use, or (when ids reach
+    /// `u32::MAX`, as a project file may have them) the lowest free one.
     fn next_id(&mut self) -> u32 {
-        let id = self.next_layer_id.max(self.layers.iter().map(|l| l.id).max().unwrap_or(0) + 1);
-        self.next_layer_id = id + 1;
+        let used = || self.layers.iter().map(|l| l.id).chain(self.service_groups.iter().map(|g| g.id));
+        let preferred = self.next_layer_id.max(used().max().unwrap_or(0).saturating_add(1));
+        let id = if preferred != 0 && !used().any(|id| id == preferred) {
+            preferred
+        } else {
+            let taken: std::collections::HashSet<u32> = used().collect();
+            // Among the first `taken.len() + 1` nonzero ids one is free.
+            (1..=u32::MAX).take(taken.len().saturating_add(1)).find(|id| !taken.contains(id)).unwrap_or(1)
+        };
+        self.next_layer_id = id.saturating_add(1);
+        id
+    }
+
+    pub fn add_service_group(&mut self, mut group: ServiceGroup) -> u32 {
+        group.id = self.next_id();
+        let id = group.id;
+        self.service_groups.push(group);
         id
     }
 
@@ -751,6 +913,12 @@ impl Map {
         self.layers.iter().filter(|l| l.visible).fold(Extent::EMPTY, |e, l| e.union(&l.extent()))
     }
 
+    /// Union of the visible layers' shown extents (lon/lat): what Full Extent zooms to, narrowed by
+    /// each layer's definition query.
+    pub fn shown_extent(&self) -> Extent {
+        self.layers.iter().filter(|l| l.visible).fold(Extent::EMPTY, |e, l| e.union(&l.shown_extent()))
+    }
+
     pub fn selection_count(&self) -> usize {
         self.layers.iter().map(|l| l.selection.len()).sum()
     }
@@ -765,48 +933,48 @@ impl Map {
         }
     }
 
-    /// Topmost feature under a point in the camera's coordinates: (layer id, row).
-    pub fn hit(&mut self, p: Coord, tol: f64, scale: f64) -> Option<(u32, usize)> {
-        let (flat, key) = (self.flat(), self.projection.code());
-        for l in &mut self.layers {
-            if !l.visible || !l.in_scale_range(scale) {
-                continue;
-            }
-            let rows = l.visible_rows();
-            let id = l.id;
-            let proj = l.projected_in(&flat, &key);
-            // Last drawn is on top.
-            for (row, g) in proj.iter().enumerate().rev() {
-                if rows.get(row) == Some(&true)
-                    && let Some(g) = g
-                    && g.hit(p, tol)
-                {
-                    return Some((id, row));
-                }
-            }
-        }
-        None
+    /// The feature drawn on top under a point in the camera's coordinates, among the visible layers
+    /// `keep` accepts: (layer id, row). Draw order and the rows drawn are those of [`Map::hits_at`].
+    pub fn hit(&mut self, p: Coord, tol: f64, scale: f64, keep: impl Fn(&Layer) -> bool) -> Option<(u32, usize)> {
+        self.hits_at(p, tol, scale, keep, true, 1).into_iter().next()
     }
 
-    /// The topmost feature under a point in every visible layer, top layer first.
-    pub fn hits_at(&mut self, p: Coord, tol: f64, scale: f64) -> Vec<(u32, usize)> {
+    /// Every feature under a point in the visible layers `keep` accepts: top layer first and, in
+    /// a layer, the one drawn on top first. At most `limit` of them; with `first_layer`, only
+    /// those of the top layer with any.
+    pub fn hits_at(
+        &mut self,
+        p: Coord,
+        tol: f64,
+        scale: f64,
+        keep: impl Fn(&Layer) -> bool,
+        first_layer: bool,
+        limit: usize,
+    ) -> Vec<(u32, usize)> {
         let (flat, key) = (self.flat(), self.projection.code());
         let mut out = Vec::new();
-        for l in &mut self.layers {
-            if !l.visible || !l.in_scale_range(scale) {
+        // Top first, as drawn: a higher depth priority is above whatever the order.
+        let mut order: Vec<usize> = (0..self.layers.len()).collect();
+        order.sort_by_key(|i| std::cmp::Reverse(self.layers.get(*i).map_or(0, |l| l.priority)));
+        for i in order {
+            let Some(l) = self.layers.get_mut(i) else { continue };
+            if out.len() >= limit || (first_layer && !out.is_empty()) {
+                break;
+            }
+            if !l.visible || !l.in_scale_range(scale) || !keep(l) {
                 continue;
             }
-            let rows = l.visible_rows();
+            // Only features drawn: the definition query and the display filters let them through.
+            let rows = l.drawn_rows(scale);
             let id = l.id;
             let proj = l.projected_in(&flat, &key);
-            if let Some(row) = proj
+            let hits = proj
                 .iter()
                 .enumerate()
                 .rev()
-                .find_map(|(row, g)| (rows.get(row) == Some(&true) && g.as_ref().is_some_and(|g| g.hit(p, tol))).then_some(row))
-            {
-                out.push((id, row));
-            }
+                .filter(|(row, g)| rows.get(*row) == Some(&true) && g.as_ref().is_some_and(|g| g.hit(p, tol)))
+                .map(|(row, _)| (id, row));
+            out.extend(hits.take(limit - out.len()));
         }
         out
     }
@@ -819,7 +987,8 @@ impl Map {
             if !l.visible || !l.selectable || !l.in_scale_range(scale) {
                 continue;
             }
-            let rows = l.visible_rows();
+            // Only features drawn: the definition query and the display filters let them through.
+            let rows = l.drawn_rows(scale);
             let id = l.id;
             let hits: Vec<usize> = l
                 .projected_in(&flat, &key)
@@ -849,6 +1018,73 @@ mod tests {
         d
     }
 
+    /// A layer of one long line along the equator with `n` vertices.
+    fn long_line(n: usize) -> Layer {
+        let mut d = Dataset::new("line", GeometryType::Polyline, vec![]);
+        let run = (0..n).map(|i| Coord::new(-170.0 + 340.0 * i as f64 / n as f64, 0.0)).collect();
+        d.push(Some(Geometry::Line(vec![run])), vec![]);
+        Layer::new(1, d)
+    }
+
+    #[test]
+    fn ids_stay_unique_when_a_project_reaches_the_largest_id() {
+        let mut m = Map::new("m");
+        m.layers.push(Layer::new(u32::MAX, points()));
+        let group = ServiceGroup { id: 0, name: "g".into(), url: String::new(), kind: String::new(), expanded: true, children: vec![] };
+        let a = m.add_dataset(points());
+        let b = m.add_service_group(group);
+        let c = m.add_dataset(points());
+        let ids = [u32::MAX, a, b, c];
+        assert!(ids.iter().all(|&id| id != 0));
+        assert_eq!(ids.iter().collect::<std::collections::HashSet<_>>().len(), ids.len(), "{ids:?}");
+    }
+
+    #[test]
+    fn a_detailed_layer_draws_from_a_thinned_copy() {
+        let flat = projection::Flat::Mercator;
+        let mut l = long_line(lod::THIN_ABOVE + 1000);
+        let full = lod::vertices(l.projected()[0].as_ref().unwrap());
+        // Seen whole (about 40 km a pixel), one vertex every 8 km (the level under 12 km) is enough.
+        let thinned = lod::vertices(l.thinned_in(&flat, "mercator", 12_000.0)[0].as_ref().unwrap());
+        assert!(thinned < full / 40, "{thinned} of {full} vertices drawn");
+        assert_eq!(lod::vertices(l.thinned_cache(12_000.0)[0].as_ref().unwrap()), thinned);
+        // Zoomed in past its vertex spacing, every vertex draws.
+        assert_eq!(lod::vertices(l.thinned_in(&flat, "mercator", 0.001)[0].as_ref().unwrap()), full);
+        // Its extents are cached row for row, and a clone shares the caches.
+        assert_eq!(l.projected_extents().len(), 1);
+        let copy = l.clone();
+        assert_eq!(copy.projected_cache().as_ptr(), l.projected_cache().as_ptr());
+        assert_eq!(copy.thinned_cache(12_000.0).as_ptr(), l.thinned_cache(12_000.0).as_ptr());
+        // A change of geometry drops the thinned copies with the projection.
+        l.touch_geometry();
+        l.projected();
+        assert_eq!(l.thinned_cache(12_000.0).as_ptr(), l.projected_cache().as_ptr());
+    }
+
+    #[test]
+    fn a_level_saving_little_draws_in_full() {
+        // Zoomed in past the vertex spacing, thinning drops nothing: no copy is kept.
+        let flat = projection::Flat::Mercator;
+        let mut l = long_line(lod::THIN_ABOVE + 1000);
+        l.projected();
+        assert_eq!(l.thinned_in(&flat, "mercator", 1.0).as_ptr(), l.projected_cache().as_ptr());
+        // Nor for points, however many.
+        let mut d = Dataset::new("pts", GeometryType::Point, vec![]);
+        let pts = (0..lod::THIN_ABOVE + 10).map(|i| Coord::new(i as f64 * 1e-6, 0.0)).collect();
+        d.push(Some(Geometry::MultiPoint(pts)), vec![]);
+        let mut p = Layer::new(2, d);
+        p.projected();
+        assert_eq!(p.thinned_in(&flat, "mercator", 1e6).as_ptr(), p.projected_cache().as_ptr());
+    }
+
+    #[test]
+    fn a_small_layer_always_draws_in_full() {
+        let flat = projection::Flat::Mercator;
+        let mut l = long_line(1000);
+        let full = l.projected().to_vec();
+        assert_eq!(l.thinned_in(&flat, "mercator", 1e6), &full[..]);
+    }
+
     #[test]
     fn layer_order_and_hit() {
         let mut m = Map::new("Map");
@@ -857,11 +1093,84 @@ mod tests {
         let id = m.add_dataset(points());
         assert_eq!(m.layers[0].id, id, "points go on top of polygons");
         let p = lonlat_to_merc(Coord::new(10.0, 10.0));
-        assert_eq!(m.hit(p, 1000.0, 1e6), Some((id, 1)));
+        assert_eq!(m.hit(p, 1000.0, 1e6, |_| true), Some((id, 1)));
         let e = Extent::from_points(lonlat_to_merc(Coord::new(-1.0, -1.0)), lonlat_to_merc(Coord::new(1.0, 1.0)));
         assert_eq!(m.hits_in(&e, 1e6), vec![(id, vec![0])]);
         m.layers[0].definition_query = Some("n = 2".into());
         assert_eq!(m.hits_in(&e, 1e6), vec![]);
+    }
+
+    #[test]
+    fn hits_at_finds_every_overlapping_feature() {
+        let mut m = Map::new("Map");
+        let mut d = points();
+        d.push(Some(Geometry::Point(Coord::new(0.0, 0.0))), vec![Value::Int(3)]);
+        let below = m.add_dataset(d);
+        let above = m.add_dataset(points());
+        let p = lonlat_to_merc(Coord::new(0.0, 0.0));
+        // Top layer first; in a layer, the feature drawn last (on top) first.
+        assert_eq!(m.hits_at(p, 1000.0, 1e6, |_| true, false, 100), vec![(above, 0), (below, 2), (below, 0)]);
+        assert_eq!(m.hits_at(p, 1000.0, 1e6, |_| true, false, 2), vec![(above, 0), (below, 2)]);
+        assert_eq!(m.hits_at(p, 1000.0, 1e6, |l| l.id == below, false, 100), vec![(below, 2), (below, 0)]);
+        // Only the top layer with a hit.
+        assert_eq!(m.hits_at(p, 1000.0, 1e6, |_| true, true, 100), vec![(above, 0)]);
+        assert_eq!(m.hits_at(p, 1000.0, 1e6, |l| l.id == below, true, 100), vec![(below, 2), (below, 0)]);
+        // A higher depth priority draws on top, whatever the order.
+        if let Some(l) = m.layers.iter_mut().find(|l| l.id == below) {
+            l.priority = 1;
+        }
+        assert_eq!(m.hits_at(p, 1000.0, 1e6, |_| true, true, 100), vec![(below, 2), (below, 0)]);
+        assert_eq!(m.hits_at(p, 1000.0, 1e6, |_| true, false, 100), vec![(below, 2), (below, 0), (above, 0)]);
+        if let Some(l) = m.layers.iter_mut().find(|l| l.id == below) {
+            l.priority = 0;
+        }
+        // Features the definition query hides aren't hit.
+        if let Some(l) = m.layers.iter_mut().find(|l| l.id == below) {
+            l.definition_query = Some("n = 1".into());
+        }
+        assert_eq!(m.hits_at(p, 1000.0, 1e6, |l| l.id == below, false, 100), vec![(below, 0)]);
+    }
+
+    #[test]
+    fn hits_at_skips_features_display_filters_hide() {
+        let mut m = Map::new("Map");
+        let mut d = points();
+        d.push(Some(Geometry::Point(Coord::new(0.0, 0.0))), vec![Value::Int(3)]);
+        let id = m.add_dataset(d);
+        let p = lonlat_to_merc(Coord::new(0.0, 0.0));
+        let filter = |min_scale| effects::DisplayFilter { name: "big".into(), min_scale, max_scale: None, where_: "n = 3".into() };
+        m.layers[0].display_filters = vec![filter(None)];
+        assert_eq!(m.layers[0].drawn_rows(1e6), vec![false, false, true]);
+        assert_eq!(m.hits_at(p, 1000.0, 1e6, |_| true, false, 100), vec![(id, 2)]);
+        // A filter that doesn't apply at this scale hides nothing.
+        m.layers[0].display_filters = vec![filter(Some(1e5))];
+        assert_eq!(m.hits_at(p, 1000.0, 1e6, |_| true, false, 100), vec![(id, 2), (id, 0)]);
+    }
+
+    #[test]
+    fn select_hits_skip_hidden_features_and_follow_draw_order() {
+        let mut m = Map::new("Map");
+        let mut d = points();
+        d.push(Some(Geometry::Point(Coord::new(0.0, 0.0))), vec![Value::Int(3)]);
+        let below = m.add_dataset(d);
+        let above = m.add_dataset(points());
+        let p = lonlat_to_merc(Coord::new(0.0, 0.0));
+        let e = Extent::from_points(lonlat_to_merc(Coord::new(-1.0, -1.0)), lonlat_to_merc(Coord::new(1.0, 1.0)));
+        let all = |_: &Layer| true;
+        assert_eq!(m.hit(p, 1000.0, 1e6, all), Some((above, 0)));
+        // A higher depth priority draws on top, whatever the order (#243).
+        m.layers.iter_mut().filter(|l| l.id == below).for_each(|l| l.priority = 1);
+        assert_eq!(m.hit(p, 1000.0, 1e6, all), Some((below, 2)));
+        m.layers.iter_mut().filter(|l| l.id == below).for_each(|l| l.priority = 0);
+        // Features a display filter hides are neither clicked nor boxed (#243).
+        let only = |w: &str| vec![effects::DisplayFilter { name: "f".into(), min_scale: None, max_scale: None, where_: w.into() }];
+        m.layers.iter_mut().filter(|l| l.id == above).for_each(|l| l.display_filters = only("n = 2"));
+        m.layers.iter_mut().filter(|l| l.id == below).for_each(|l| l.display_filters = only("n = 3"));
+        assert_eq!(m.hit(p, 1000.0, 1e6, all), Some((below, 2)));
+        assert_eq!(m.hits_in(&e, 1e6), vec![(below, vec![2])]);
+        // A layer the click doesn't take doesn't hide the ones below it.
+        m.layers.iter_mut().for_each(|l| l.display_filters.clear());
+        assert_eq!(m.hit(p, 1000.0, 1e6, |l| l.id != above), Some((below, 2)));
     }
 
     #[test]
@@ -877,5 +1186,48 @@ mod tests {
         // An invalid query hides nothing.
         l.definition_query = Some("n = = 2".into());
         assert_eq!(l.shown_extent(), Extent::new(0.0, 0.0, 10.0, 10.0));
+        // The map's shown extent (Full Extent) follows it too; its full extent doesn't.
+        m.layers[0].definition_query = Some("n = 2".into());
+        assert_eq!(m.shown_extent(), Extent::new(10.0, 10.0, 10.0, 10.0));
+        assert_eq!(m.full_extent(), Extent::new(0.0, 0.0, 10.0, 10.0));
+    }
+
+    #[test]
+    fn the_shown_legend_is_what_the_layer_draws() {
+        let mut m = Map::new("Map");
+        m.add_dataset(points());
+        let l = &mut m.layers[0];
+        // Classes for n = 1, 2 and 9: 9 is no feature's value.
+        let s = |c| Symbol::default_for(GeometryType::Point, c);
+        l.renderer = Renderer::Unique {
+            field: "n".into(),
+            classes: vec![("1".into(), s(0)), ("2".into(), s(1)), ("9".into(), s(2))],
+            other: s(3),
+            ramp: Ramp::Ember,
+            class_labels: Default::default(),
+            other_label: None,
+        };
+        let labels = |l: &Layer, scale| l.shown_legend(scale).map(|v| v.into_iter().map(|e| e.label).collect::<Vec<_>>());
+        assert_eq!(labels(l, 1e6), Some(vec!["1".to_string(), "2".to_string()]), "no 9, no <all other values>");
+        // The definition query and display filters narrow it.
+        l.definition_query = Some("n = 2".into());
+        assert_eq!(labels(l, 1e6), Some(vec!["2".to_string()]));
+        l.definition_query = None;
+        l.display_filters = vec![effects::DisplayFilter { name: "f".into(), min_scale: None, max_scale: None, where_: "n = 1".into() }];
+        assert_eq!(labels(l, 1e6), Some(vec!["1".to_string()]));
+        // Nothing drawn: no legend at all.
+        l.display_filters.clear();
+        l.definition_query = Some("n = 3".into());
+        assert_eq!(labels(l, 1e6), None);
+        l.definition_query = None;
+        l.min_scale = Some(1e5);
+        assert_eq!(labels(l, 1e6), None, "out of its scale range");
+        assert!(labels(l, 5e4).is_some());
+        // The full legend is still there for "all classes".
+        assert_eq!(l.renderer.legend().len(), 4);
+        // An empty layer, with no query or filter to evaluate, draws nothing either.
+        l.min_scale = None;
+        l.dataset.features.clear();
+        assert_eq!(labels(l, 1e6), None);
     }
 }

@@ -49,6 +49,10 @@ impl Rgba {
             format!("#{:02X}{:02X}{:02X}{:02X}", self.r(), self.g(), self.b(), self.a())
         }
     }
+    /// Always `#RRGGBBAA`, so a fully opaque colour still carries its alpha.
+    pub fn hex8(self) -> String {
+        format!("#{:02X}{:02X}{:02X}{:02X}", self.r(), self.g(), self.b(), self.a())
+    }
     pub fn from_hex(s: &str) -> Option<Rgba> {
         let s = s.trim().trim_start_matches('#');
         let byte = |i: usize| s.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok());

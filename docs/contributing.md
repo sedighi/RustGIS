@@ -8,6 +8,15 @@ for the conventions.
 3. Run `cargo xtask ci` and `pre-commit run --all-files`.
 4. Open a pull request. CI runs on Linux, macOS and Windows, and the docs build a preview.
 
+## Test data
+
+Generate small datasets during tests instead of committing fixture files. The shared generator
+in `tests/support/ogc.rs` builds OGC landing pages, collection lists and GeoJSON in memory;
+`tests/support/ogc_server.rs` serves them locally for engine and UI tests. The sorting smoke
+test similarly generates its KML, KMZ, CSV and GeoJSON inputs. These run automatically with
+`cargo test --workspace --locked` and `cargo xtask ci`, without a separate setup step or a
+public service. Extend these generators when adding cases.
+
 ## Documentation
 
 The site is built with [Zensical](https://zensical.org):

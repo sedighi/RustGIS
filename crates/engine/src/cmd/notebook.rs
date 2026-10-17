@@ -1,4 +1,4 @@
-//! Data › Project (New Notebook, Add and Open Notebook): notebooks of text and command cells.
+//! Analyze › Notebook (New Notebook, Add and Open Notebook): notebooks of text and command cells.
 //! A command cell is a script (one command per line, `id {json}`) whose results show beneath it.
 //! Notebooks save as RustGIS notebooks or Jupyter notebooks, and open from either.
 
@@ -66,7 +66,7 @@ fn need_notebook(s: &Session) -> Option<&'static str> {
 
 pub fn commands() -> Vec<C> {
     vec![
-        C::new("notebook.new", "New Notebook", "Data › Project", |s, p| {
+        C::new("notebook.new", "New Notebook", "Analyze › Notebook", |s, p| {
             let name = unique_name(s, ps(p, "name").unwrap_or("Notebook"));
             let nb = Notebook {
                 name: name.clone(),
@@ -81,7 +81,7 @@ pub fn commands() -> Vec<C> {
             Ok(r)
         })
         .params(r#"{"name"?}"#),
-        C::new("notebook.open", "Add and Open Notebook", "Data › Project", |s, p| {
+        C::new("notebook.open", "Add and Open Notebook", "Analyze › Notebook", |s, p| {
             let text = super::items::read_text(p)?;
             let fallback =
                 ps(p, "path").map(|x| Path::new(x).file_stem().map_or_else(|| x.to_string(), |n| n.to_string_lossy().into_owned()));

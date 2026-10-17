@@ -20,6 +20,8 @@ const MAX_GROUPS: usize = 8;
 const MAX_GROUP_ITEMS: usize = 16;
 const MAX_MENU_ITEMS: usize = 32;
 const MAX_TAB_LABEL: usize = 32;
+const MAX_RUN_ARGS: usize = 64;
+const MAX_SKILLS: usize = 32;
 
 /// RustGIS's own ribbon tabs (and the Project button), and the names they had before: a plugin's
 /// tab can't take them.
@@ -77,6 +79,80 @@ impl Permission {
     }
 }
 
+/// How a plugin runs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Runtime {
+    /// A WebAssembly module, sandboxed: the same on the desktop, the command line and the web.
+    #[default]
+    Wasm,
+    /// A program on the user's computer (`run`), not sandboxed: the desktop and command line
+    /// only. It speaks the same ABI over its standard input and output.
+    Process,
+    /// Skills for the AI assistant only (`skills`): no code, nothing that runs.
+    Skills,
+}
+
+/// A process plugin's program and arguments, the same everywhere or by platform.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RunDecl {
+    Everywhere(Vec<String>),
+    ByPlatform {
+        #[serde(default)]
+        windows: Option<Vec<String>>,
+        #[serde(default)]
+        macos: Option<Vec<String>>,
+        #[serde(default)]
+        linux: Option<Vec<String>>,
+        #[serde(default)]
+        default: Option<Vec<String>>,
+    },
+}
+
+impl RunDecl {
+    /// The program and arguments for this platform, if the plugin runs on it.
+    pub fn for_this_platform(&self) -> Option<&[String]> {
+        match self {
+            RunDecl::Everywhere(v) => Some(v),
+            RunDecl::ByPlatform { windows, macos, linux, default } => {
+                let own = if cfg!(target_os = "windows") {
+                    windows
+                } else if cfg!(target_os = "macos") {
+                    macos
+                } else {
+                    linux
+                };
+                own.as_ref().or(default.as_ref()).map(Vec::as_slice)
+            }
+        }
+    }
+
+    fn all(&self) -> Vec<&Vec<String>> {
+        match self {
+            RunDecl::Everywhere(v) => vec![v],
+            RunDecl::ByPlatform { windows, macos, linux, default } => [windows, macos, linux, default].into_iter().flatten().collect(),
+        }
+    }
+}
+
+/// A process plugin's Python environment, which RustGIS makes for it: a Python of `version`
+/// with the packages `requirements` lists (a requirements file in the plugin's folder). The
+/// plugin's `run` then names `python` for that environment's interpreter.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PythonDecl {
+    /// The Python version (`3.12`).
+    #[serde(default = "default_python")]
+    pub version: String,
+    /// A requirements file in the plugin's folder (`requirements.txt`); empty for none.
+    #[serde(default)]
+    pub requirements: String,
+}
+
+fn default_python() -> String {
+    "3.12".into()
+}
+
 /// A command the plugin adds: a button on the Plugins tab, an entry in command search and a
 /// command id for scripts and the command line (`plugin:<plugin>/<command>`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -106,7 +182,7 @@ pub struct ParamDecl {
     pub name: String,
     pub label: String,
     /// `layer`, `vectorLayer`, `polygonLayer`, `pointLayer`, `field`, `numericField`, `number`,
-    /// `text`, `choice` or `bool`.
+    /// `text`, `choice`, `bool` or `file` (needs the `files` permission).
     pub kind: String,
     #[serde(default)]
     pub required: bool,
@@ -116,6 +192,9 @@ pub struct ParamDecl {
     /// For `choice`: the choices.
     #[serde(default)]
     pub choices: Vec<String>,
+    /// For `file`: the extensions the file picker offers (`nc`, `tif`); empty for any file.
+    #[serde(default)]
+    pub extensions: Vec<String>,
     #[serde(default)]
     pub help: String,
 }
@@ -163,7 +242,10 @@ pub enum Entry<'a> {
 
 /// The parameter kinds a tool may use.
 pub const PARAM_KINDS: &[&str] =
-    &["layer", "vectorLayer", "polygonLayer", "pointLayer", "field", "numericField", "number", "text", "choice", "bool"];
+    &["layer", "vectorLayer", "polygonLayer", "pointLayer", "field", "numericField", "number", "text", "choice", "bool", "file"];
+
+/// The most extensions a `file` parameter may list.
+const MAX_EXTENSIONS: usize = 16;
 
 /// Whether a parameter kind names a layer (its features are passed to the tool).
 pub fn is_layer_kind(kind: &str) -> bool {
@@ -200,9 +282,19 @@ pub struct Manifest {
     pub homepage: String,
     #[serde(default)]
     pub license: String,
-    /// The WebAssembly module, relative to `plugin.json`.
+    /// The WebAssembly module, relative to `plugin.json` (WebAssembly plugins).
     #[serde(default = "default_entry")]
     pub entry: String,
+    /// `wasm` (the default) or `process`.
+    #[serde(default)]
+    pub runtime: Runtime,
+    /// For a process plugin: the program and its arguments, run in the plugin's folder. A bare
+    /// name is looked up on `PATH`; a relative path is in the plugin's folder.
+    #[serde(default)]
+    pub run: Option<RunDecl>,
+    /// For a process plugin in Python: the environment RustGIS makes for it.
+    #[serde(default)]
+    pub python: Option<PythonDecl>,
     /// The plugin ABI the module was built for.
     #[serde(default = "default_abi")]
     pub abi: u32,
@@ -218,6 +310,10 @@ pub struct Manifest {
     /// A ribbon tab of its own (optional): its commands and tools in groups and menus.
     #[serde(default)]
     pub tab: Option<TabDecl>,
+    /// Skills for the AI assistant: folders in the package's `skills` folder, each holding a
+    /// `SKILL.md`. The assistant offers them as `<plugin>:<name>` while the plugin is enabled.
+    #[serde(default)]
+    pub skills: Vec<String>,
     /// Translations of the plugin's own strings (labels, help, tool and parameter names), by
     /// language code (`de`, `zh-CN`): `{"de": {"Say Hello": "Hallo sagen"}}`.
     #[serde(default)]
@@ -319,8 +415,73 @@ impl Manifest {
         if version_parts(&self.version).is_none() {
             return Err(format!("plugin.json: version '{}' is not a version number like 1.0.0", self.version));
         }
-        if !valid_path(&self.entry) || !self.entry.ends_with(".wasm") {
-            return Err("plugin.json: entry must be a relative path to a .wasm file inside the package".into());
+        match self.runtime {
+            Runtime::Wasm => {
+                if !valid_path(&self.entry) || !self.entry.ends_with(".wasm") {
+                    return Err("plugin.json: entry must be a relative path to a .wasm file inside the package".into());
+                }
+                if self.run.is_some() || self.python.is_some() {
+                    return Err("plugin.json: 'run' and 'python' are for process plugins (\"runtime\": \"process\")".into());
+                }
+            }
+            Runtime::Process => {
+                if let Some(py) = &self.python {
+                    let mut parts = py.version.split('.');
+                    let numbers = py.version.split('.').all(|p| !p.is_empty() && p.len() <= 3 && p.bytes().all(|b| b.is_ascii_digit()));
+                    if !numbers || parts.next() != Some("3") || py.version.len() > 16 {
+                        return Err(format!("plugin.json: python version '{}' must look like 3.12", py.version));
+                    }
+                    if !py.requirements.is_empty() && !valid_path(&py.requirements) {
+                        return Err("plugin.json: python requirements must be a file in the plugin's folder".into());
+                    }
+                }
+                let run = self.run.as_ref().ok_or("plugin.json: a process plugin needs 'run': its program and arguments")?;
+                let all = run.all();
+                if all.is_empty() {
+                    return Err("plugin.json: 'run' names no program".into());
+                }
+                for argv in all {
+                    if argv.first().is_none_or(|p| p.trim().is_empty())
+                        || argv.len() > MAX_RUN_ARGS
+                        || argv.iter().any(|a| a.len() > MAX_TEXT || a.contains('\0'))
+                    {
+                        return Err(format!("plugin.json: 'run' must be a program and at most {} arguments", MAX_RUN_ARGS - 1));
+                    }
+                    // A program by a relative path is in the plugin's folder: no `..` out of it.
+                    if let Some(p) = argv.first()
+                        && p.contains(['/', '\\'])
+                        && !std::path::Path::new(p).is_absolute()
+                        && !valid_path(p)
+                    {
+                        return Err(format!(
+                            "plugin.json: 'run' names '{p}': a program in the plugin's folder (forward slashes, no '..'), one on PATH, or a full path"
+                        ));
+                    }
+                }
+            }
+            Runtime::Skills => {
+                if self.run.is_some() || self.python.is_some() {
+                    return Err("plugin.json: 'run' and 'python' are for process plugins (\"runtime\": \"process\")".into());
+                }
+                if !self.commands.is_empty() || !self.tools.is_empty() || self.tab.is_some() || !self.permissions.is_empty() {
+                    return Err("plugin.json: a skills package (\"runtime\": \"skills\") has no commands, tools, tab or permissions".into());
+                }
+                if self.skills.is_empty() {
+                    return Err("plugin.json: a skills package (\"runtime\": \"skills\") lists its skills in 'skills'".into());
+                }
+            }
+        }
+        if self.skills.len() > MAX_SKILLS {
+            return Err(format!("plugin.json: at most {MAX_SKILLS} skills"));
+        }
+        let mut names = std::collections::HashSet::new();
+        for name in &self.skills {
+            if !valid_id(name, false) || !names.insert(name.as_str()) {
+                return Err(format!(
+                    "plugin.json: skill '{}' is invalid or repeated (lower-case letters, digits and hyphens)",
+                    name.chars().take(80).collect::<String>()
+                ));
+            }
         }
         if self.abi != ABI {
             return Err(format!("{} was built for plugin ABI {}; this RustGIS runs ABI {ABI}", self.name, self.abi));
@@ -371,6 +532,18 @@ impl Manifest {
                 }
                 for c in &p.choices {
                     check_text("choice", c, true)?;
+                }
+                // A file parameter hands the tool a file's contents: only with `files`.
+                if p.kind == "file" && !self.has(Permission::Files) {
+                    return Err(format!("plugin.json: {}: '{}' is a file, which needs the 'files' permission", t.name, p.name));
+                }
+                if p.extensions.len() > MAX_EXTENSIONS
+                    || p.extensions.iter().any(|e| e.is_empty() || e.len() > 16 || !e.chars().all(|c| c.is_ascii_alphanumeric()))
+                {
+                    return Err(format!(
+                        "plugin.json: {}: '{}' has invalid extensions (at most {MAX_EXTENSIONS}, letters and digits without the dot)",
+                        t.name, p.name
+                    ));
                 }
                 if let Some(d) = &p.default
                     && d.to_string().len() > MAX_TEXT

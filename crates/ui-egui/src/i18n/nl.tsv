@@ -1,5 +1,6 @@
 # nl interface catalog: English<TAB>translation
  by 	 door
+'{b}' isn't a bucket name	‘{b}’ is geen bucketnaam
 (b4-b3)/(b4+b3)	(b4-b3)/(b4+b3)
 (filtered)	(gefilterd)
 00:00 UTC	00:00 UTC
@@ -10,16 +11,25 @@
 <None>	<Geen>
 A 3D globe seen from space.	Een 3D-globe, gezien vanuit de ruimte.
 A blank map with a basemap	Een lege kaart met een basiskaart
+A catalogue's (CSW 2.0.2) address: search its records by words and, if you like, the map's area, then add the services and files they link to.	Het adres van een catalogus (CSW 2.0.2): doorzoek de records op woorden en, als je wilt, op het kaartgebied, en voeg dan de gekoppelde diensten en bestanden toe.
+A ChatGPT plan or app usage limit was reached. Review Weekly usage before trying again.	Een gebruikslimiet van het ChatGPT-abonnement of de app is bereikt. Bekijk het wekelijkse gebruik voordat je het opnieuw probeert.
+A ChatGPT sign-in can only be used with the OpenAI API.	Een ChatGPT-aanmelding kan alleen met de OpenAI-API worden gebruikt.
+A country's administrative boundaries from geoBoundaries (CC BY 4.0): the country itself (ADM0), its first-level divisions (ADM1, such as states) and finer ones.	De bestuurlijke grenzen van een land uit geoBoundaries (CC BY 4.0): het land zelf (ADM0), de indelingen op het eerste niveau (ADM1, zoals staten) en fijnere.
 A fast, free and open-source GIS written in pure Rust, for mapping, analyzing and sharing geospatial data on the desktop and in the browser.	Een snel, vrij en opensource GIS in puur Rust, om geodata in kaart te brengen, te analyseren en te delen, op de desktop en in de browser.
 A flat scene centred on the view (azimuthal equidistant).	Een vlakke scène gecentreerd op de weergave (azimutaal equidistant).
 A globe scene.	Een wereldbolscène.
+A latitude and longitude (40.7, -74.0 or 40°42'N 74°0'W), a layer, a bookmark or a value in a layer's table. Enter picks the highlighted row; Search places looks the text up as a place	Een breedte- en lengtegraad (40.7, -74.0 of 40°42'N 74°0'W), een laag, een bladwijzer of een waarde in de tabel van een laag. Enter kiest de gemarkeerde rij; Plaatsen zoeken zoekt de tekst op als plaats
 A magnifying lens that follows the pointer.	Een vergrootglas dat de aanwijzer volgt.
+A map, feature or coverage service's address: WMS, WMTS, WFS, WCS, OGC API Features or Tiles, or an ArcGIS FeatureServer, MapServer, ImageServer or VectorTileServer.	Het adres van een kaart-, object- of coveragedienst: WMS, WMTS, WFS, WCS, OGC API Features of Tiles, of een ArcGIS FeatureServer, MapServer, ImageServer of VectorTileServer.
 A notebook of text and command cells.	Een notebook met tekst- en opdrachtcellen.
+A place or an address	Een plaats of een adres
+A project keeps at least one map	Een project houdt minstens één kaart
 A projected coordinate system.	Een geprojecteerd coördinatensysteem.
 A report listing the selected layer's records, page after page.	Een rapport met de records van de geselecteerde laag, pagina na pagina.
 A template with the first selected feature's values	Een sjabloon met de waarden van het eerste geselecteerde object
-A tile service's address: raster tiles with {z}/{x}/{y} (or {-y}, {q}, {bbox-epsg-3857} for WMS), vector tiles (.pbf) or TileJSON, a MapLibre style, or a PMTiles archive (a web address, or a file on this computer).	Het adres van een tegeldienst: rastertegels met {z}/{x}/{y} (of {-y}, {q}, {bbox-epsg-3857} voor WMS), vectortegels (.pbf) of TileJSON, of een MapLibre-stijl; of een PMTiles-archief (een webadres of een bestand op deze computer).
+A tile service's address: raster tiles with {z}/{x}/{y} (or {-y}, {q}, {bbox-epsg-3857} for WMS), vector tiles (.pbf) or TileJSON, a MapLibre style, a PMTiles archive (a web address, or a file on this computer), or an MBTiles file on this computer.	Het adres van een tegeldienst: rastertegels met {z}/{x}/{y} (of {-y}, {q}, {bbox-epsg-3857} voor WMS), vectortegels (.pbf) of TileJSON, een MapLibre-stijl, een PMTiles-archief (een webadres of een bestand op deze computer) of een MBTiles-bestand op deze computer.
 A value, a field, or two of them joined by + − × ÷. Applies to the selected rows, or every row when none is selected.	Een waarde, een veld of twee daarvan verbonden door + − × ÷. Geldt voor de geselecteerde rijen, of voor alle rijen als er geen geselecteerd zijn.
+A Zarr store (format 2 or 3) by its web address, with consolidated metadata, or a folder on this computer. A variable's map is read for the steps picked of its other dimensions, such as time.	Een Zarr-opslag (formaat 2 of 3) via het webadres, met geconsolideerde metadata, of een map op deze computer. De kaart van een variabele wordt gelezen voor de gekozen stappen van de andere dimensies, zoals tijd.
 About	Over
 About plugins	Over plugins
 About RustGIS	Over RustGIS
@@ -27,13 +37,16 @@ About RustGIS.	Over RustGIS.
 Above	Boven
 Above Left	Linksboven
 Above Right	Rechtsboven
+Access key ID	Toegangssleutel-ID
 Accessibility	Toegankelijkheid
+Account	Account
 Activate Map	Kaart activeren
 Add	Toevoegen
 Add\nData	Gegevens\ntoevoegen
 Add ({n})	Toevoegen ({n})
 Add a bar chart of a layer's numeric field.	Een staafdiagram van een numeriek veld van een laag toevoegen.
 Add a field.	Een veld toevoegen.
+Add a file path	Een bestandspad toevoegen
 Add a legend of the map frame's layers.	Een legenda van de lagen van het kaartkader toevoegen.
 Add a map frame showing a map of the project.	Een kaartkader met een kaart van het project toevoegen.
 Add a new map to the project.	Een nieuwe kaart aan het project toevoegen.
@@ -48,6 +61,7 @@ Add a scale bar for the map frame.	Een schaalbalk voor het kaartkader toevoegen.
 add a second map first (Data › New Map)	voeg eerst een tweede kaart toe (Gegevens › Nieuwe kaart)
 Add a second map frame first	Voeg eerst een tweede kaartkader toe
 Add a text element.	Een tekstelement toevoegen.
+Add Administrative Boundaries	Bestuurlijke grenzen toevoegen
 Add an elevation raster first.	Voeg eerst een hoogteraster toe.
 Add an empty layer with a ready-made schema, to draw into.	Een lege laag met een kant-en-klaar schema toevoegen, om in te tekenen.
 Add and Open	Toevoegen en openen
@@ -55,31 +69,51 @@ Add and Open Notebook	Notebook toevoegen en openen
 Add Archive	Archief toevoegen
 add at least two keyframes	voeg minstens twee sleutelframes toe
 Add Cell	Cel toevoegen
+Add Color Ramp File…	Kleurverloopbestand toevoegen…
+Add Color Ramps	Kleurverlopen toevoegen
+Add color ramps to the project from a .rgisramp file, a QGIS style, a GDAL color file or a GMT palette.	Kleurverlopen aan het project toevoegen uit een .rgisramp-bestand, een QGIS-stijl, een GDAL-kleurbestand of een GMT-palet.
 Add Commands	Opdrachten toevoegen
 Add Data	Gegevens toevoegen
 Add Data (from file contents)	Gegevens toevoegen (uit bestandsinhoud)
 Add Data (from text)	Gegevens toevoegen (uit tekst)
+Add Data From Database	Gegevens toevoegen uit database
 Add Data From SQL	Gegevens toevoegen uit SQL
+Add Data From URL	Gegevens toevoegen uit URL
+Add Data From URL…	Gegevens toevoegen uit URL…
 Add Data Store…	Gegevensopslag toevoegen…
 Add Data…	Gegevens toevoegen…
+Add Delimited Text	Tekst met scheidingstekens toevoegen
+Add Delimited Text…	Tekst met scheidingstekens toevoegen…
+Add Downloaded Data	Gedownloade gegevens toevoegen
 Add Element	Element toevoegen
+Add Encoded Polyline	Gecodeerde polylijn toevoegen
 Add Field	Veld toevoegen
 Add field	Veld toevoegen
 Add Folder	Map toevoegen
+Add Folder…	Map toevoegen…
+Add From Database	Toevoegen uit database
+Add From Service	Toevoegen uit dienst
+Add From Service…	Toevoegen uit dienst…
 Add GeoJSON, CSV or Shapefile data to the map.	GeoJSON-, CSV- of Shapefile-gegevens aan de kaart toevoegen.
 Add Graphic	Grafisch element toevoegen
 Add Graphics Layer	Grafische laag toevoegen
 Add Job	Job toevoegen
 Add Keyframe	Sleutelframe toevoegen
 Add Layer File	Laagbestand toevoegen
+Add Open Data	Open data toevoegen
+Add Overture Maps Data	Overture Maps-gegevens toevoegen
 Add Page After	Pagina erna toevoegen
 Add Page Before	Pagina ervoor toevoegen
 Add pages, layouts, related reports and related records to the report.	Pagina's, lay-outs, gerelateerde rapporten en gerelateerde records aan het rapport toevoegen.
+Add Photos	Foto's toevoegen
 Add Plugin Folder…	Pluginmap toevoegen…
 Add raster tiles, vector tiles or a map style by address.	Rastertegels, vectortegels of een kaartstijl toevoegen via een adres.
 Add Rule	Regel toevoegen
 Add sample countries	Voorbeeldlanden toevoegen
 Add Sample Data	Voorbeeldgegevens toevoegen
+Add Service Layer	Dienstlaag toevoegen
+Add STAC Asset	STAC-asset toevoegen
+Add STAC Footprints	STAC-footprints toevoegen
 Add Step	Stap toevoegen
 Add Style	Stijl toevoegen
 Add Style File…	Stijlbestand toevoegen…
@@ -92,10 +126,29 @@ Add the maps of a map file, map package, project or project package.	De kaarten 
 Add Tile Layer	Tegellaag toevoegen
 Add Tile Layer…	Tegellaag toevoegen…
 Add To Current Selection	Toevoegen aan huidige selectie
+Add to Favourites	Aan favorieten toevoegen
+Add to Map	Aan kaart toevoegen
 Add vector data.	Vectorgegevens toevoegen.
+Add Zarr Variable	Zarr-variabele toevoegen
+Add Zarr Variable…	Zarr-variabele toevoegen…
+Add {format}	{format} toevoegen
+Added	Toegevoegd
+Added Overture's {theme} as map tiles ({release}; some themes show only zoomed in): {attribution}	{theme} van Overture toegevoegd als kaarttegels ({release}; sommige thema's verschijnen pas ingezoomd): {attribution}
+Added {p} points, {l} lines and {g} polygons	{p} punten, {l} lijnen en {g} polygonen toegevoegd
 Additional surrounds.	Extra kaartelementen.
 Address	Adres
+Address fields	Adresvelden
 Adds geodesic area (km²), length (km) or centroid coordinates as fields.	Voegt geodetische oppervlakte (km²), lengte (km) of zwaartepuntcoördinaten toe als velden.
+ADM0	ADM0
+ADM0 — the country	ADM0 — het land
+ADM1	ADM1
+ADM1 — states, provinces	ADM1 — staten, provincies
+ADM2	ADM2
+ADM2 — districts, counties	ADM2 — districten, graafschappen
+ADM3	ADM3
+ADM4	ADM4
+ADM5	ADM5
+Administrative Boundaries	Bestuurlijke grenzen
 Aggregation	Aggregatie
 AI	AI
 AI\nAssistant	AI-\nassistent
@@ -104,27 +157,39 @@ AI provider	AI-aanbieder
 Alignment	Uitlijning
 All	Alle
 All categories	Alle categorieën
+All classes	Alle klassen
 All files	Alle bestanden
 All Selected	Alle geselecteerde
 All steps done.	Alle stappen voltooid.
+All tables with geometry	Alle tabellen met geometrie
 Allow	Toestaan
+Allow ChatGPT plan use when signing in. If your workspace doesn't permit it, ask its admin or choose an API key provider.	Sta het gebruik van het ChatGPT-abonnement toe bij het aanmelden. Als je workspace dat niet toestaat, vraag het de beheerder of kies een provider met een API-sleutel.
 Allow only certain combinations of values across fields.	Alleen bepaalde combinaties van waarden over velden toestaan.
 Allow such actions for this conversation	Zulke acties toestaan voor dit gesprek
 Allow this action?	Deze actie toestaan?
 Along Selected Line	Langs geselecteerde lijn
 Altitude	Hoogte
+Amazon S3, or an S3-compatible service (MinIO, Cloudflare R2, Wasabi…) by its endpoint. Keys are kept until RustGIS closes; a remembered connection keeps its name, endpoint and region, never its secret.	Amazon S3, of een S3-compatibele dienst (MinIO, Cloudflare R2, Wasabi…) via het eindpunt. Sleutels worden bewaard tot RustGIS sluit; een onthouden verbinding behoudt naam, eindpunt en regio, nooit de geheime sleutel.
+amenity=cafe, shop	amenity=cafe, shop
+An AWS profile	Een AWS-profiel
 Analysis	Analyse
 Analyze	Analyseren
 Analyze › AI	Analyseren › AI
+Analyze › Workflows	Analyseren › Workflows
 AND	AND
 Angle	Hoek
 Animation	Animatie
+Another run is under way.	Er loopt al een andere uitvoering.
+anywhere in the records	overal in de records
 API key	API-sleutel
 Apply	Toepassen
 Apply a function to a raster	Een functie op een raster toepassen
 Apply Control Points	Controlepunten toepassen
 Apply Style	Stijl toepassen
 Apply to the selected layer	Toepassen op de geselecteerde laag
+ArcGIS	ArcGIS
+ArcGIS Hub	ArcGIS Hub
+ArcGIS REST	ArcGIS REST
 Archive	Archief
 Archive History	Archiefgeschiedenis
 Archiving	Archivering
@@ -138,6 +203,7 @@ Areas (name, land use, area)	Gebieden (naam, landgebruik, oppervlakte)
 Ask a question about your data, or describe what to do with the map. The assistant runs RustGIS commands for you; every change can be undone.	Stel een vraag over je gegevens, of beschrijf wat er met de kaart moet gebeuren. De assistent voert RustGIS-opdrachten voor je uit; elke wijziging kan ongedaan worden gemaakt.
 Ask about the map, or tell it what to do…	Stel een vraag over de kaart, of zeg wat er moet gebeuren…
 Ask about your data, or tell the assistant what to do with the map.	Stel een vraag over je gegevens, of vertel de assistent wat er met de kaart moet gebeuren.
+Asking the catalog…	Catalogus bevragen…
 Assistant settings	Instellingen van de assistent
 Atlas	Atlas
 Attachments	Bijlagen
@@ -156,6 +222,8 @@ Automatic	Automatisch
 Automatic (system language)	Automatisch (systeemtaal)
 Automatic (system time zone and region)	Automatisch (tijdzone en regio van het systeem)
 Automatic ({kind})	Automatisch ({kind})
+AWS	AWS
+AWS, anonymous	AWS, anoniem
 Azimuth	Azimut
 Back to Explore; cancel a sketch	Terug naar Verkennen; schets annuleren
 Back to the Map	Terug naar de kaart
@@ -184,18 +252,22 @@ Bold	Vet
 Bold label text.	Labeltekst vet.
 Bookmarks	Bladwijzers
 Boolean	Booleaans
+Boundaries…	Grenzen…
 Bounding\nGeometry	Begrenzende\ngeometrie
 Brightness	Helderheid
 Brightness, contrast, saturation and sepia for the whole map.	Helderheid, contrast, verzadiging en sepia voor de hele kaart.
 Browse	Bladeren
+Browse it in the Browser	Doorbladeren in de browser
 Browse Plugins	Plugins bekijken
 Browse the geoprocessing toolbox.	Door de geoverwerkingsgereedschappen bladeren.
 Browse the project's maps, tables and folders.	Door de kaarten, tabellen en mappen van het project bladeren.
 Browse this folder below	Door deze map bladeren hieronder
+Browse with	Bladeren met
 Browse, install, update and remove plugins.	Plugins bekijken, installeren, bijwerken en verwijderen.
 Browser	Browser
 Browser\nPane	Browser-\nvenster
 Browser View	Browserweergave
+Bucket	Bucket
 Buffer	Buffer
 Buffer the cities by 200 km	Een buffer van 200 km rond de steden maken
 Build	Bouwen
@@ -227,6 +299,7 @@ CARGO_PKG_VERSION	CARGO_PKG_VERSION
 Cartography	Cartografie
 Case Field	Groeperingsveld
 Cast Shadow	Schaduw werpen
+Catalogue search (CSW)	Catalogus doorzoeken (CSW)
 Cell size	Celgrootte
 cell size °	celgrootte °
 Centered	Gecentreerd
@@ -240,21 +313,32 @@ Change the page size and orientation.	Het paginaformaat en de oriëntatie wijzig
 Change the project (add layers, edit features, change symbology)	Het project wijzigen (lagen toevoegen, objecten bewerken, symbologie wijzigen)
 Chart categories	Diagramcategorieën
 Chart Frame	Diagramkader
+ChatGPT (sign in)	ChatGPT (aanmelden)
+ChatGPT plan use is unavailable for this account or workspace.	Gebruik van een ChatGPT-abonnement is niet beschikbaar voor dit account of deze werkruimte.
+ChatGPT sign-in failed. Check the connection and local settings, then try again.	Aanmelden bij ChatGPT is mislukt. Controleer de verbinding en lokale instellingen en probeer het opnieuw.
+ChatGPT usage is temporarily unavailable. Keep your sign-in and try again later.	ChatGPT-gebruik is tijdelijk niet beschikbaar. Blijf aangemeld en probeer het later opnieuw.
+CHE	CHE
 Check Again	Opnieuw controleren
 Check for\nUpdates	Updates\nzoeken
 Check for Updates	Naar updates zoeken
 Check for Updates…	Naar updates zoeken…
+Check the integration's client, permissions, workspace policy and route configuration.	Controleer de client, machtigingen, het werkruimtebeleid en de routeconfiguratie van de integratie.
 Checking for updates…	Zoeken naar updates…
 China	China
 Choose a band combination to display the raster layer.	Kies een bandcombinatie om de rasterlaag weer te geven.
 Choose a contrast stretch for the raster layer.	Kies een contraststretch voor de rasterlaag.
+Choose a country	Kies een land
 Choose a delimited text file or a spreadsheet, then pick its columns.	Kies een tekstbestand met scheidingstekens of een spreadsheet en kies daarna de kolommen.
+choose a file first	kies eerst een bestand
 Choose a model.	Kies een model.
 Choose a resampling type for the raster layer.	Kies een resamplingtype voor de rasterlaag.
+Choose an account	Een account kiezen
 Choose extra buttons for the Quick Access Toolbar.	Extra knoppen kiezen voor de werkbalk Snelle toegang.
+Choose File…	Bestand kiezen…
 Choose how the flat map lays out the Earth.	Kiezen hoe de platte kaart de aarde weergeeft.
 Choose how the layer is drawn.	Kiezen hoe de laag wordt getekend.
 Choose how the raster is drawn.	Kies hoe het raster wordt getekend.
+Choose Project…	Project kiezen…
 Choose the interface language.	De interfacetaal kiezen.
 Choose which layers a click identifies.	Kiezen welke lagen een klik identificeert.
 Choose which tabs the ribbon shows.	Kiezen welke tabbladen het lint toont.
@@ -272,12 +356,14 @@ Clear\nLimits	Limieten\nwissen
 Clear Filters	Filters wissen
 Clear History	Geschiedenis wissen
 Clear Limits	Limieten wissen
+Clear search	Zoekopdracht wissen
 Clear Selection	Selectie wissen
 Clear selection	Selectie wissen
 Clear the selection in every layer.	De selectie in alle lagen wissen.
 Clear the selection.	De selectie wissen.
 Click a pixel on the map	Klik op een pixel op de kaart
 Click a point on the map	Klik op een punt op de kaart
+Click a source to add it, or to open its browser connected. Right-click for favourites.	Klik op een bron om die toe te voegen of om de browser ervan verbonden te openen. Rechtsklik voor favorieten.
 Click or drag a box to select features. Shift adds, Ctrl removes.	Klik of sleep een kader om objecten te selecteren. Shift voegt toe, Ctrl verwijdert.
 Click or drag a box · Shift adds · Ctrl removes	Klik of sleep een kader · Shift voegt toe · Ctrl verwijdert
 Click points a smooth curve passes through; double-click to finish.	Klik op punten waar een vloeiende curve doorheen loopt; dubbelklik om te voltooien.
@@ -317,16 +403,22 @@ Closest	Dichtstbij
 Coded values, one per line: code=description	Gecodeerde waarden, één per regel: code=beschrijving
 Collapse or expand the ribbon	Lint samenvouwen of uitvouwen
 Collapse the ribbon (Ctrl+F1)	Lint samenvouwen (Ctrl+F1)
+Collection	Collectie
+Collection {id}: choose dates and Find Items	Collectie {id}: kies datums en Items zoeken
+Collections	Collecties
 Color	Kleur
 Color Infrared (4, 1, 2)	Kleur-infrarood (4, 1, 2)
+Color Ramps	Kleurverlopen
 Color Scheme	Kleurenschema
 Color scheme	Kleurenschema
 Color Vision	Kleurenzicht
 Color Vision Simulator	Kleurenzichtsimulator
 Colormap	Kleurenkaart
 Colors from the raster's own color table.	Kleuren uit de eigen kleurentabel van het raster.
+Colour ramps (RustGIS, QGIS, GDAL, GMT)	Kleurverlopen (RustGIS, QGIS, GDAL, GMT)
 Columns named like longitude/latitude, easting/northing or geometry are picked for you.	Kolommen met namen als longitude/latitude, easting/northing of geometry worden voor u gekozen.
 Combinations from the box above, one per line	Combinaties uit het vak hierboven, één per regel
+Comma	Komma
 Command\nSearch	Opdracht\nzoeken
 command is required	opdracht is vereist
 Command Search	Opdracht zoeken
@@ -336,12 +428,19 @@ Commands…	Opdrachten…
 Compare	Vergelijken
 Compare two rasters	Twee rasters vergelijken
 Completed	Voltooid
+Confirm uninstall	Verwijderen bevestigen
+Connect	Verbinden
 Connect a folder to the Browser.	Een map met de browser verbinden.
+Connect to S3	Verbinden met S3
+Connecting to {url}…	Verbinden met {url}…
+Connection	Verbinding
 Connections	Verbindingen
+Connect…	Verbinden…
 Constant	Constante
 Constant height	Constante hoogte
 Constant…	Constante…
 Contingent Values	Afhankelijke waarden
+Continue with ChatGPT	Doorgaan met ChatGPT
 Contrast	Contrast
 Conversion	Conversie
 Convert	Converteren
@@ -350,6 +449,7 @@ Convert the selected layer's labels into an annotation layer.	De labels van de g
 Convert To Annotation	Converteren naar annotatie
 Converted data	Geconverteerde gegevens
 Convert…	Converteren…
+Coordinate	Coördinaat
 Coordinate System	Coördinatenstelsel
 Coordinate system	Coördinatensysteem
 Coordinate System…	Coördinatenstelsel…
@@ -357,9 +457,11 @@ Copied the map to the clipboard	De kaart is naar het klembord gekopieerd
 Copied {path}	{path} gekopieerd
 Copies the (selected) features of a layer to a new layer.	Kopieert de (geselecteerde) objecten van een laag naar een nieuwe laag.
 Copy	Kopiëren
+Copy Address	Adres kopiëren
 Copy an image of the map to the clipboard.	Een afbeelding van de kaart naar het klembord kopiëren.
 Copy Coordinates	Coördinaten kopiëren
 Copy Path	Pad kopiëren
+Copy sign-in link	Aanmeldlink kopiëren
 Copy the selected features (also as GeoJSON text).	De geselecteerde objecten kopiëren (ook als GeoJSON-tekst).
 Copy the selected features and delete them.	De geselecteerde objecten kopiëren en verwijderen.
 Copy the selected layer's data source path.	Het gegevensbronpad van de geselecteerde laag kopiëren.
@@ -371,8 +473,10 @@ Couldn't download the font for {language}; pick the language again to retry.	Kan
 Couldn't load the plugin registry: {error}	Kan het pluginregister niet laden: {error}
 Count, sum, mean, min, max and standard deviation of a field, optionally per case field.	Aantal, som, gemiddelde, min, max en standaardafwijking van een veld, optioneel per groeperingsveld.
 Countries, cities, rivers and lakes	Landen, steden, rivieren en meren
+Country	Land
 Counts the points that fall inside each polygon.	Telt de punten die binnen elke polygoon vallen.
 Counts, totals and top categories of what's in view.	Aantallen, totalen en topcategorieën van wat in beeld is.
+CPU	CPU
 Create	Maken
 Create (click points)	Maken (klik op punten)
 Create a new project or start from the World Atlas sample.	Een nieuw project maken of beginnen met het voorbeeld World Atlas.
@@ -402,19 +506,29 @@ Current date	Huidige datum
 Current Project	Huidig project
 Current time	Huidige tijd
 Curve	Curve
+Custom	Aangepast
 Customize	Aanpassen
 Cut	Knippen
 Cut a raster into web map tiles	Een raster in webkaarttegels opdelen
 Cut a raster into web map tiles (XYZ PNG) with a viewer page.	Een raster in webkaarttegels (XYZ PNG) opdelen, met een viewerpagina.
 Dark\nMode	Donkere\nmodus
 Data	Gegevens
+Data\nSources	Gegevens-\nbronnen
 Data Design	Gegevensontwerp
 Data Engineering	Data-engineering
 Data Interop	Data-interoperabiliteit
 Data Management	Gegevensbeheer
+Data Sources	Gegevensbronnen
+Data Sources Pane	Gegevensbronnenvenster
 Data Stores	Gegevensopslagen
 Data type	Gegevenstype
+Data you add is listed here	Gegevens die je toevoegt, worden hier vermeld
+data.gov and CKAN catalogues	data.gov- en CKAN-catalogi
+Database	Database
+Databases	Databases
+Database…	Database…
 Data…	Gegevens…
+Dates	Datums
 Day and night shading for a time.	Dag- en nachtschaduw voor een tijdstip.
 Decline	Weigeren
 Deep Learning	Deep learning
@@ -428,6 +542,7 @@ Definition query	Definitiequery
 Definition Query…	Definitiequery…
 Delete	Verwijderen
 Delete Cell	Cel verwijderen
+Delete Color Ramp	Kleurverloop verwijderen
 Delete Element	Element verwijderen
 Delete Field	Veld verwijderen
 Delete Job	Job verwijderen
@@ -442,16 +557,25 @@ Delete selected features	Geselecteerde objecten verwijderen
 Delete selected rows	Geselecteerde rijen verwijderen
 Delete Style	Stijl verwijderen
 Delete Task	Taak verwijderen
+Delete the GeoLibre runner that RustGIS installed. Install it again at any time.	De GeoLibre-runner verwijderen die RustGIS heeft geïnstalleerd. Je kunt hem altijd opnieuw installeren.
+Delete the layout {name}?	Lay-out {name} verwijderen?
+Delete the map {name}?	Kaart {name} verwijderen?
 Delete the selected features.	De geselecteerde objecten verwijderen.
+Delimited Text	Tekst met scheidingstekens
+Delimited text and spreadsheets	Tekst met scheidingstekens en spreadsheets
+Delimited Text…	Tekst met scheidingstekens…
 Depth Priority	Diepteprioriteit
 Descending	Aflopend
+Describing	Beschrijven
 Details	Details
 Details of the selected layer.	Details van de geselecteerde laag.
 Deviations	Afwijkingen
 Diagnostic\nMonitor	Diagnostische\nmonitor
 Diagnostic Monitor	Diagnostische monitor
+Diagnostics	Diagnostiek
 Diamond	Ruit
 Difference, ratio or percent change between two rasters.	Verschil, verhouding of procentuele verandering tussen twee rasters.
+Disconnect From S3	Verbinding met S3 verbreken
 Display	Weergave
 Display Filters	Weergavefilters
 Display Filters ({n})	Weergavefilters ({n})
@@ -460,6 +584,7 @@ Dissolve	Samenvoegen
 Dissolve Field	Samenvoegveld
 Distance	Afstand
 Distances along the surface, heights, areas and volumes.	Afstanden over het oppervlak, hoogten, oppervlakten en volumes.
+DISTINCT	DISTINCT
 Distinct	Uniek
 Domains	Domeinen
 Done	Gereed
@@ -469,8 +594,11 @@ Double-click to add	Dubbelklik om toe te voegen
 Download	Downloaden
 Download\nMap	Kaart\ndownloaden
 Download Map	Kaart downloaden
+Download OpenStreetMap Data	OpenStreetMap-gegevens downloaden
 Download the GeoLibre runner	GeoLibre-runner downloaden
 Downloaded {name}	{name} gedownload
+Downloading {url}…	{url} downloaden…
+Downloading…	Downloaden…
 Downloading… {mb} MB	Downloaden… {mb} MB
 DRA	DRA
 Drag / middle-drag	Slepen / slepen met middelste knop
@@ -494,12 +622,16 @@ Draw new features in the selected layer. Double-click to finish lines and polygo
 Draw points as bins coloured by how many fall in each.	Punten tekenen als vakken gekleurd naar het aantal in elk vak.
 Draw polygons as outlines only.	Polygonen alleen als omtrek tekenen.
 Draw the layer at every scale.	De laag op elke schaal tekenen.
+Draw the map on the GPU (beta; the globe, view effects and colour-vision simulation stay on the CPU renderer).	De kaart op de GPU tekenen (bèta; de wereldbol, weergave-effecten en kleurenzichtsimulatie blijven op de CPU-renderer).
 Draw the selected layer above others.	De geselecteerde laag boven andere tekenen.
 Draw the selected layer below others.	De geselecteerde laag onder andere tekenen.
 Drawing	Tekenen
 Drawing Effects	Tekeneffecten
 Drawing Mode	Tekenmodus
 Drawing Order	Tekenvolgorde
+Duplicate	Dupliceren
+Duplicate Layout	Lay-out dupliceren
+Duplicate Map	Kaart dupliceren
 Dusk	Schemering
 Dynamic\nText	Dynamische\ntekst
 Dynamic Picture	Dynamische afbeelding
@@ -511,6 +643,7 @@ e.g.  pop_est / 1000000   or   'Africa'   or   name	Bijv.  pop_est / 1000000   o
 e.g. continent = 'Europe'	bijv. continent = 'Europe'
 e.g. pop_est > 100000000 AND continent = 'Asia'	bijv. pop_est > 100000000 AND continent = 'Asia'
 Each geoprocessing run becomes a step, chained by its outputs	Elke geoverwerkingsrun wordt een stap, gekoppeld via de uitvoer
+Earth Search	Earth Search
 East	Oost
 Eckert IV (equal-area world)	Eckert IV (oppervlaktegetrouwe wereld)
 Edge	Rand
@@ -534,6 +667,7 @@ Element	Element
 Element Properties	Elementeigenschappen
 Elevation	Hoogte
 Elevation profiles along lines, cross sections and more.	Hoogteprofielen langs lijnen, dwarsdoorsneden en meer.
+Eligible requests in RustGIS use your ChatGPT plan. You can manage usage in ChatGPT settings.	Geschikte verzoeken in RustGIS gebruiken je ChatGPT-abonnement. Je kunt het gebruik beheren in de instellingen van ChatGPT.
 Ellipse	Ellips
 Embeddings	Embeddings
 Ember	Gloed
@@ -544,13 +678,16 @@ Enable Plugin	Plugin inschakelen
 Enabled	Ingeschakeld
 Encloses each feature, or all features, in its convex hull.	Omsluit elk object, of alle objecten, met de convexe omhulling.
 End	Einde
+Endpoint	Eindpunt
 Enhancement	Verbetering
+Enter	Enter
 Enter an API key.	Voer een API-sleutel in.
 Enter the provider's address.	Voer het adres van de aanbieder in.
 Enter to send, Shift+Enter for a new line	Enter om te verzenden, Shift+Enter voor een nieuwe regel
 Environments	Omgevingen
 EPSG code	EPSG-code
 EPSG:	EPSG:
+EPSG:4326	EPSG:4326
 Equal Earth	Equal Earth
 Equal Interval	Gelijke interval
 Equirectangular (Plate Carrée)	Equirectangulair (Plate Carrée)
@@ -562,6 +699,7 @@ Esc	Esc
 Europe Equal Area (ETRS89 LAEA)	Europa oppervlaktegetrouw (ETRS89 LAEA)
 Every band's value at a pixel.	De waarde van elke band op een pixel.
 Every editing tool.	Alle bewerkingsgereedschappen.
+every Socrata site, or one such as data.cityofnewyork.us	elke Socrata-site, of één zoals data.cityofnewyork.us
 Everyday tools.	Alledaagse gereedschappen.
 Everywhere	Overal
 Existing Template	Bestaand sjabloon
@@ -577,6 +715,8 @@ Export\nLayout	Lay-out\nexporteren
 Export\nMap	Kaart\nexporteren
 Export\nRaster	Raster\nexporteren
 Export Animation	Animatie exporteren
+Export Bookmarks	Bladwijzers exporteren
+Export Bookmarks…	Bladwijzers exporteren…
 Export Features	Objecten exporteren
 Export Features (tool)	Objecten exporteren (gereedschap)
 Export Features needs a vector layer (Data › Export Raster writes a raster)	Objecten exporteren vereist een vectorlaag (Gegevens › Raster exporteren schrijft een raster)
@@ -622,6 +762,8 @@ Factor	Factor
 Failed	Mislukt
 Farthest	Verst
 Faster drawing: no antialiasing.	Sneller tekenen: geen anti-aliasing.
+Favourite Data Source	Favoriete gegevensbron
+Favourites	Favorieten
 Feature	Object
 Feature\nAnalysis	Objecten-\nanalyse
 Feature\nTo Point	Object\nnaar punt
@@ -630,6 +772,7 @@ Feature Layer	Objectlaag
 Feature Templates	Objectsjablonen
 Feature templates: default values for new features.	Objectsjablonen: standaardwaarden voor nieuwe objecten.
 Feature To Point	Object naar punt
+featured products	uitgelichte producten
 Features	Objecten
 Features most like the selected one	Objecten die het meest op het geselecteerde lijken
 Field	Veld
@@ -640,6 +783,7 @@ fields, comma separated	velden, door komma's gescheiden
 Fields, statistics, groups, pictures, attachments and charts in the report.	Velden, statistieken, groepen, afbeeldingen, bijlagen en diagrammen in het rapport.
 Fields:	Velden:
 File	Bestand
+File name	Bestandsnaam
 file path	bestandspad
 Fill	Vulling
 Fill Cache	Cache vullen
@@ -647,8 +791,11 @@ Fill the cache whenever the projection changes.	De cache vullen telkens wanneer 
 Film grain	Filmkorrel
 Filter rows…	Rijen filteren…
 Find a place by coordinates.	Een plaats zoeken op coördinaten.
+Find a place or an address by name (OpenStreetMap).	Een plaats of een adres zoeken op naam (OpenStreetMap).
 Find and run geoprocessing tools.	Geoverwerkingsgereedschappen zoeken en uitvoeren.
 Find any command by name (Ctrl+K).	Elke opdracht op naam zoeken (Ctrl+K).
+Find Datasets	Datasets zoeken
+Find Items	Items zoeken
 Find Place	Plaats zoeken
 Find plugins in the RustGIS plugin registry.	Plugins zoeken in het RustGIS-pluginregister.
 Find Similar	Vergelijkbare zoeken
@@ -669,23 +816,36 @@ Folder	Map
 Folder Connections	Mapverbindingen
 folder connections need the desktop app	mapverbindingen vereisen de desktopapp
 Folders	Mappen
+Folder…	Map…
+for a store that doesn't say	voor een opslag die het niet aangeeft
 Forest	Bos
 Format	Formaat
 Frame rate	Framesnelheid
 Frame rate, draw time, data size and memory.	Framesnelheid, tekentijd, gegevensgrootte en geheugen.
 Free the prepared geometry.	De voorbereide geometrie vrijgeven.
 Freehand	Uit de vrije hand
+FROM	FROM
 From Selection	Uit selectie
+From Service…	Uit dienst…
 from the address	uit het adres
 from the service	van de dienst
+From URL…	Uit URL…
 Full Extent	Volledig bereik
 Full extent	Volledig bereik
 Full size	Volledige grootte
 Function Editor	Functie-editor
 Gamma	Gamma
 Generalization	Generalisatie
+geoBoundaries listed no countries: type a country's code	geoBoundaries gaf geen landen: typ een landcode
+Geocode	Geocoderen
+Geocode Addresses	Adressen geocoderen
+Geocode Addresses…	Adressen geocoderen…
+Geocoder	Geocoder
+Geocoding {n} addresses…	{n} adressen geocoderen…
 Geodata Service	Geodatadienst
 GeoJSON	GeoJSON
+GeoJSON, CSV, GeoParquet, FlatGeobuf, GeoPackage, zipped Shapefiles, KML, GPX or GeoTIFF, up to 256 MB; the server must allow requests from web pages (CORS).	GeoJSON, CSV, GeoParquet, FlatGeobuf, GeoPackage, gezipte Shapefiles, KML, GPX of GeoTIFF, tot 256 MB; de server moet verzoeken van webpagina's toestaan (CORS).
+GeoJSON, CSV, GeoParquet, FlatGeobuf, GeoPackage, zipped Shapefiles, KML, GPX or GeoTIFF, up to 512 MB.	GeoJSON, CSV, GeoParquet, FlatGeobuf, GeoPackage, gezipte Shapefiles, KML, GPX of GeoTIFF, tot 512 MB.
 GeoLibre	GeoLibre
 GeoLibre Tools	GeoLibre-gereedschappen
 GeoLibre tools	GeoLibre-gereedschappen
@@ -703,6 +863,10 @@ GitHub	GitHub
 GitHub's latest release has no version number	De nieuwste release op GitHub heeft geen versienummer
 GitHub's reply isn't a release	Het antwoord van GitHub is geen release
 GitHub's reply names no release	Het antwoord van GitHub noemt geen release
+Give a Zarr store's address or folder	Geef het adres of de map van een Zarr-opslag op
+Give the catalogue's web address	Geef het webadres van de catalogus op
+Give the file's web address	Geef het webadres van het bestand op
+Give the service's web address	Geef het webadres van de dienst op
 Global	Globaal
 Globe	Wereldbol
 Go	Ga
@@ -711,7 +875,11 @@ Go forward to the next extent.	Verder naar het volgende bereik.
 Go to a saved extent or save the current one.	Naar een opgeslagen bereik gaan of het huidige opslaan.
 Go To Bookmark	Naar bladwijzer gaan
 Go To XY	Ga naar XY
+Go to {coordinate}	Naar {coordinate} gaan
 Google Gemini	Google Gemini
+Got it	Begrepen
+GPU	GPU
+GPU\nRendering	GPU-\nweergave
 GPX	GPX
 Graduated Colors	Gegradueerde kleuren
 Graphic Style	Grafische stijl
@@ -725,6 +893,7 @@ Grid	Raster
 Ground\nTo Grid	Grond\nnaar raster
 Ground To Grid	Grond naar raster
 Group	Groeperen
+GROUP BY	GROUP BY
 Group features by an integer code, each with default values.	Objecten groeperen op een gehele code, elk met standaardwaarden.
 Group Option	Groeperingsoptie
 Groups	Groepen
@@ -742,6 +911,7 @@ Hide	Verbergen
 Hide features far from the view's centre.	Objecten ver van het midden van de weergave verbergen.
 Hide labels when the viewer is closer than this.	Labels verbergen wanneer de kijker dichterbij is.
 Hide labels when the viewer is farther than this.	Labels verbergen wanneer de kijker verder weg is.
+Hide other values	Andere waarden verbergen
 Hide walls facing away from you.	Wanden die van je af gericht zijn verbergen.
 High values of the first raster and low values of the second score best.	Hoge waarden van het eerste raster en lage waarden van het tweede scoren het best.
 Histogram Equalize	Histogram egaliseren
@@ -751,8 +921,11 @@ Hold	Vasthouden
 Home	Start
 Home › Add	Start › Toevoegen
 Homepage	Website
+host=localhost dbname=gis user=postgres	host=localhost dbname=gis user=postgres
+host=… dbname=… user=…, or a .duckdb file	host=… dbname=… user=…, of een .duckdb-bestand
 Hosted Imagery	Gehoste beelden
 How the layer's colours combine with what's beneath.	Hoe de kleuren van de laag zich mengen met wat eronder ligt.
+hub.arcgis.com, or an organisation's Hub site	hub.arcgis.com, of de Hub-site van een organisatie
 Identify	Identificeren
 Illumination	Verlichting
 Image Analysis	Beeldanalyse
@@ -764,6 +937,8 @@ Imagery Tools	Beeldgereedschappen
 Image…	Afbeelding…
 Import	Importeren
 Import\nProject	Project\nimporteren
+Import Bookmarks	Bladwijzers importeren
+Import Bookmarks…	Bladwijzers importeren…
 Import Deep Learning Package	Deep learning-pakket importeren
 Import Layout	Lay-out importeren
 Import Layout…	Lay-out importeren…
@@ -780,6 +955,7 @@ In Beyond	Ingezoomd voorbij
 In Progress	Bezig
 in progress	bezig
 In project	In project
+In RustGIS, it can:	In RustGIS kan hij:
 In use	In gebruik
 Indices	Indices
 Infographics	Infographics
@@ -801,11 +977,13 @@ Install GeoLibre Tools	GeoLibre-gereedschappen installeren
 Install GeoLibre tools	GeoLibre-gereedschappen installeren
 Install Plugin	Plugin installeren
 Install Plugin From Registry	Plugin installeren vanuit register
+Install the Basemaps plugin	De plugin Basiskaarten installeren
 Install {name} {version}?	{name} {version} installeren?
 Installed	Geïnstalleerd
 Installed plugins are kept in {folder}	Geïnstalleerde plugins worden bewaard in {folder}
 Installed with Homebrew, winget, the AUR or COPR? Update it there.	Geïnstalleerd met Homebrew, winget, de AUR of COPR? Werk het daar bij.
 Installed {name} {version}. Find it on the Plugins tab; its tools are also in the Tools pane.	{name} {version} geïnstalleerd. Je vindt de plugin op het tabblad Plugins; de gereedschappen staan ook in het gereedschappenvenster.
+Installing it downloads Python {version} and the packages it needs from the internet.	Bij het installeren worden Python {version} en de benodigde pakketten van internet gedownload.
 Interface font: {font}	Interfacelettertype: {font}
 Interpolate a surface from points (IDW)	Een oppervlak interpoleren uit punten (IDW)
 Invalid: {error}	Ongeldig: {error}
@@ -819,9 +997,13 @@ it reads or writes files on this computer	het leest of schrijft bestanden op dez
 it replaces the open project	het vervangt het geopende project
 it runs a plugin's command	het voert een opdracht van een plugin uit
 It runs in a sandbox with no other access to your computer or the network.	De plugin draait in een sandbox zonder verdere toegang tot je computer of het netwerk.
+It runs: {program}	Hij voert uit: {program}
+It's installed but turned off: turn it on in the Plugin Manager.	Het is geïnstalleerd maar uitgeschakeld: schakel het in via Pluginbeheer.
 It's too large to keep in the browser: install it again on your next visit.	De plugin is te groot om in de browser te bewaren: installeer hem bij je volgende bezoek opnieuw.
 Item Pop-ups	Item-pop-ups
+Item {id}	Item {id}
 Jobs	Jobs
+JOIN	JOIN
 Keep a history of every edit to the layer, to look back or restore.	Een geschiedenis van elke bewerking aan de laag bijhouden, om terug te kijken of te herstellen.
 Keep an archive of edits	Een archief van bewerkingen bijhouden
 keep current	huidige behouden
@@ -831,6 +1013,7 @@ Keep the last tool active	Het laatste gereedschap actief houden
 Keep Tool	Gereedschap vasthouden
 Keyboard Shortcuts	Sneltoetsen
 Keyboard shortcuts.	Sneltoetsen.
+Keys from	Sleutels uit
 Kilometers	Kilometer
 kind is required	kind is vereist
 KML	KML
@@ -852,6 +1035,7 @@ Language	Taal
 Lasso	Lasso
 Lasso (draw)	Lasso (tekenen)
 Last map render time	Laatste rendertijd van de kaart
+Last Project	Laatste project
 Latitude	Breedtegraad
 Latitude (Y)	Breedtegraad (Y)
 Layer	Laag
@@ -876,10 +1060,13 @@ Learning\nResources	Leer-\nbronnen
 Left	Links
 Legend	Legenda
 Length {length} · gain {gain} m · loss {loss} m	Lengte {length} · stijging {gain} m · daling {loss} m
+Level	Niveau
+Library	Bibliotheek
 Light and Shadow	Licht en schaduw
 Light the extruded shapes from the north-west.	De geëxtrudeerde vormen vanuit het noordwesten belichten.
 Lighting	Belichting
 LIKE	LIKE
+LIMIT	LIMIT
 Limit a field to coded values or a range.	Een veld beperken tot gecodeerde waarden of een bereik.
 Limit where tools work, and the cell size of new rasters.	Beperken waar gereedschappen werken, en de celgrootte van nieuwe rasters.
 Limit which features draw with a SQL expression.	Beperken welke objecten worden getekend met een SQL-expressie.
@@ -894,9 +1081,22 @@ LineString	LineString
 Link	Koppelen
 Link Cursors	Cursors koppelen
 Link Views	Weergaven koppelen
+List	Weergeven
+List Columns in File	Kolommen in bestand weergeven
 List Commands	Opdrachten weergeven
+List Data Sources	Gegevensbronnen weergeven
+List Database Columns	Databasekolommen weergeven
+List Database Tables	Databasetabellen weergeven
+List geoBoundaries Countries	geoBoundaries-landen weergeven
 List Layers in File	Lagen in bestand weergeven
+List Products	Producten weergeven
+List S3 Bucket	S3-bucket weergeven
+List Source Cooperative Files	Source Cooperative-bestanden weergeven
+List Source Cooperative Products	Source Cooperative-producten weergeven
+List STAC Collections	STAC-collecties weergeven
+List Tables	Tabellen weergeven
 List the provider's models	Modellen van de aanbieder weergeven
+Listing…	Lijst ophalen…
 Lit	Belicht
 Live summary of the features in view.	Live samenvatting van de objecten in beeld.
 Load All Features	Alle objecten laden
@@ -932,6 +1132,7 @@ Map draw	Kaart tekenen
 Map File	Kaartbestand
 Map Frame	Kaartkader
 Map Frames	Kaartkaders
+Map frames per second (live while the map moves)	Kaartframes per seconde (live terwijl de kaart beweegt)
 Map name	Kaartnaam
 Map Page	Kaartpagina
 Map scale	Kaartschaal
@@ -941,6 +1142,7 @@ Map series page name	Naam van kaartreekspagina
 Map style (JSON)	Kaartstijl (JSON)
 Map Surrounds	Kaartelementen
 Map Thumbnail	Kaartminiatuur
+Map tiles of the whole world	Kaarttegels van de hele wereld
 Map View	Kaartweergave
 map.goToXY {"lon": 2.35, "lat": 48.85, "scale": 5000000}\nselect.byAttributes {"layer": "Cities", "where": "pop_max > 1000000"}	map.goToXY {"lon": 2.35, "lat": 48.85, "scale": 5000000}\nselect.byAttributes {"layer": "Cities", "where": "pop_max > 1000000"}
 Mapping	Kartering
@@ -951,6 +1153,11 @@ Masking	Maskeren
 Max	Max
 Max %	Max %
 Maximum zoom	Maximaal zoomniveau
+MCP Relay	MCP-relay
+MCP relay is already listening on 127.0.0.1:{port}; stop it first to use port {asked}	MCP-relay luistert al op 127.0.0.1:{port}; stop hem eerst om poort {asked} te gebruiken
+MCP relay listening on 127.0.0.1:{port}	MCP-relay luistert op 127.0.0.1:{port}
+MCP relay stopped	MCP-relay gestopt
+MCP relay · {n} attached	MCP-relay · {n} verbonden
 Mean	Gemiddelde
 Measure	Meten
 Measure Area	Oppervlakte meten
@@ -985,8 +1192,10 @@ Modify	Wijzigen
 Modify Selected Features	Geselecteerde objecten wijzigen
 Mollweide (equal-area world)	Mollweide (oppervlaktegetrouwe wereld)
 More	Meer
+More basemaps:	Meer basiskaarten:
 Mosaic images into an orthomosaic	Beelden tot een orthomozaïek samenvoegen
 Mosaic the visible rasters into an orthomosaic.	De zichtbare rasters tot een orthomozaïek samenvoegen.
+Most cloud cover (%)	Maximale bewolking (%)
 Mouse wheel	Muiswiel
 Move	Verplaatsen
 Move (m)	Verplaatsen (m)
@@ -996,6 +1205,7 @@ Move Up	Omhoog
 Move up	Omhoog
 Move, rotate, scale, merge, explode, split or flip the selected features.	De geselecteerde objecten verplaatsen, roteren, schalen, samenvoegen, opsplitsen, splitsen of omdraaien.
 Move, Rotate, Scale…	Verplaatsen, roteren, schalen…
+My Buckets	Mijn buckets
 Name	Naam
 Natural Breaks (Jenks)	Natuurlijke grenzen (Jenks)
 Natural Color (1, 2, 3)	Natuurlijke kleuren (1, 2, 3)
@@ -1050,41 +1260,62 @@ Next Extent	Volgend bereik
 Next Page	Volgende pagina
 No	Nee
 No bookmarks yet	Nog geen bladwijzers
+No connections this session	Geen verbindingen in deze sessie
+No datasets with data RustGIS can add	Geen datasets met gegevens die RustGIS kan toevoegen
 No edits since the project was saved	Geen bewerkingen sinds het project is opgeslagen
 No mask	Geen masker
+No models are available for this account.	Er zijn geen modellen beschikbaar voor dit account.
 No notebooks yet. Analyze › New Notebook starts one, or Add and Open Notebook opens one.	Nog geen notebooks. Analyseren › Nieuw notebook start er een, of Notebook toevoegen en openen opent er een.
 No offline areas	Geen offline gebieden
 No other reports	Geen andere rapporten
+No place found	Geen plaats gevonden
 No plugins are installed. Browse the plugin registry, or install a .rgplugin file.	Er zijn geen plugins geïnstalleerd. Blader door het pluginregister of installeer een .rgplugin-bestand.
 No plugins match.	Geen plugins gevonden.
 No Pop-ups	Geen pop-ups
 No presentations yet. Publish › New Presentation starts one.	Nog geen presentaties. Publiceren › Nieuwe presentatie start er een.
+No products	Geen producten
+No project opened or saved yet	Nog geen project geopend of opgeslagen
 No relationships (Data Design › Relationships)	Geen relaties (Gegevensontwerp › Relaties)
 No relationships yet	Nog geen relaties
 No reports yet. Publish › New Report lists the selected layer's records.	Nog geen rapporten. Publiceren › Nieuw rapport geeft de records van de geselecteerde laag weer.
+no service or file links	geen dienst- of bestandskoppelingen
 No standalone tables	Geen zelfstandige tabellen
 No styles yet	Nog geen stijlen
 No tasks yet. Data › Task makes one, for example from your geoprocessing history.	Nog geen taken. Gegevens › Taak maakt er een, bijvoorbeeld uit je geoverwerkingsgeschiedenis.
 NoData	NoData
+Nominatim	Nominatim
 None	Geen
+None (public buckets)	Geen (openbare buckets)
+none, a .duckdb file, or host=… dbname=… user=…	geen, een .duckdb-bestand, of host=… dbname=… user=…
+none, or from PGPASSWORD	geen, of uit PGPASSWORD
 None. Add one by address, or from a basemap plugin.	Geen. Voeg er een toe via een adres of vanuit een basiskaartplugin.
 North	Noord
 North\nArrow	Noord-\npijl
 North Polar Stereographic	Polair stereografisch noord
+not a picture	geen afbeelding
 not a RustGIS layout	geen RustGIS-lay-out
+not a RustGIS project	geen RustGIS-project
 not needed	niet nodig
+Not sandboxed	Niet in sandbox
 Not saved yet	Nog niet opgeslagen
 Notebook	Notebook
 Notebook Pane	Notebookvenster
+Nothing found	Niets gevonden
+Nothing here	Niets hier
+Nothing named {name} to rename	Niets met de naam {name} om te hernoemen
 Nothing shared yet. Publish › Share As makes web maps, layers, styles, scenes and more.	Nog niets gedeeld. Publiceren › Delen als maakt webkaarten, lagen, stijlen, scènes en meer.
 Now	Nu
+NULL	NULL
 Nulls	Null-waarden
 Observations (observer, date, species, count)	Waarnemingen (waarnemer, datum, soort, aantal)
 observer height m	waarnemershoogte m
 Ocean	Oceaan
+of a geometry that doesn't say	van een geometrie die het niet aangeeft
 Off	Uit
 Offline	Offline
 Offline area	Offline gebied
+OGC API	OGC API
+OGC API Features and Tiles	OGC API Features en Tiles
 OID	OID
 Ollama (local)	Ollama (lokaal)
 On	Aan
@@ -1093,9 +1324,11 @@ on hold	in de wacht
 On the desktop, the key can also come from {vars}.	Op de desktop kan de sleutel ook uit {vars} komen.
 On-screen compass, zoom slider and pan pad.	Kompas, zoomschuif en pankussen op het scherm.
 One command per line: id {json}. Lines starting with # are comments.	Eén opdracht per regel: id {json}. Regels die met # beginnen zijn commentaar.
+One DuckDB SELECT: DuckDB Spatial's ST_ functions, files and web addresses (read_parquet('…')), and the tables of the database below. Ctrl+Enter runs it.	Eén DuckDB-SELECT: de ST_-functies van DuckDB Spatial, bestanden en webadressen (read_parquet('…')), en de tabellen van de database hieronder. Ctrl+Enter voert hem uit.
 One page per feature of an index layer.	Eén pagina per object van een indexlaag.
 One per line: code=name	Eén per regel: code=naam
 Only features matching this expression draw in {layer}.	Alleen objecten die aan deze expressie voldoen worden getekend in {layer}.
+Only where the map is	Alleen waar de kaart is
 Opacity	Dekking
 Open	Openen
 Open a .rgis project	Een .rgis-project openen
@@ -1103,8 +1336,11 @@ open a layout first	open eerst een lay-out
 Open a RustGIS or Jupyter notebook.	Een RustGIS- of Jupyter-notebook openen.
 Open a RustGIS project.	Een RustGIS-project openen.
 Open an offline area to edit.	Een offline gebied openen om te bewerken.
+Open browser again	Browser opnieuw openen
 Open Custom Template	Aangepast sjabloon openen
 Open Custom Template…	Aangepast sjabloon openen…
+Open data catalogues searched by text. Files are added by their address (read in place when they can be); a service opens Add From Service to pick its layer.	Open-datacatalogi doorzocht op tekst. Bestanden worden toegevoegd via hun adres (ter plekke gelezen waar mogelijk); een dienst opent Toevoegen uit dienst om de laag te kiezen.
+Open data products on Source Cooperative. GeoParquet, FlatGeobuf, cloud-optimised GeoTIFFs and PMTiles are read in place; other files are downloaded.	Open-dataproducten op Source Cooperative. GeoParquet, FlatGeobuf, cloud-geoptimaliseerde GeoTIFF's en PMTiles worden ter plekke gelezen; andere bestanden worden gedownload.
 Open folder	Map openen
 Open Layout	Lay-out openen
 Open Notebook	Notebook openen
@@ -1115,6 +1351,7 @@ Open project	Project openen
 Open Project (from text)	Project openen (uit tekst)
 Open Report	Rapport openen
 Open the attribute table of the selected layer.	De attributentabel van de geselecteerde laag openen.
+Open the Basemaps tab	Het tabblad Basiskaarten openen
 Open the layer's attribute table.	De attributentabel van de laag openen.
 Open the layer's table.	De tabel van de laag openen.
 Open the Release Page	Releasepagina openen
@@ -1125,10 +1362,23 @@ Open {code} on epsg.io	{code} openen op epsg.io
 Open, save and create projects	Projecten openen, opslaan en maken
 OpenAI-compatible	OpenAI-compatibel
 Opened {name} for printing	{name} geopend om af te drukken
+OpenFreeMap Bright	OpenFreeMap Bright
+OpenFreeMap Dark	OpenFreeMap Dark
+OpenFreeMap Fiord	OpenFreeMap Fiord
+OpenFreeMap Liberty	OpenFreeMap Liberty
+OpenFreeMap Positron	OpenFreeMap Positron
+OpenFreeMap © OpenMapTiles Data from OpenStreetMap	OpenFreeMap © OpenMapTiles Gegevens van OpenStreetMap
+Opening {url}…	{url} openen…
+OpenStreetMap	OpenStreetMap
+OpenStreetMap data where the map is, from an Overpass server: a preset, or tag filters such as amenity=cafe, shop. The area can be up to about 50 × 50 km. © OpenStreetMap contributors (ODbL).	OpenStreetMap-gegevens waar de kaart is, van een Overpass-server: een voorinstelling of tagfilters zoals amenity=cafe, shop. Het gebied mag tot ongeveer 50 × 50 km zijn. © OpenStreetMap-bijdragers (ODbL).
+OpenStreetMap's public server	Openbare server van OpenStreetMap
+OpenStreetMap, Esri, USGS, NASA and more, from the plugin registry.	OpenStreetMap, Esri, USGS, NASA en meer, uit het pluginregister.
+OpenStreetMap…	OpenStreetMap…
 Open…	Openen…
 Options	Opties
 OR	OR
 Or	Of
+ORDER BY	ORDER BY
 Ortho Mapping	Orthokartering
 Out Beyond	Uitgezoomd voorbij
 Outline	Omtrek
@@ -1142,6 +1392,10 @@ Over 1,000 raster, vector, LiDAR, hydrology and terrain tools, from an optional 
 Overlay	Overlay
 overlay	overlay
 Overlay (a transparent layer kept on top, such as labels or roads)	Overlay (een transparante laag die bovenop blijft, zoals labels of wegen)
+Overture has no {ty} data where the map is	Overture heeft geen {ty}-gegevens waar de kaart is
+Overture Maps	Overture Maps
+Overture Maps' open data: buildings, places, transportation, administrative divisions, base layers and addresses. Where the map is, its features are read in place from Overture's GeoParquet files (zoom to a city or smaller); the whole world comes as map tiles.	De open data van Overture Maps: gebouwen, plaatsen, vervoer, bestuurlijke eenheden, basislagen en adressen. Waar de kaart is, worden de objecten ter plekke gelezen uit de GeoParquet-bestanden van Overture (zoom in tot een stad of kleiner); de hele wereld komt als kaarttegels.
+Overture Maps…	Overture Maps…
 Package	Pakket
 Package a trained deep learning model.	Een getraind deep learning-model verpakken.
 Package Map	Kaart verpakken
@@ -1167,6 +1421,8 @@ Pan with the mouse, zoom with the wheel and click features to see their attribut
 Pane Sets	Venstersets
 Paper	Papier
 Parent folder	Bovenliggende map
+parks, bike lanes, flood zones…	parken, fietspaden, overstromingsgebieden…
+Password	Wachtwoord
 Paste	Plakken
 Paste copied features into the selected layer, or as a new layer.	Gekopieerde objecten in de geselecteerde laag plakken, of als nieuwe laag.
 Paste Special	Plakken speciaal
@@ -1176,18 +1432,22 @@ Pause	Pauzeren
 PDF or PNG	PDF of PNG
 Percent Clip	Percentage afkappen
 Performance	Prestaties
+Photon	Photon
 Picture	Afbeelding
 Pictures	Afbeeldingen
 Pictures, attachments and chart	Afbeeldingen, bijlagen en diagram
+Pipe	Verticale streep
 Pixel	Pixel
 Pixel Editor	Pixeleditor
 Pixel type	Pixeltype
 Place a raster on the map	Een raster op de kaart plaatsen
 Place a raster on the map from control points or the view.	Een raster op de kaart plaatsen vanuit controlepunten of de weergave.
 Placement	Plaatsing
+Places	Plaatsen
 Places (name, category, address, rating)	Plaatsen (naam, categorie, adres, waardering)
 Planar	Vlak
 Planar Navigation	Vlakke navigatie
+Planetary Computer	Planetary Computer
 Play	Afspelen
 Play the animation.	De animatie afspelen.
 Plugin\nManager	Plugin-\nbeheer
@@ -1197,9 +1457,9 @@ Plugin Manager…	Pluginbeheer…
 Plugin registry	Pluginregister
 Plugins	Plugins
 Plugins are .rgplugin files. Install only plugins from people you trust.	Plugins zijn .rgplugin-bestanden. Installeer alleen plugins van mensen die je vertrouwt.
+Plugins marked Not sandboxed run as programs on your computer instead, and can do anything you can.	Plugins met het label 'Niet in sandbox' draaien in plaats daarvan als programma's op je computer en kunnen alles wat jij kunt.
 Plugins run in a sandbox: they can't reach your files or the network, and they change the project only through RustGIS's own commands, within the permissions you accept.	Plugins draaien in een sandbox: ze kunnen niet bij je bestanden of het netwerk, en ze wijzigen het project alleen via de eigen opdrachten van RustGIS, binnen de rechten die je accepteert.
 PMTiles archive	PMTiles-archief
-PMTiles File…	PMTiles-bestand…
 PNG frames (zip)	PNG-frames (zip)
 PNG image	PNG-afbeelding
 Point	Punt
@@ -1218,10 +1478,14 @@ Portal	Portal
 Portrait	Staand
 Postprocessing	Nabewerking
 power 2	macht 2
+Prepare	Voorbereiden
 Prepare every layer's geometry for this projection.	De geometrie van elke laag voorbereiden voor deze projectie.
+Prepare Plugin Environment	Pluginomgeving voorbereiden
+Preparing its Python environment…	Python-omgeving wordt voorbereid…
 Presentation	Presentatie
 Presentation File	Presentatiebestand
 Presentation Pane	Presentatievenster
+Preset	Voorinstelling
 Preview and set up the report.	Het rapport bekijken en instellen.
 Preview, edit and play the presentation.	De presentatie bekijken, bewerken en afspelen.
 Previous	Vorige
@@ -1238,6 +1502,7 @@ Print the open layout (through the system's PDF viewer).	De geopende lay-out afd
 printing failed unexpectedly	afdrukken onverwacht mislukt
 printing needs the desktop app	afdrukken vereist de desktopapp
 Process	Verwerken
+Products	Producten
 Profile	Profiel
 Profile Along a Line	Profiel langs een lijn
 Profile Along Selected Lines	Profiel langs geselecteerde lijnen
@@ -1257,7 +1522,11 @@ Proximity	Nabijheid
 Publish	Publiceren
 Publish › Output	Publiceren › Uitvoer
 Put the layer back as it was then	De laag terugzetten zoals ze toen was
+Python environment failed: {error}	Python-omgeving mislukt: {error}
+Python environment not prepared	Python-omgeving niet voorbereid
+Python environment ready	Python-omgeving gereed
 Quantile	Kwantiel
+Query files, web addresses and databases with DuckDB Spatial; add results to the map.	Bestanden, webadressen en databases bevragen met DuckDB Spatial; resultaten aan de kaart toevoegen.
 Quick\nAccess	Snelle\ntoegang
 Quick Access Toolbar	Werkbalk Snelle toegang
 radius km	straal km
@@ -1278,10 +1547,15 @@ Raster tiles (XYZ)	Rastertegels (XYZ)
 Raster · {w} × {h} · {n} bands · {renderer}	Raster · {w} × {h} · {n} banden · {renderer}
 Read and write files on this computer	Bestanden op deze computer lezen en schrijven
 Read the map's layers and features	De lagen en objecten van de kaart lezen
+Reading the store… ({n} files to go)	Opslag lezen… (nog {n} bestanden)
+Reading the tileset of	Tegelset lezen van
+Reading {n} of Overture's {ty} files where the map is: {attribution}	{n} van de {ty}-bestanden van Overture waar de kaart is lezen: {attribution}
+Reading {url}…	{url} lezen…
 Reads and writes files	Leest en schrijft bestanden
 Reads the map	Leest de kaart
 Ready To Use	Klaar voor gebruik
 Reality Mapping	Reality mapping
+Recent	Recent
 Rectangle	Rechthoek
 Red	Rood
 Redo	Opnieuw
@@ -1292,6 +1566,7 @@ Refine the search to see {n} more	Verfijn de zoekopdracht om {n} meer te zien
 Refresh	Vernieuwen
 Refresh Map Series	Kaartreeks vernieuwen
 Refresh the map series from its index layer.	De kaartreeks vernieuwen vanuit de indexlaag.
+Region	Regio
 Regional, equal-area: the contiguous United States.	Regionaal, oppervlaktegetrouw: de aaneengesloten Verenigde Staten.
 Regional, equal-area: the European standard for statistics.	Regionaal, oppervlaktegetrouw: de Europese standaard voor statistiek.
 Relate	Relateren
@@ -1302,19 +1577,25 @@ Related report: {name}	Gerelateerd rapport: {name}
 Relationship	Relatie
 Relationship name	Naam van relatie
 Relationships	Relaties
+Release	Release
+Remember (without the secret)	Onthouden (zonder geheime sleutel)
 Remember the key on this computer	Sleutel op deze computer onthouden
+Remembered:	Onthouden:
 Remove	Verwijderen
 Remove All	Alles verwijderen
 Remove an offline area.	Een offline gebied verwijderen.
 Remove Bookmark	Bladwijzer verwijderen
+Remove Data Source	Gegevensbron verwijderen
 Remove Folder	Map verwijderen
 Remove From Current Selection	Verwijderen uit huidige selectie
+Remove from Favourites	Uit favorieten verwijderen
 Remove Keyframe	Sleutelframe verwijderen
 Remove Section	Sectie verwijderen
 Remove Table	Tabel verwijderen
 Remove the last keyframe.	Het laatste sleutelframe verwijderen.
 Remove the layer from the map.	De laag van de kaart verwijderen.
 Remove Tile Layer	Tegellaag verwijderen
+Remove {name}	{name} verwijderen
 Removes the parts of polygon features that overlap erase polygons.	Verwijdert de delen van polygoonobjecten die overlappen met de wispolygonen.
 Removes vertices that deviate less than a tolerance (Douglas–Peucker).	Verwijdert hoekpunten die minder dan een tolerantie afwijken (Douglas–Peucker).
 Rename	Hernoemen
@@ -1322,6 +1603,7 @@ Rename Layer	Laag hernoemen
 Rename Layout	Lay-out hernoemen
 Rename Map	Kaart hernoemen
 Rename Project	Project hernoemen
+Rename Service Group	Servicegroep hernoemen
 Rename…	Hernoemen…
 Rendering	Weergave
 Replace Web Layer	Weblaag vervangen
@@ -1331,6 +1613,7 @@ Report Pane	Rapportvenster
 Report Properties	Rapporteigenschappen
 Report Section	Rapportsectie
 Report Template	Rapportsjabloon
+Requests go to the OpenAI API and use your ChatGPT plan.	Verzoeken gaan naar de OpenAI-API en gebruiken je ChatGPT-abonnement.
 Requests send your message and the map's layer names, fields and the rows the assistant reads to the provider.	Verzoeken sturen je bericht en de laagnamen, velden en door de assistent gelezen rijen van de kaart naar de aanbieder.
 Resample	Herbemonsteren
 Resampling	Resampling
@@ -1345,6 +1628,7 @@ Resume	Hervatten
 RGB	RGB
 Ribbon	Lint
 Right	Rechts
+Right-click a source to add it here	Rechtsklik op een bron om die hier toe te voegen
 Robinson	Robinson
 Rotate	Roteren
 Rotate (°)	Roteren (°)
@@ -1356,19 +1640,24 @@ Routes (name, surface, length)	Routes (naam, wegdek, lengte)
 Rows	Rijen
 Rule name	Naam van regel
 Run	Uitvoeren
+Run a query whose result has a geometry column	Voer een query uit waarvan het resultaat een geometriekolom heeft
 Run All	Alles uitvoeren
 Run Cells	Cellen uitvoeren
 Run Chain	Keten uitvoeren
 Run commands from text, one per line.	Opdrachten uit tekst uitvoeren, één per regel.
 Run Model	Model uitvoeren
 Run Script	Script uitvoeren
+Run SQL Query	SQL-query uitvoeren
 Run Task	Taak uitvoeren
 Run the task	De taak uitvoeren
 Run Tool	Gereedschap uitvoeren
 Run {name}	{name} uitvoeren
+Running the query for the map…	Query voor de kaart uitvoeren…
 Running…	Bezig…
 RustGIS	RustGIS
+RustGIS bookmarks	RustGIS-bladwijzers
 RustGIS deep learning package	RustGIS-deep learning-pakket
+RustGIS didn't close properly last time, so it started with the World Atlas instead of your start-up project. Open the project from the Project menu when you're ready.	RustGIS is de vorige keer niet goed afgesloten en is daarom met World Atlas gestart in plaats van met je startproject. Open het project via het menu Project wanneer je zover bent.
 RustGIS is a free and open-source GIS written in pure Rust. It runs on the desktop and in the browser, and every action is a command you can also run from the command line.	RustGIS is een vrij en opensource GIS in puur Rust. Het draait op de desktop en in de browser, en elke actie is een opdracht die u ook vanaf de opdrachtregel kunt uitvoeren.
 RustGIS layer file	RustGIS-laagbestand
 RustGIS layers, maps and projects	RustGIS-lagen, -kaarten en -projecten
@@ -1388,6 +1677,11 @@ RustGIS {latest} is available.	RustGIS {latest} is beschikbaar.
 RustGIS {version} is the latest version.	RustGIS {version} is de nieuwste versie.
 RUSTGIS_ASSISTANT_MODEL	RUSTGIS_ASSISTANT_MODEL
 RUSTGIS_ASSISTANT_PROVIDER	RUSTGIS_ASSISTANT_PROVIDER
+RUSTGIS_GPU	RUSTGIS_GPU
+S3	S3
+S3 Buckets	S3-buckets
+S3 Connections	S3-verbindingen
+S3…	S3…
 Sample data (Natural Earth)	Voorbeeldgegevens (Natural Earth)
 Sample data © Natural Earth (public domain). RustGIS is licensed under Apache-2.0.	Voorbeeldgegevens © Natural Earth (publiek domein). RustGIS valt onder de Apache-2.0-licentie.
 Sample data: Natural Earth (public domain). Licensed under Apache-2.0.	Voorbeeldgegevens: Natural Earth (publiek domein). Licentie Apache-2.0.
@@ -1399,6 +1693,8 @@ Save As Report File…	Opslaan als rapportbestand…
 Save As Report Template…	Opslaan als rapportsjabloon…
 Save as {name}	Opslaan als {name}
 Save As…	Opslaan als…
+Save Color Ramps	Kleurverlopen opslaan
+Save Data Source	Gegevensbron opslaan
 Save Layer File	Laagbestand opslaan
 Save Layout File	Lay-outbestand opslaan
 Save Map File	Kaartbestand opslaan
@@ -1418,6 +1714,7 @@ Save the open layout as a layout file.	De geopende lay-out opslaan als lay-outbe
 Save the panes you have open, and switch back to them.	De geopende vensters opslaan en er later naar terugschakelen.
 Save the project under a new name.	Het project onder een nieuwe naam opslaan.
 Save the project with your edits.	Het project met je bewerkingen opslaan.
+Save the project's custom color ramps to a color ramp file.	De aangepaste kleurverlopen van het project opslaan in een kleurverloopbestand.
 Save the project's setup, without its features, as a template.	De opzet van het project, zonder objecten, opslaan als sjabloon.
 Save the project's styles to a style file.	De stijlen van het project opslaan in een stijlbestand.
 Save the raster as a GeoTIFF.	Het raster opslaan als GeoTIFF.
@@ -1445,16 +1742,28 @@ Scroll the ribbon left	Lint naar links schuiven
 Scroll the ribbon right	Lint naar rechts schuiven
 Scroll the tabs left	Tabbladen naar links schuiven
 Scroll the tabs right	Tabbladen naar rechts schuiven
+Search	Zoeken
+Search Catalogue	Catalogus doorzoeken
 Search commands — e.g. buffer, basemap, labels	Opdrachten zoeken — bijv. buffer, basiskaart, labels
 Search Distance (km)	Zoekafstand (km)
 Search every command and its parameters	Alle opdrachten en hun parameters doorzoeken
+Search layers, places, lat/lon…	Lagen, plaatsen, lat/lon zoeken…
+Search Open Data	Open data doorzoeken
+Search Open Data…	Open data doorzoeken…
+Search places for “{query}”	Plaatsen zoeken naar ‘{query}’
 Search plugins	Plugins zoeken
+Search results © OpenStreetMap contributors	Zoekresultaten © OpenStreetMap-bijdragers
+Search the map	De kaart doorzoeken
+Searching places…	Plaatsen zoeken…
+Searching…	Zoeken…
 Seconds	Seconden
+Secret access key	Geheime toegangssleutel
 Sections	Secties
 See and set the camera's position and scale.	De positie en schaal van de camera bekijken en instellen.
 See the map as people with colour vision deficiencies do.	De kaart zien zoals mensen met een kleurenzichtstoornis.
 See the tools you've run.	De uitgevoerde gereedschappen bekijken.
 See whether a newer RustGIS has been released.	Controleren of er een nieuwere RustGIS is uitgebracht.
+SELECT	SELECT
 Select	Selecteren
 Select (click)	Selecteren (klik)
 Select (rectangle)	Selecteren (rechthoek)
@@ -1491,9 +1800,14 @@ Selection	Selectie
 Selection Type	Selectietype
 Selects features that intersect features in another layer.	Selecteert objecten die objecten in een andere laag snijden.
 Selects features with a SQL where clause, e.g. pop_est > 1000000.	Selecteert objecten met een SQL-where-clausule, bijv. pop_est > 1000000.
+Semicolon	Puntkomma
 Send	Verzenden
 Send offline edits back and refresh.	Offline bewerkingen terugsturen en vernieuwen.
+Separator	Scheidingsteken
 Sepia	Sepia
+Server	Server
+Service Layers	Dienstlagen
+Services	Diensten
 Set	Instellen
 Set Cell Size	Celgrootte instellen
 Set Domain	Domein instellen
@@ -1534,6 +1848,7 @@ Show Map	Kaart tonen
 Show or hide	Tonen of verbergen
 Show or hide the AI Assistant.	De AI-assistent tonen of verbergen.
 Show or hide the Browser pane.	Het browservenster tonen of verbergen.
+Show or hide the Data Sources pane: favourites, recent data, saved services, databases and STAC APIs, and a library of public sources.	Het gegevensbronnenvenster tonen of verbergen: favorieten, recente gegevens, opgeslagen diensten, databases en STAC-API's, en een bibliotheek met openbare bronnen.
 Show or hide the layer.	De laag tonen of verbergen.
 Show or hide the Layers pane.	Het venster Lagen tonen of verbergen.
 Show or hide the Tools pane.	Het gereedschappenvenster tonen of verbergen.
@@ -1547,6 +1862,15 @@ Show the previous map series page.	De vorige pagina van de kaartreeks tonen.
 Show the Symbology pane for the selected layer.	Het symbologievenster voor de geselecteerde laag tonen.
 Show vertices	Hoekpunten tonen
 Side by Side	Naast elkaar
+Sign in to choose a model.	Meld je aan om een model te kiezen.
+Sign in with your ChatGPT account.	Meld u aan met uw ChatGPT-account.
+Sign out	Afmelden
+Sign-in cancelled.	Aanmelding geannuleerd.
+Sign-in timed out. Start again and allow the browser to reach this computer's loopback address.	De aanmeldtijd is verstreken. Begin opnieuw en geef de browser toegang tot het loopback-adres van deze computer.
+signed in	aangemeld
+Signed out on this computer, but OpenAI didn't confirm it. You can disconnect RustGIS in ChatGPT's settings.	Afgemeld op deze computer, maar OpenAI heeft het niet bevestigd. Je kunt RustGIS ontkoppelen in de instellingen van ChatGPT.
+Signing in with ChatGPT works in the desktop app.	Aanmelden met ChatGPT werkt in de desktop-app.
+Signing the asset (Planetary Computer)…	Asset ondertekenen (Planetary Computer)…
 Simplify	Vereenvoudigen
 Simulation	Simulatie
 Single Symbol	Enkel symbool
@@ -1560,7 +1884,10 @@ Snap new vertices to nearby vertices, edges and line ends.	Nieuwe hoekpunten lat
 Snap Point	Snappunt
 Snapping	Snappen
 Snow	Sneeuw
+Socrata	Socrata
 Source	Bron
+Source Cooperative	Source Cooperative
+Source Cooperative…	Source Cooperative…
 South	Zuid
 South Polar Stereographic	Polair stereografisch zuid
 Speaker notes	Sprekersnotities
@@ -1569,12 +1896,56 @@ Spectral indices	Spectrale indices
 Speed Display	Snelle weergave
 Split	Splitsen
 Split (click the line)	Splitsen (klik op de lijn)
+SQL	SQL
+SQL Pane	SQL-venster
+SQL queries run through DuckDB, a program the desktop app calls: open this project in the desktop app to query it.	SQL-query's lopen via DuckDB, een programma dat de desktopapp aanroept: open dit project in de desktopapp om het te bevragen.
 SQL that must be true, e.g. pop > 0	SQL die waar moet zijn, bijv. pop > 0
 Square	Vierkant
 Squares	Vierkanten
+ST_Area	ST_Area
+ST_AsGeoJSON	ST_AsGeoJSON
+ST_AsText	ST_AsText
+ST_Buffer	ST_Buffer
+ST_Centroid	ST_Centroid
+ST_Contains	ST_Contains
+ST_ConvexHull	ST_ConvexHull
+ST_Difference	ST_Difference
+ST_Distance	ST_Distance
+ST_Envelope	ST_Envelope
+ST_GeometryType	ST_GeometryType
+ST_GeomFromGeoJSON	ST_GeomFromGeoJSON
+ST_GeomFromText	ST_GeomFromText
+ST_Intersection	ST_Intersection
+ST_Intersects	ST_Intersects
+ST_IsValid	ST_IsValid
+ST_Length	ST_Length
+ST_MakeLine	ST_MakeLine
+ST_MakePolygon	ST_MakePolygon
+ST_NPoints	ST_NPoints
+ST_Perimeter	ST_Perimeter
+ST_Point	ST_Point
+ST_Read	ST_Read
+ST_SetCRS	ST_SetCRS
+ST_Simplify	ST_Simplify
+ST_Touches	ST_Touches
+ST_Transform	ST_Transform
+ST_Union	ST_Union
+ST_Union_Agg	ST_Union_Agg
+ST_Within	ST_Within
+ST_X	ST_X
+ST_XMax	ST_XMax
+ST_XMin	ST_XMin
+ST_Y	ST_Y
+ST_YMax	ST_YMax
+ST_YMin	ST_YMin
+STAC API	STAC API
+STAC APIs	STAC-API's
+STAC Search	STAC zoeken
+STAC Search…	STAC zoeken…
 Standalone Tables	Zelfstandige tabellen
 Standard Deviation	Standaardafwijking
 Star	Ster
+Stars	Sterren
 Start	Start
 Start Over	Opnieuw beginnen
 Start With	Starten met
@@ -1589,7 +1960,9 @@ Step {n} done	Stap {n} voltooid
 Stop	Stoppen
 Stop drawing labels, for faster navigation.	Stoppen met labels tekenen, voor sneller navigeren.
 Stop filling the cache.	Stoppen met het vullen van de cache.
+Stop MCP relay	MCP-relay stoppen
 Stopped.	Gestopt.
+street, city, country	straat, plaats, land
 Stretch	Stretch
 Stretch\nType	Stretch-\ntype
 Stretch it over the map view, or give control points (one per line: column row lon lat).	Over de kaartweergave uitrekken, of controlepunten opgeven (één per regel: kolom rij lon lat).
@@ -1615,6 +1988,7 @@ Surface	Oppervlak
 Surface: {layer}	Oppervlak: {layer}
 Swipe	Vegen
 Switch	Wisselen
+Switch between GPU and CPU map rendering	Wisselen tussen GPU- en CPU-kaartweergave
 Switch between light and dark themes.	Wisselen tussen licht en donker thema.
 Switch Selection	Selectie wisselen
 Switch selection	Selectie wisselen
@@ -1625,10 +1999,13 @@ Symbology	Symbologie
 Symbology Pane	Symbologievenster
 Symbology Pane…	Symbologievenster…
 Sync	Synchroniseren
+Tab	Tab
 tab is required	tab is vereist
 Table	Tabel
 Table Frame	Tabelkader
+Table or layer	Tabel of laag
 Tables	Tabellen
+Tags	Tags
 Take the data in view offline, to edit and sync back later.	De gegevens in beeld offline nemen, om te bewerken en later terug te synchroniseren.
 Task	Taak
 Task Item	Taakitem
@@ -1639,44 +2016,73 @@ Templates	Sjablonen
 Terrain	Terrein
 Text	Tekst
 Text Symbol	Tekstsymbool
+The address fields are empty in every row.	De adresvelden zijn in elke rij leeg.
+the answer isn't UTF-8 text	het antwoord is geen UTF-8-tekst
 The assistant is busy; stop it or wait for it to finish.	De assistent is bezig; stop hem of wacht tot hij klaar is.
 The assistant wants to run this, and {why}:	De assistent wil het volgende uitvoeren, en {why}:
+The Basemaps plugin's tab of public basemaps.	Het tabblad van de plugin Basiskaarten met openbare basiskaarten.
 the capture failed unexpectedly	het vastleggen is onverwacht mislukt
-the Help tab always shows	het tabblad Help wordt altijd getoond
+The country list couldn't be read ({e}): type a country's code	De landenlijst kon niet worden gelezen ({e}): typ een landcode
+The environment (AWS_ACCESS_KEY_ID…)	De omgeving (AWS_ACCESS_KEY_ID…)
+The features where the map is	De objecten waar de kaart is
+The first 1,000 entries; narrow it down a folder at a time.	De eerste 1.000 items; verfijn map voor map.
+The first {n} are listed.	De eerste {n} worden weergegeven.
+The first {n} rows	De eerste {n} rijen
+The installed GeoLibre runner lists no tools.	De geïnstalleerde GeoLibre-runner vermeldt geen gereedschappen.
 The job covers the map view	De job beslaat de kaartweergave
 The key is kept for this session only.	De sleutel wordt alleen voor deze sessie bewaard.
 The layer's file couldn't be read: {error}	Het bestand van de laag kon niet worden gelezen: {error}
 the layout export failed unexpectedly	het exporteren van de lay-out is onverwacht mislukt
+The link doesn't say its STAC API: Find Items searches {api}	De link noemt geen STAC-API: Items zoeken doorzoekt {api}
 The list of plugins to browse. Leave it empty for the RustGIS plugin registry.	De lijst met plugins om door te bladeren. Laat leeg voor het RustGIS-pluginregister.
 the map has no layers	de kaart heeft geen lagen
 The map is drawn in this coordinate system; layers are projected on the fly.	De kaart wordt in dit coördinatenstelsel getekend; lagen worden direct geprojecteerd.
 The map view as it is now	De kaartweergave zoals ze nu is
+The map's view takes {n} of Overture's {ty} files (up to {max}): zoom in, or add the theme as map tiles	De kaartweergave beslaat {n} van de {ty}-bestanden van Overture (maximaal {max}): zoom in of voeg het thema toe als kaarttegels
 The model answering; click to change it	Het model dat antwoordt; klik om het te wijzigen
-the model declined this request	het model heeft dit verzoek geweigerd
 The model sent an empty reply; ask again, or try another model.	Het model stuurde een leeg antwoord; vraag het opnieuw of probeer een ander model.
 the page is too large to draw	de pagina is te groot om te tekenen
+the picture is too large to show	de afbeelding is te groot om te tonen
+the picture is too large to show, or isn't one	de afbeelding is te groot om te tonen, of is er geen
 the presentation export failed unexpectedly	het exporteren van de presentatie is onverwacht mislukt
 the preview failed unexpectedly	het voorbeeld is onverwacht mislukt
+The project downloads as this file, to the folder your browser saves downloads in.	Het project wordt als dit bestand gedownload naar de map waarin je browser downloads opslaat.
 The project's items in place of the map.	De items van het project in plaats van de kaart.
 The project's thumbnail, from an image.	De miniatuur van het project, uit een afbeelding.
 The project's thumbnail, from the map view.	De miniatuur van het project, uit de kaartweergave.
 The projection the map opens in.	De projectie waarin de kaart opent.
 The raster's data couldn't be read.	De rastergegevens konden niet worden gelezen.
 The raster's data couldn't be read: {path}	De rastergegevens konden niet worden gelezen: {path}
+the release isn't known	de release is onbekend
 the reply reached its length limit	het antwoord heeft de maximale lengte bereikt
+The reply stopped before completion; no actions were run.	Het antwoord stopte voordat het klaar was; er zijn geen acties uitgevoerd.
 the report export failed unexpectedly	het exporteren van het rapport is onverwacht mislukt
+The saved sign-in changed. Select your account again.	De opgeslagen aanmelding is gewijzigd. Selecteer je account opnieuw.
 The Shapefile's files download as one zip.	De bestanden van de Shapefile worden als één zip gedownload.
+The sign-in expired or was revoked. Sign in again.	De aanmelding is verlopen of ingetrokken. Meld je opnieuw aan.
+The sign-in is kept in the app's settings folder, for your user account only, and never in a project file.	De aanmelding wordt bewaard in de instellingenmap van de app, alleen voor uw gebruikersaccount, en nooit in een projectbestand.
+The start-up project {path} didn't open: {error}	Het startproject {path} kon niet worden geopend: {error}
+The start-up project {path} isn't a RustGIS project file.	Het startproject {path} is geen RustGIS-projectbestand.
+The store has no variables with two or more dimensions.	De opslag heeft geen variabelen met twee of meer dimensies.
+the store is gone	de opslag is verdwenen
 the view has no extent	de weergave heeft geen bereik
 The web app always runs the latest release: reload the page to get it.	De webapp draait altijd de nieuwste release: herlaad de pagina om die te krijgen.
+Theme	Thema
 Thermal	Thermisch
 Thinking…	Denkt na…
 this build can't download plugins	deze build kan geen plugins downloaden
 this build can't reach AI providers	deze build kan geen AI-providers bereiken
+this build saves projects with Save As	deze versie slaat projecten op met Opslaan als
+This ChatGPT account was already saved. Next time, choose it in the list instead of adding it again.	Dit ChatGPT-account was al opgeslagen. Kies het de volgende keer in de lijst in plaats van het opnieuw toe te voegen.
 This map has no layers yet.	Deze kaart heeft nog geen lagen.
 This map's thumbnail, from an image.	De miniatuur van deze kaart, uit een afbeelding.
 This map's thumbnail, from the view.	De miniatuur van deze kaart, uit de weergave.
 This plugin can:	Deze plugin kan:
+This plugin runs as a program on your computer, outside RustGIS's sandbox. It can do anything you can: read and change your files, use the network and run other programs. Install it only if you trust its author.	Deze plugin draait als programma op je computer, buiten de sandbox van RustGIS. Hij kan alles wat jij kunt: je bestanden lezen en wijzigen, het netwerk gebruiken en andere programma's starten. Installeer hem alleen als je de maker vertrouwt.
+This request uses an unsupported capability. Check the parameter and change the request.	Dit verzoek gebruikt een niet-ondersteunde functie. Controleer de parameter en wijzig het verzoek.
 Thumbnail	Miniatuur
+Tile archive	Tegelarchief
+Tile Archive File…	Tegelarchiefbestand…
 Tile Layer Properties	Eigenschappen van tegellaag
 Tile Layers	Tegellagen
 Tilt-shift	Tilt-shift
@@ -1684,6 +2090,7 @@ Tilt-shift blur and film grain.	Tilt-shift-vervaging en filmkorrel.
 Tint by elevation	Kleuren op hoogte
 Title	Titel
 Toggle Dark Mode	Donkere modus aan/uit
+Toggle GPU Rendering	GPU-weergave in-/uitschakelen
 Tolerance (km)	Tolerantie (km)
 Tool Gallery	Gereedschapsgalerij
 Toolbox	Gereedschapskist
@@ -1714,31 +2121,45 @@ Turn Labels Off	Labels uitschakelen
 Turn labels on or off for the selected layer.	Labels voor de geselecteerde laag in- of uitschakelen.
 Turn labels on or off.	Labels in- of uitschakelen.
 Turn Off	Uitschakelen
+Turn on the Basemaps plugin	De plugin Basiskaarten inschakelen
+Turns a table's addresses into points: each row's address fields are joined with commas (such as street, city, country) and looked up. The public servers take up to 100 addresses a run, one a second; a server of your own takes more.	Zet de adressen van een tabel om in punten: de adresvelden van elke rij worden met komma's samengevoegd (zoals straat, plaats, land) en opgezocht. De openbare servers nemen tot 100 adressen per uitvoering, één per seconde; een eigen server neemt er meer.
 Type	Type
+type a file name	typ een bestandsnaam
+Typed below	Hieronder getypt
 Unavailable: {reason}	Niet beschikbaar: {reason}
 Undo	Ongedaan maken
 Undo / Redo	Ongedaan maken / Opnieuw
 Undo the last change.	De laatste wijziging ongedaan maken.
 Undo {action}	{action} ongedaan maken
 Uninstall	Verwijderen
+Uninstall GeoLibre Tools	GeoLibre-gereedschappen verwijderen
 Uninstall Plugin	Plugin verwijderen
 Uninstalled {id}.	{id} verwijderd.
 Unique Values	Unieke waarden
 Units	Eenheden
+Unload the GeoLibre tools and stop loading them when RustGIS starts.	De GeoLibre-gereedschappen ontladen en ze niet meer laden bij het starten van RustGIS.
 Unsupervised classes (k-means)	Niet-gesuperviseerde klassen (k-means)
 Unsupervised classes (k-means).	Niet-gesuperviseerde klassen (k-means).
+Up	Omhoog
+Up a level	Een niveau omhoog
 Update	Bijwerken
 Update Job	Job bijwerken
 Update to {version}	Bijwerken naar {version}
 Upload File	Bestand uploaden
 Upload File…	Bestand uploaden…
+url is required	url is vereist
 USA Contiguous Albers Equal Area	VS (aaneengesloten) Albers oppervlaktegetrouw
 Use	Gebruiken
+Use another account	Ander account gebruiken
 Use Current View	Huidige weergave gebruiken
+USGS Imagery	USGS-luchtfoto's
+USGS The National Map	USGS The National Map
+Using ChatGPT plan	ChatGPT-abonnement in gebruik
 Valid combinations, one per line: a, b	Geldige combinaties, één per regel: a, b
 Valid expression · {n} matching rows	Geldige expressie · {n} overeenkomende rijen
 Validate	Valideren
 value (empty: no-data)	waarde (leeg: no-data)
+Variable	Variabele
 Vector and raster data	Vector- en rastergegevens
 Vector tiles (MVT)	Vectortegels (MVT)
 Version {version}	Versie {version}
@@ -1756,7 +2177,7 @@ View Unplaced	Niet-geplaatste tonen
 View › Windows	Beeld › Vensters
 Viewshed from a point	Zichtbaarheidsgebied vanaf een punt
 Vignette	Vignet
-Vignette and edge outlines.	Vignet en randcontouren.
+Vignette, edge outlines and the stars around the globe.	Vignet, randcontouren en de sterren rond de wereldbol.
 Visibility	Zichtbaarheid
 Visibility Analysis	Zichtbaarheidsanalyse
 Visibility Range	Zichtbaarheidsbereik
@@ -1764,9 +2185,14 @@ Visible	Zichtbaar
 Visible Layers	Zichtbare lagen
 Visual Effect	Visueel effect
 Volume	Volume
+Waiting for the browser…	Wachten op de browser…
 Walk	Lopen
+Want more basemaps?	Meer basiskaarten?
+WCS	WCS
+WCS Coverage Request	WCS-coverageverzoek
 Weather	Weer
 Web\nMap	Web-\nkaart
+Web Basemaps	Webbasiskaarten
 Web Layer	Weblaag
 Web Link Chart	Web-koppelingsdiagram
 Web Mercator	Web Mercator
@@ -1775,13 +2201,17 @@ Web Style	Webstijl
 Web Tile Layers	Webtegellagen
 Web Tool	Webtool
 Website	Website
+Weekly usage	Wekelijks gebruik
 Weights	Gewichten
 Welcome to RustGIS	Welkom bij RustGIS
 West	West
+WFS	WFS
 WGS 84 / Globe	WGS 84 / Wereldbol
 WGS 84 / Web Mercator	WGS 84 / Web Mercator
 What RustGIS opens with: the World Atlas sample or a blank map.	Waarmee RustGIS opent: het voorbeeld World Atlas of een lege kaart.
+What RustGIS opens with: the World Atlas sample, a blank map, a project you choose, or the last project opened or saved.	Waarmee RustGIS opent: het voorbeeld World Atlas, een lege kaart, een project dat je kiest of het laatst geopende of opgeslagen project.
 What's near a point	Wat er bij een punt in de buurt is
+WHERE	WHERE
 Where	Waar
 Where Clause	Where-clausule
 Where labels sit relative to their features.	Waar labels staan ten opzichte van hun objecten.
@@ -1795,6 +2225,10 @@ Windows	Vensters
 Winkel Tripel	Winkel Tripel
 Wireframe	Draadmodel
 Withdrawn	Teruggetrokken
+WKT column	WKT-kolom
+WMS	WMS
+WMTS	WMTS
+Words	Woorden
 Workflow Manager	Workflowbeheer
 Workflows	Workflows
 Workspace	Werkruimte
@@ -1817,15 +2251,22 @@ World, equal-area: true sizes, shapes bend towards the edges.	Wereld, oppervlakt
 Worldview	Grenzen
 Write a plugin	Een plugin schrijven
 X (mm)	X (mm)
+X column	X-kolom
 X Field	X-veld
 XY Table To Point	XY-tabel naar punt
 XY Table To Point…	XY-tabel naar punt…
 Y (mm)	Y (mm)
+Y column	Y-kolom
 Y Field	Y-veld
 Yes	Ja
+You can undo this with {shortcut}.	U kunt dit ongedaan maken met {shortcut}.
 You have version {version}.	U hebt versie {version}.
+You're using your ChatGPT plan	Je gebruikt je ChatGPT-abonnement
 z (m)	z (m)
 Z factor	Z-factor
+Zarr	Zarr
+Zarr Variables	Zarr-variabelen
+Zarr…	Zarr…
 Zoom	Zoomen
 Zoom about the pointer	Zoomen rond de aanwijzer
 Zoom Box	Zoomkader
@@ -1854,6 +2295,8 @@ Zoom to the whole world.	Zoomen naar de hele wereld.
 Zoom to Tokyo	Zoomen naar Tokio
 Zoom To World	Zoomen naar wereld
 {id} changed since it was installed; install it again from the Plugin Manager.	{id} is gewijzigd sinds de installatie; installeer het opnieuw via Pluginbeheer.
+{name} is larger than {mb} MB	{name} is groter dan {mb} MB
+{name} runs as a program on your computer: it needs the desktop app or rustgis-cli.	{name} draait als programma op je computer: daarvoor is de desktopapp of rustgis-cli nodig.
 {name} was withdrawn from the plugin registry and has been turned off.	{name} is uit het pluginregister teruggetrokken en is uitgeschakeld.
 {name} was withdrawn from the plugin registry: {reason}	{name} is uit het pluginregister teruggetrokken: {reason}
 {name}: the download doesn't match the registry; it wasn't installed.	{name}: de download komt niet overeen met het register; de plugin is niet geïnstalleerd.
@@ -1862,6 +2305,47 @@ Zoom To World	Zoomen naar wereld
 {total} plugins	{total} plugins
 {type} · {format}, read in place · a sample of {n} of the {matched} features in view (zoom in to see them all) · {renderer}	{type} · {format}, ter plekke gelezen · een steekproef van {n} van de {matched} objecten in beeld (zoom in om ze allemaal te zien) · {renderer}
 {type} · {format}, read in place · {n} of {total} features in view · {renderer}	{type} · {format}, ter plekke gelezen · {n} van {total} objecten in beeld · {renderer}
+{url}: downloaded after another project was opened, so it wasn't opened	{url}: gedownload nadat een ander project was geopend, dus niet geopend
 {url}: only HTTPS addresses, or plain HTTP on this computer or network, are allowed	{url}: alleen HTTPS-adressen, of gewoon HTTP op deze computer of dit netwerk, zijn toegestaan
 © OpenStreetMap contributors	© OpenStreetMap-bijdragers
+— fps	— fps
 ⌘K	⌘K
+Let your Agents Control RustGIS	Laat je agents RustGIS besturen
+Agents on this computer that connect (Claude Code, Codex, Cursor and others) work on the map open here, with RustGIS's tools: they can open and save files and use the web. Scripts and plugin management stay off.	Agents op deze computer die verbinden (Claude Code, Codex, Cursor en andere) werken met de tools van RustGIS aan de kaart die hier openstaat: ze kunnen bestanden openen en opslaan en het web gebruiken. Scripts en pluginbeheer blijven uit.
+Add this MCP server to your agent:	Voeg deze MCP-server toe aan je agent:
+Or run, for Claude Code or Codex:	Of voer uit, voor Claude Code of Codex:
+Compact	Comprimeren
+Summarise the conversation so far, so a long chat stays within the model's context	Vat het gesprek tot nu toe samen, zodat een lange chat binnen de context van het model blijft
+The reply reached its length limit.	Het antwoord bereikte de maximale lengte.
+The provider's content filter stopped the reply.	Het inhoudsfilter van de provider heeft het antwoord gestopt.
+The reply stopped early ({reason}).	Het antwoord stopte voortijdig ({reason}).
+The model declined this request.	Het model heeft dit verzoek geweigerd.
+The model declined this request: {why}	Het model heeft dit verzoek geweigerd: {why}
+Gemini stopped the reply ({reason}).	Gemini heeft het antwoord gestopt ({reason}).
+Summarising the earlier conversation to keep it within the model's context…	Het eerdere gesprek wordt samengevat zodat het binnen de context van het model blijft…
+Compacted the earlier conversation.	Het eerdere gesprek is gecomprimeerd.
+The connection failed; trying again in {seconds} s.	De verbinding is mislukt; nieuwe poging over {seconds} s.
+Stopped after {steps} steps; say "continue" to go on.	Gestopt na {steps} stappen; zeg "ga verder" om door te gaan.
+Let the assistant hand tasks to local agents	Laat de assistent taken aan lokale agents overdragen
+No local agents (Claude Code, Codex) were found on this computer.	Er zijn geen lokale agents (Claude Code, Codex) op deze computer gevonden.
+Found: {names}. They work on this map through the app's MCP relay, without RustGIS's file or network commands; Codex also has a read-only shell that can read files on this computer.	Gevonden: {names}. Ze werken aan deze kaart via de MCP-relay van de app, zonder de bestands- en netwerkopdrachten van RustGIS; Codex heeft ook een alleen-lezen shell die bestanden op deze computer kan lezen.
+Skills	Skills
+Built in	Ingebouwd
+Plugin	Plug-in
+Yours	Eigen
+Shared	Gedeeld
+Add skill…	Skill toevoegen…
+Skill (SKILL.md or .zip)	Skill (SKILL.md of .zip)
+Add folder…	Map toevoegen…
+Added: {names}	Toegevoegd: {names}
+Your skills are kept in the skills folder of the app's settings folder. Shared skills (~/.agents/skills) are off until you turn them on.	Je skills staan in de map skills in de instellingenmap van de app. Gedeelde skills (~/.agents/skills) staan uit tot je ze aanzet.
+Skills for the AI Assistant: {names}	Skills voor de AI-assistent: {names}
+The assistant follows a skill's instructions when it uses it. Whatever they say, its commands that need your approval still ask.	De assistent volgt de instructies van een skill wanneer hij die gebruikt. Wat ze ook zeggen, opdrachten die jouw toestemming nodig hebben, blijven erom vragen.
+It has no code: nothing in it runs.	Het bevat geen code: er wordt niets uitgevoerd.
+The service's answer isn't UTF-8 text	Het antwoord van de dienst is geen UTF-8-tekst
+Import All	Alles importeren
+Import Service	Service importeren
+Service Import Requests	Importaanvragen voor service
+Service Group	Servicegroep
+A service import or refresh is already running.	Er wordt al een service geïmporteerd of vernieuwd.
+Service group data exceeds 64 MB.	De gegevens van de servicegroep overschrijden 64 MB.

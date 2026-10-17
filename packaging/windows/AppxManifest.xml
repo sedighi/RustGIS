@@ -42,14 +42,9 @@
             </uap:SupportedFileTypes>
           </uap:FileTypeAssociation>
         </uap:Extension>
-      </Extensions>
-    </Application>
-    <!-- The command line tool: no Start menu entry, run as `rustgis-cli` from any terminal. -->
-    <Application Id="RustGISCli" Executable="rustgis-cli.exe" EntryPoint="Windows.FullTrustApplication">
-      <uap:VisualElements DisplayName="RustGIS command line" Description="RustGIS command line tool"
-        BackgroundColor="transparent" Square44x44Logo="Assets\Square44x44Logo.png"
-        Square150x150Logo="Assets\Square150x150Logo.png" AppListEntry="none" />
-      <Extensions>
+        <!-- The command line tool, run as `rustgis-cli` from any terminal. It is an alias of this
+             application, not an application of its own: the Store refuses a package with an
+             application that has no Start menu entry (AppListEntry="none"). -->
         <uap3:Extension Category="windows.appExecutionAlias" EntryPoint="Windows.FullTrustApplication"
           Executable="rustgis-cli.exe">
           <uap3:AppExecutionAlias>

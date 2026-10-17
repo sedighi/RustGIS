@@ -217,7 +217,7 @@ jobs:
       - name: Open a pull request to microsoft/winget-pkgs
         if: env.WINGET_TOKEN != ''
         # Pinned to a commit: this step receives a token with access to the winget-pkgs fork.
-        uses: vedantmgoyal9/winget-releaser@f29ed1ffd34f91223a2aebaa71beaab0901ff9fd # v2
+        uses: vedantmgoyal9/winget-releaser@b7370d4d152efdce803a26cc6ca9eee58cb2ad54 # v2
         with:
           identifier: OpenGeos.RustGIS
           release-tag: ${{ needs.release.outputs.tag }}

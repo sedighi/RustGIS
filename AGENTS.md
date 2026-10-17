@@ -16,14 +16,14 @@ is a command, a thin egui front end, headless screenshots for UI work.
 | Layer | Crate | Job |
 |---|---|---|
 | L0 | `geom` | coordinates, extents, Web Mercator, geodesic measurement, scale |
-| L1 | `data` | features, typed attributes, GeoJSON/CSV/Shapefile/KML/GPX I/O, GeoPackage/GeoParquet/FlatGeobuf/LiDAR (LAS/LAZ) providers (`source`; GeoPackages in the browser through the pure-Rust `sqlite` reader; GDAL formats and DuckDB queries through their programs), SQL where clauses, rasters (GeoTIFF/ASCII grid, Zarr stores, EPSG reprojection) |
+| L1 | `data` | features, typed attributes, GeoJSON/CSV/Shapefile/KML/GPX I/O, GeoPackage/GeoParquet/FlatGeobuf/LiDAR (LAS/LAZ)/PostGIS providers (`source`; PostGIS through the pure-Rust `postgres` client, desktop only; GeoPackages in the browser through the pure-Rust `sqlite` reader; GDAL formats and DuckDB queries through their programs), SQL where clauses, rasters (GeoTIFF/ASCII grid, Zarr stores, EPSG reprojection) |
 | L2 | `map`, `analysis` | layers, symbology, labels, camera, basemaps, web tile layers; geoprocessing tools |
 | L2 | `tiles` | web map tiles: XYZ/TMS/WMS rasters, Mapbox Vector Tiles, PMTiles and MBTiles archives, a MapLibre style subset; the tile cache and background fetching (see `docs/user-guide/maps.md` › Basemaps) |
 | L3 | `render` | tiny-skia map renderer, label placement, PNG export, font discovery |
 | L3 | `plugins` | plugins: sandboxed WebAssembly modules (`wasmi`) adding commands and tools; `.rgplugin` packages, the plugin registry (see `docs/plugins.md`) |
 | L3 | `geolibre` | the GeoLibre/Whitebox tool suite as geoprocessing tools (engine feature `geolibre`): run by the optional `geolibre` program natively, by geolibre-rust's WASI runner in the browser |
 | L4 | `engine` | `Session`, undo, command registry, sample project |
-| L5 | `assistant` | the AI Assistant: a chat agent (sans I/O: `provider` builds and reads OpenAI/Anthropic/Gemini requests, `agent` loops, `tools` run commands; file, network and plugin commands wait for the user's approval) |
+| L5 | `assistant` | the AI Assistant: a chat agent (sans I/O: `provider` builds and reads OpenAI Chat Completions/Responses, Anthropic and Gemini requests, `chatgpt` signs in with ChatGPT to use the user's plan, `agent` loops, `tools` run commands; file, network and plugin commands wait for the user's approval) |
 | L6 | `ui-egui` | ribbon, panes, map view, attribute table, dialogs (swappable) |
 | apps | `rustgis`, `rustgis-cli`, `rustgis-web`, `rustgis-python` | desktop app, command line, browser (WebAssembly), the `rustgis` Python package (PyO3, built with maturin) |
 
@@ -38,9 +38,10 @@ is a command, a thin egui front end, headless screenshots for UI work.
   WASI runner asynchronously (`external_start` → `Services::geolibre_run` → `gp.finish`).
 - **Interface text is translatable**: wrap user-visible literals in `tl!("…")`, use
   `i18n::fmt("… {name} …", &[("name", …)])` instead of `format!` for messages, and pass labels to
-  the ribbon widgets (they translate). Then add the new strings to every catalog in
-  `crates/ui-egui/src/i18n/*.tsv` (format in `docs/i18n.md`). Command ids, data and the CLI are
-  never translated.
+  the ribbon widgets (they translate). Pull requests don't need to add the new strings to the
+  catalogs in `crates/ui-egui/src/i18n/*.tsv`: a missing entry shows in English, and the
+  maintainer translates them before each release (format in `docs/i18n.md`). Command ids, data
+  and the CLI are never translated.
 - **Layering** is enforced by `cargo xtask layers`: nothing below L6 depends on egui/eframe/rfd.
 
 ## Assets
@@ -52,6 +53,9 @@ is a command, a thin egui front end, headless screenshots for UI work.
 
 ## Quality gates
 `cargo xtask ci` (fmt, clippy -D warnings, tests, layers) before every commit.
+Pull requests run CI on Linux and Windows; pushes to `main` add macOS. Label a pull request
+`ci:macos` or `ci:full` to test there before merging (platform-specific code, paths, file
+dialogs).
 
 ## Looking at the app
 - `cargo run --release -p rustgis` (opens the World Atlas sample).

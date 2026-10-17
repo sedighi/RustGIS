@@ -1,5 +1,19 @@
 # Installation
 
+## Install with an agent
+
+Point your agent at the [RustGIS skill](https://github.com/opengeos/RustGIS/blob/main/skills/rustgis/SKILL.md)
+and ask it to install RustGIS. The skill picks the platform, installs the app and `rustgis-cli`,
+checks the release checksum, and registers the MCP server. The same skill is how an agent manages
+the desktop app that is already open.
+
+## Microsoft Store
+
+On Windows 10 and 11, the easiest way to install RustGIS is from the Microsoft Store, which
+signs the app and keeps it up to date:
+
+[![Get it from Microsoft](https://get.microsoft.com/images/en-us%20dark.svg){ width="200" }](https://apps.microsoft.com/detail/9ppjw8h561lq?mode=direct)
+
 ## Download
 
 Each [GitHub release](https://github.com/opengeos/RustGIS/releases/latest) carries ready-to-run
@@ -29,8 +43,9 @@ deployment (`msiexec /i RustGIS-<version>-windows-x86_64.msi /qn`). Both add a S
 entry, open `.rgis` projects and uninstall from **Settings › Apps**.
 
 The `.msix` is the package submitted to the Microsoft Store, which signs it. It is unsigned
-on the release page, so Windows only installs it from the Store; download an installer or the
-portable zip instead.
+on the release page, so Windows only installs it from the
+[Store](https://apps.microsoft.com/detail/9ppjw8h561lq); outside the Store, download an installer
+or the portable zip instead.
 
 The macOS DMG and command line tool are signed with a Developer ID and notarized by Apple, so
 they open without a warning. From the release after 0.1.0, the notarization ticket is also
@@ -100,7 +115,7 @@ RustGIS also runs in the browser, compiled to WebAssembly: open
 
 The web app opens the way **Settings › Start-up** says (remembered in the browser). The URL can
 override that for one visit: add `?blank` to start with an empty project,
-`?projection=EPSG:3010` (any projected EPSG code, a preset id such as `robinson`, or `globe`) to
+`?projection=EPSG:3010` (a supported projected EPSG code, a preset id such as `robinson`, or `globe`) to
 start in another projection, `?extent=10.5,55,24.5,69.5` (west, south, east, north in degrees) to
 open on an area, `?lang=de` (or any language code) to pick the interface language, or `?webgl` to
 force WebGL2. Combine them with `&`, so a self-hosted build can link to
@@ -114,6 +129,14 @@ stays a `+`. The server must allow the browser to fetch the file (CORS); a file 
 added is said in a notice. For example,
 `?blank&data=https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_week.geojson` opens
 the past week's earthquakes.
+
+`?project=<address>` opens a whole project by its web address: a `.rgis` file (or a
+`.rgispkg` package), or any address that answers with a project's JSON, such as an API that
+builds the project on the fly. Its maps, layers, symbology and view open as saved, so one link
+shares a styled map. The project replaces the start-up one, so `?data=`, `?stac=`, `?style=`,
+`?tiles=` and `?zarr=` are left out beside it (a notice says so). The data the project points to
+is read as it would be from a saved file, and its servers must allow the browser to fetch it
+(CORS), as must the project's.
 
 `?stac=<address>` opens STAC Search on a [STAC](https://stacspec.org) item or collection: an
 item's footprint is drawn and its default asset (its true-colour `visual` image, else its first

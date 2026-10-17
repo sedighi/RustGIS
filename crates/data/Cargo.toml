@@ -21,7 +21,9 @@ proj4rs = { workspace = true }
 crs-definitions = { workspace = true }
 miniz_oxide = { workspace = true }
 roxmltree = { workspace = true }
-parquet = { workspace = true }
+# zstd, the usual compression of GeoParquet, compiles to WebAssembly like the GeoTIFF one above.
+parquet = { workspace = true, features = ["zstd"] }
+url = { workspace = true }
 bytes = { workspace = true }
 flatgeobuf = { workspace = true }
 geozero = { workspace = true }
@@ -36,10 +38,12 @@ lz4_flex = { workspace = true }
 ruzstd = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-# zstd is C: native only. GeoParquet files compressed with it don't open in the browser yet.
-parquet = { workspace = true, features = ["zstd"] }
 tiff = { workspace = true, features = ["zstd"] }
 rusqlite = { workspace = true }
+postgres = { workspace = true }
+tokio-postgres-rustls = { workspace = true }
+rustls = { workspace = true }
+webpki-roots = { workspace = true }
 
 [dev-dependencies]
 # Writing sample GeoParquet files.

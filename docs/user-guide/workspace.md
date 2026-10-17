@@ -24,8 +24,14 @@ Tools for working across maps and views, and for setting up the app the way you 
 - **Language**: **Settings › Language** switches the interface among
   [16 languages](../i18n.md) and chooses the [worldview](maps.md#worldview) of the built-in
   borders.
-- **Start-up**: **Settings › Start-up** sets what RustGIS opens with: **Start With** the World
-  Atlas sample or a blank map, the **Projection** the map opens in (a preset or any projected
-  EPSG code, such as `3010`), and the **Extent** it opens on (the full extent, or **Use Current
-  View** to keep the view you are looking at). The choices are remembered on this computer, or
-  in this browser for the web app. Opening files from the command line starts a blank map.
+- **Start-up**: **Settings › Start-up** sets what RustGIS opens with: **Start With** the World Atlas
+  sample or a blank map, or, in the desktop app, **Last Project** (the `.rgis` project last opened
+  or saved) or **Choose Project…** (one you pick once), the **Projection** the map opens in (a
+  preset or a supported projected EPSG code, such as `3010`), and the **Extent** it opens on (the
+  full extent, or **Use Current View** to keep the view you are looking at). A project opened at
+  start keeps its own projection and view; the Projection and Extent settings apply to the sample
+  and a blank map. If the project no longer opens (moved or deleted), RustGIS starts with the sample
+  and says why. After a crash it starts with the sample too, in case the project is what crashed;
+  starting `rustgis --sample` also skips the start-up project. The choices are remembered on this
+  computer, or in this browser for the web app. Opening files from the command line starts a blank
+  map.

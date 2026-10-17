@@ -14,6 +14,9 @@ use crate::{RightPane, RustGisApp, icons};
 
 pub const TABS: [&str; 10] = ["Home", "Data", "Style", "Edit", "Analyze", "View", "Publish", "Plugins", "Settings", "Help"];
 
+/// Tabs that always show: Settings holds Customize › Ribbon, the way to show hidden tabs again.
+pub const FIXED_TABS: [&str; 2] = ["Settings", "Help"];
+
 /// The tab that holds what an older tab name (in saved pane sets, tasks and scripts) held; Home for
 /// a name that is no tab. Plugins' tabs pass through.
 pub fn current_tab(name: &str) -> &str {
@@ -29,7 +32,8 @@ pub fn current_tab(name: &str) -> &str {
 }
 
 /// Saved hidden tabs under the current names: renamed tabs carry over, and names of tabs whose
-/// groups were spread over several others are dropped (they could no longer be shown again).
+/// groups were spread over several others are dropped (they could no longer be shown again), and so
+/// are the tabs that always show.
 pub fn current_hidden_tabs(saved: Vec<String>) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for name in saved {
@@ -39,7 +43,7 @@ pub fn current_hidden_tabs(saved: Vec<String>) -> Vec<String> {
             "Share" => "Publish",
             n => n,
         };
-        if (TABS.contains(&tab) || tab.starts_with("plugin:")) && !out.iter().any(|t| t == tab) {
+        if (TABS.contains(&tab) || tab.starts_with("plugin:")) && !FIXED_TABS.contains(&tab) && !out.iter().any(|t| t == tab) {
             out.push(tab.to_string());
         }
     }
@@ -315,6 +319,8 @@ fn clipboard_group(app: &mut RustGisApp, ui: &mut Ui) {
 }
 
 fn home_tab(app: &mut RustGisApp, ui: &mut Ui) {
+    // New maps and layouts and the project's items first: where work starts (#328).
+    project_group(app, ui);
     group(ui, "Navigate", |ui| {
         tool_btn(
             ui,
@@ -330,16 +336,33 @@ fn home_tab(app: &mut RustGisApp, ui: &mut Ui) {
                 ui.label(egui::RichText::new(tl!("No bookmarks yet")).weak());
             }
             for n in names {
-                if ui.button(n.as_str()).clicked() {
+                // The name goes to the bookmark; the button at the right removes it.
+                let (go, remove) = egui::Sides::new().show(
+                    ui,
+                    |ui| ui.add(egui::Button::new(n.as_str()).frame(false).min_size(vec2(0.0, 26.0))).clicked(),
+                    |ui| {
+                        let tip = crate::i18n::fmt("Remove {name}", &[("name", &n)]);
+                        let r = crate::widgets::icon_button(ui, "delete", &tip);
+                        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &tip));
+                        r.clicked()
+                    },
+                );
+                if go {
                     let _ = app.run("bookmark.go", json!({"name": n}));
                     ui.close();
                 }
+                if remove {
+                    let _ = app.run("bookmark.remove", json!({"name": n}));
+                }
             }
             ui.separator();
-            if ui.button(tl!("New Bookmark…")).clicked() {
-                let _ = app.run("ui.dialog", json!({"name": "bookmark"}));
-                ui.close();
-            }
+            menu_item(ui, app, "bookmark_new", "New Bookmark…", "ui.dialog", json!({"name": "bookmark"}));
+            // Every map's bookmarks, renamed, described, updated and ordered in place (#351).
+            menu_item(ui, app, "pane_right", "Manage Bookmarks", "ui.pane.bookmarks", Value::Null);
+            // The files apart from the bookmarks themselves.
+            ui.separator();
+            menu_item(ui, app, "bookmark_import", "Import Bookmarks…", "ui.openItem", json!({"kind": "bookmarks"}));
+            menu_item(ui, app, "bookmark_export", "Export Bookmarks…", "ui.saveItem", json!({"kind": "bookmarks"}));
         });
         col(ui, |ui| {
             small(ui, app, "zoom_full", "Full Extent", "Zoom to the extent of all layers.", "map.zoomFull", Value::Null, false);
@@ -390,8 +413,19 @@ fn home_tab(app: &mut RustGisApp, ui: &mut Ui) {
                 false,
             );
         });
+        let on = app.ui.right == Some(crate::RightPane::Directions);
+        big(
+            ui,
+            app,
+            "directions",
+            "Directions",
+            "Plan a route between places and follow it turn by turn (Valhalla, on OpenStreetMap data).",
+            "ui.pane.directions",
+            Value::Null,
+            on,
+            false,
+        );
     });
-    bookmarks_group(app, ui);
     group(ui, "Add", |ui| {
         big_menu(ui, app, "basemap", "Basemap", "Change the map's backdrop.", basemap_gallery);
         big_menu(ui, app, "add_data", "Add\nData", "Add GeoJSON, CSV or Shapefile data to the map.", |ui, app| {
@@ -530,7 +564,89 @@ fn basemap_gallery(ui: &mut Ui, app: &mut RustGisApp) {
             }
         }
     });
+    web_basemaps(ui, app, &t);
     tile_layers(ui, app, &t);
+}
+
+const OPENFREEMAP: &str = "OpenFreeMap © OpenMapTiles Data from OpenStreetMap";
+
+/// Web basemaps that need no API key, offered next to the built-in ones:
+/// (id, name, kind, url, attribution, max zoom).
+const WEB_BASEMAPS: [(&str, &str, &str, &str, &str, u8); 6] = [
+    ("openfreemap-liberty", "OpenFreeMap Liberty", "style", "https://tiles.openfreemap.org/styles/liberty", OPENFREEMAP, 14),
+    ("openfreemap-bright", "OpenFreeMap Bright", "style", "https://tiles.openfreemap.org/styles/bright", OPENFREEMAP, 14),
+    ("openfreemap-positron", "OpenFreeMap Positron", "style", "https://tiles.openfreemap.org/styles/positron", OPENFREEMAP, 14),
+    ("openfreemap-dark", "OpenFreeMap Dark", "style", "https://tiles.openfreemap.org/styles/dark", OPENFREEMAP, 14),
+    ("openfreemap-fiord", "OpenFreeMap Fiord", "style", "https://tiles.openfreemap.org/styles/fiord", OPENFREEMAP, 14),
+    (
+        "usgs-imagery",
+        "USGS Imagery",
+        "raster",
+        "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}",
+        "USGS The National Map",
+        16,
+    ),
+];
+
+/// The id of the registry plugin with many more web basemaps.
+const BASEMAPS_PLUGIN: &str = "basemaps";
+
+/// Web basemaps (OpenFreeMap, USGS) that replace the other tile basemaps, and where to get more.
+fn web_basemaps(ui: &mut Ui, app: &mut RustGisApp, t: &Tokens) {
+    ui.add_space(6.0);
+    ui.separator();
+    ui.label(egui::RichText::new(tl!("Web Basemaps")).font(semibold(12.5)));
+    ui.add_space(2.0);
+    // The web basemap on top (the one showing), if any.
+    let top = app.session.map().tiles.iter().find(|l| !l.overlay && l.visible).map(|l| l.id.clone());
+    egui::Grid::new("web-basemaps").spacing(vec2(6.0, 4.0)).show(ui, |ui| {
+        for (i, (id, name, kind, url, attribution, max_zoom)) in WEB_BASEMAPS.into_iter().enumerate() {
+            let sel = top.as_deref() == Some(id);
+            let resp = ui.add_sized(vec2(140.0, 22.0), egui::Button::selectable(sel, name)).on_hover_text(url);
+            if resp.clicked() {
+                let p = json!({"url": url, "kind": kind, "name": name, "attribution": attribution, "maxZoom": max_zoom, "id": id, "replace": true});
+                let _ = app.run("map.addTiles", p);
+                ui.close();
+            }
+            if i % 2 == 1 {
+                ui.end_row();
+            }
+        }
+    });
+    ui.add_space(4.0);
+    // The plugin's tab when it shows; else the Plugin Manager, to turn the plugin on or install it.
+    let tab = plugin_tab_id(BASEMAPS_PLUGIN);
+    let (ask, link, hint, then) = if plugin_tabs(app).iter().any(|(id, _)| *id == tab) {
+        (tl!("More basemaps:"), tl!("Open the Basemaps tab"), tl!("The Basemaps plugin's tab of public basemaps."), None)
+    } else if rustgis_engine::plugins::get(BASEMAPS_PLUGIN).is_some() {
+        (
+            tl!("More basemaps:"),
+            tl!("Turn on the Basemaps plugin"),
+            tl!("It's installed but turned off: turn it on in the Plugin Manager."),
+            Some(json!({"open": true, "tab": "installed"})),
+        )
+    } else {
+        (
+            tl!("Want more basemaps?"),
+            tl!("Install the Basemaps plugin"),
+            tl!("OpenStreetMap, Esri, USGS, NASA and more, from the plugin registry."),
+            Some(json!({"open": true, "tab": "browse", "filter": BASEMAPS_PLUGIN})),
+        )
+    };
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        ui.label(egui::RichText::new(ask).weak().small());
+        let resp = ui.add(egui::Link::new(egui::RichText::new(link).small().color(t.accent)));
+        if resp.on_hover_text(hint).clicked() {
+            match then {
+                Some(p) => {
+                    let _ = app.run("ui.plugins", p);
+                }
+                None => app.ui.tab = tab.clone(),
+            }
+            ui.close();
+        }
+    });
 }
 
 /// The map's web tile layers (top first): shown, opacity, order and removal, and adding one.
@@ -577,6 +693,10 @@ fn tile_layers(ui: &mut Ui, app: &mut RustGisApp, t: &Tokens) {
         if ui.button(tl!("Add Tile Layer…")).on_hover_text(tl!("Add raster tiles, vector tiles or a map style by address.")).clicked() {
             let _ = app.run("ui.dialog", json!({"name": "addTiles"}));
             ui.close();
+        }
+        if !tiles.is_empty() && ui.button(tl!("Reload")).on_hover_text(tl!("Fetch the tiles and styles of the web layers again.")).clicked()
+        {
+            let _ = app.run("map.reloadWebLayers", json!({}));
         }
         if !tiles.is_empty() && ui.button(tl!("Remove All")).clicked() {
             let _ = app.run("map.removeTiles", json!({}));
@@ -994,22 +1114,6 @@ fn styles_group(app: &mut RustGisApp, ui: &mut Ui) {
     });
 }
 
-fn bookmarks_group(app: &mut RustGisApp, ui: &mut Ui) {
-    group(ui, "Bookmarks", |ui| {
-        big(
-            ui,
-            app,
-            "bookmark",
-            "New\nBookmark",
-            "Save the current extent as a bookmark.",
-            "ui.dialog",
-            json!({"name": "bookmark"}),
-            false,
-            false,
-        );
-    });
-}
-
 fn graphics_group(app: &mut RustGisApp, ui: &mut Ui) {
     group(ui, "Graphics", |ui| {
         let tools: [&[(&str, &str, &str, &str)]; 4] = [
@@ -1339,6 +1443,18 @@ fn view_tab(app: &mut RustGisApp, ui: &mut Ui) {
         big(ui, app, "graticule", "Graticule", "Show latitude/longitude lines on the basemap.", "map.graticule", Value::Null, g, false);
         let dark = app.ui.dark;
         big(ui, app, "dark", "Dark\nMode", "Switch between light and dark themes.", "ui.theme", Value::Null, dark, false);
+        let gpu = app.map.gpu_enabled;
+        big(
+            ui,
+            app,
+            "map",
+            "GPU\nRendering",
+            "Draw the map on the GPU (beta; the globe, view effects and colour-vision simulation stay on the CPU renderer).",
+            "ui.map.gpu",
+            Value::Null,
+            gpu,
+            false,
+        );
     });
     group(ui, "View", |ui| {
         let on = app.session.map().projection.is_globe();
@@ -1374,16 +1490,18 @@ fn view_tab(app: &mut RustGisApp, ui: &mut Ui) {
         });
         col(ui, |ui| {
             small(ui, app, "globe_view", "Global", "A globe scene.", "map.viewMode", json!({"mode": "global"}), on);
-            small(
-                ui,
-                app,
-                "map",
-                "Local",
-                "A flat scene centred on the view (azimuthal equidistant).",
-                "map.viewMode",
-                json!({"mode": "local"}),
-                local,
-            );
+            if rustgis_engine::map::projection::local_views_supported() {
+                small(
+                    ui,
+                    app,
+                    "map",
+                    "Local",
+                    "A flat scene centred on the view (azimuthal equidistant).",
+                    "map.viewMode",
+                    json!({"mode": "local"}),
+                    local,
+                );
+            }
         });
     });
     let v = app.session.map().view.clone();
@@ -1426,12 +1544,16 @@ fn view_tab(app: &mut RustGisApp, ui: &mut Ui) {
         });
         col(ui, |ui| {
             let (vig, edges, tilt, grain) = (v.effects.vignette, v.effects.edges, v.effects.tilt_shift, v.effects.grain);
-            small_menu(ui, app, "eye", "Visual Effect", "Vignette and edge outlines.", move |ui, app| {
+            let stars = v.effects.stars;
+            small_menu(ui, app, "eye", "Visual Effect", "Vignette, edge outlines and the stars around the globe.", move |ui, app| {
                 if ui.checkbox(&mut vig.clone(), tl!("Vignette")).clicked() {
                     let _ = app.run("map.effects", json!({"vignette": !vig}));
                 }
                 if ui.checkbox(&mut edges.clone(), tl!("Edges")).clicked() {
                     let _ = app.run("map.effects", json!({"edges": !edges}));
+                }
+                if ui.checkbox(&mut stars.clone(), tl!("Stars")).clicked() {
+                    let _ = app.run("map.effects", json!({"stars": !stars}));
                 }
             });
             small_menu(ui, app, "zoom_box", "Camera Effect", "Tilt-shift blur and film grain.", move |ui, app| {
@@ -1642,6 +1764,16 @@ fn view_tab(app: &mut RustGisApp, ui: &mut Ui) {
                 Value::Null,
                 app.ui.right == Some(RightPane::Assistant),
             );
+            small(
+                ui,
+                app,
+                "bookmark",
+                "Bookmarks",
+                "Show or hide the Bookmarks pane: every map's bookmarks.",
+                "ui.pane.bookmarks",
+                Value::Null,
+                app.ui.right == Some(RightPane::Bookmarks),
+            );
         });
         small(
             ui,
@@ -1692,7 +1824,7 @@ fn view_tab(app: &mut RustGisApp, ui: &mut Ui) {
     });
     group(ui, "Link", |ui| {
         col(ui, |ui| {
-            let split = app.ws.split.is_some();
+            let split = crate::mapview::split_map(app).is_some();
             small(ui, app, "pane_right", "Side by Side", "Show a second map beside this one.", "ui.splitView", Value::Null, split);
             small(ui, app, "zoom_full", "Link Views", "Maps move together.", "view.linkViews", Value::Null, app.session.project.link_views);
             small(
@@ -1797,7 +1929,6 @@ fn view_tab(app: &mut RustGisApp, ui: &mut Ui) {
 
 /// The Data tab: bringing data in, tables, fields, queries, relationships and export.
 fn data_tab(app: &mut RustGisApp, ui: &mut Ui) {
-    project_group(app, ui);
     layer_templates_group(app, ui);
     if active_layer(app).is_some_and(|l| l.is_raster()) {
         raster_data_groups(app, ui);
@@ -2618,6 +2749,30 @@ fn plugin_tab(app: &mut RustGisApp, ui: &mut Ui, plugin: &str) {
 }
 
 fn settings_tab(app: &mut RustGisApp, ui: &mut Ui) {
+    group(ui, "Customize", |ui| {
+        let hidden = app.ui.hidden_tabs.clone();
+        // RustGIS's tabs and plugins' tabs.
+        let mut all: Vec<(String, String)> =
+            TABS.iter().filter(|t| !FIXED_TABS.contains(*t)).map(|t| (t.to_string(), tl!(*t).to_string())).collect();
+        all.extend(plugin_tabs(app));
+        big_menu(ui, app, "settings", "Ribbon", "Choose which tabs the ribbon shows.", move |ui, app| {
+            for (tab, caption) in &all {
+                let mut on = !hidden.iter().any(|h| h == tab);
+                if ui.checkbox(&mut on, caption.as_str()).clicked() {
+                    let _ = app.run("ui.customizeRibbon", json!({"tab": tab}));
+                }
+            }
+        });
+        let qa = app.ui.quick_access.clone();
+        big_menu(ui, app, "command", "Quick\nAccess", "Choose extra buttons for the Quick Access Toolbar.", move |ui, app| {
+            for (id, label) in QUICK {
+                let mut on = qa.iter().any(|c| c == id);
+                if ui.checkbox(&mut on, tl!(*label)).clicked() {
+                    let _ = app.run("ui.quickAccess", json!({"command": id}));
+                }
+            }
+        });
+    });
     group(ui, "Language", |ui| {
         language_menu(app, ui);
         worldview_menu(app, ui);
@@ -2625,16 +2780,61 @@ fn settings_tab(app: &mut RustGisApp, ui: &mut Ui) {
     group(ui, "Start-up", |ui| start_project_menu(app, ui));
 }
 
-/// Settings › Start-up › Start With: the World Atlas sample or an empty project.
+/// Settings › Start-up › Start With: the World Atlas sample, an empty project, or (in the
+/// desktop app) a project picked once or the last one opened or saved (#377).
 fn start_project_menu(app: &mut RustGisApp, ui: &mut Ui) {
-    let blank = app.ui.start_blank;
-    let current = if blank { tl!("Blank Map") } else { tl!("World Atlas") };
+    use crate::StartWith;
+    let with = app.ui.start_with.clone();
+    // The button's second line is the file's name, kept short so the ribbon keeps its width.
+    let short_name = |p: &str| {
+        let name = std::path::Path::new(p).file_name().map_or_else(|| p.to_string(), |n| n.to_string_lossy().into_owned());
+        if name.chars().count() > 24 { format!("{}…", name.chars().take(23).collect::<String>()) } else { name }
+    };
+    let current = match &with {
+        StartWith::Sample => tl!("World Atlas").to_string(),
+        StartWith::Blank => tl!("Blank Map").to_string(),
+        StartWith::Last => tl!("Last Project").to_string(),
+        StartWith::File(p) => short_name(p),
+    };
     let label = format!("{}\n{current}", tl!("Start With"));
-    big_menu(ui, app, "map", &label, "What RustGIS opens with: the World Atlas sample or a blank map.", move |ui, app| {
-        for (b, name) in [(false, tl!("World Atlas")), (true, tl!("Blank Map"))] {
-            if ui.add(egui::Button::selectable(blank == b, name)).clicked() {
-                let _ = app.run("ui.startup", json!({"blank": b}));
+    let files = app.opens_files();
+    let tip = if files {
+        "What RustGIS opens with: the World Atlas sample, a blank map, a project you choose, or the last project opened or saved."
+    } else {
+        "What RustGIS opens with: the World Atlas sample or a blank map."
+    };
+    big_menu(ui, app, "map", &label, tip, move |ui, app| {
+        for (w, name) in [(StartWith::Sample, tl!("World Atlas")), (StartWith::Blank, tl!("Blank Map"))] {
+            if ui.add(egui::Button::selectable(with == w, name)).clicked() {
+                let _ = app.run("ui.startup", json!({"project": w.json()}));
                 ui.close();
+            }
+        }
+        if !files {
+            return;
+        }
+        // Last Project: offered once there is one (or while it's the choice).
+        let last = app.ui.last_project.clone();
+        let item = ui
+            .add_enabled(last.is_some() || with == StartWith::Last, egui::Button::selectable(with == StartWith::Last, tl!("Last Project")))
+            .on_hover_text(last.clone().unwrap_or_else(|| tl!("No project opened or saved yet").to_string()))
+            .on_disabled_hover_text(tl!("No project opened or saved yet"));
+        if item.clicked() {
+            let _ = app.run("ui.startup", json!({"project": "last"}));
+            ui.close();
+        }
+        let chosen = match &with {
+            StartWith::File(p) => p.clone(),
+            _ => String::new(),
+        };
+        let item = ui.add(egui::Button::selectable(matches!(with, StartWith::File(_)), tl!("Choose Project…")));
+        let item = if chosen.is_empty() { item } else { item.on_hover_text(chosen) };
+        if item.clicked() {
+            ui.close();
+            if let Some(path) = crate::dialogs::pick_open(&["rgis", "rgisx"], tl!("RustGIS project"))
+                && let Err(e) = app.run("ui.startup", json!({"project": {"path": path}}))
+            {
+                app.session.notify(e, true);
             }
         }
     });
@@ -2704,29 +2904,6 @@ fn start_projection_menu(app: &mut RustGisApp, ui: &mut Ui) {
 }
 
 fn help_tab(app: &mut RustGisApp, ui: &mut Ui) {
-    group(ui, "Customize", |ui| {
-        let hidden = app.ui.hidden_tabs.clone();
-        // RustGIS's tabs and plugins' tabs.
-        let mut all: Vec<(String, String)> = TABS.iter().filter(|t| **t != "Help").map(|t| (t.to_string(), tl!(*t).to_string())).collect();
-        all.extend(plugin_tabs(app));
-        big_menu(ui, app, "settings", "Ribbon", "Choose which tabs the ribbon shows.", move |ui, app| {
-            for (tab, caption) in &all {
-                let mut on = !hidden.iter().any(|h| h == tab);
-                if ui.checkbox(&mut on, caption.as_str()).clicked() {
-                    let _ = app.run("ui.customizeRibbon", json!({"tab": tab}));
-                }
-            }
-        });
-        let qa = app.ui.quick_access.clone();
-        big_menu(ui, app, "command", "Quick\nAccess", "Choose extra buttons for the Quick Access Toolbar.", move |ui, app| {
-            for (id, label) in QUICK {
-                let mut on = qa.iter().any(|c| c == id);
-                if ui.checkbox(&mut on, tl!(*label)).clicked() {
-                    let _ = app.run("ui.quickAccess", json!({"command": id}));
-                }
-            }
-        });
-    });
     group(ui, "Performance", |ui| {
         big(
             ui,
@@ -3239,8 +3416,8 @@ fn drawing_group(app: &mut RustGisApp, ui: &mut Ui, layer: &rustgis_engine::map:
         col(ui, |ui| {
             let mut c = crate::theme::c32(layer.renderer.base_symbol().fill);
             ui.horizontal(|ui| {
-                if ui.color_edit_button_srgba(&mut c).changed() {
-                    let _ = app.run("layer.color", json!({"color": crate::theme::rgba(c).hex()}));
+                if crate::widgets::color_button(ui, &mut c).changed() {
+                    let _ = app.run("layer.color", json!({"color": crate::theme::rgba(c).hex8()}));
                 }
                 ui.label(egui::RichText::new(tl!("Color")).size(11.5));
             });
@@ -3616,7 +3793,7 @@ fn label_groups(app: &mut RustGisApp, ui: &mut Ui) {
             let mut c = crate::theme::c32(layer.labels.color);
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(tl!("Color")).size(11.5));
-                if ui.color_edit_button_srgba(&mut c).changed() {
+                if crate::widgets::color_button(ui, &mut c).changed() {
                     let _ = app.run("labels.style", json!({"color": crate::theme::rgba(c).hex()}));
                 }
             });
@@ -3800,4 +3977,15 @@ fn language_menu(app: &mut RustGisApp, ui: &mut Ui) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn saved_hidden_tabs_never_hide_the_fixed_tabs() {
+        let saved = ["Settings", "Help", "Edit", "Share", "Edit"].iter().map(|t| t.to_string()).collect();
+        assert_eq!(current_hidden_tabs(saved), vec!["Edit".to_string(), "Publish".to_string()]);
+    }
 }

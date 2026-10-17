@@ -361,3 +361,77 @@ pub fn icon_button(ui: &mut Ui, icon: &str, hover: &str) -> Response {
     icons::paint(ui.painter(), r.shrink(5.0), icon, t.text, t.accent);
     resp.on_hover_text(hover)
 }
+
+/// A search field, laid out like Command Search's (#337): the search icon, a frameless text box
+/// with `hint` and, once it holds text, a ✕ that clears it, across the width it is given (the
+/// caller adds margins and any separator). Escape clears the text, and on an empty box lets go
+/// of the focus. Returns the text box's response, marked changed when the ✕ or Escape clear it.
+pub fn search_field(ui: &mut Ui, text: &mut String, hint: &str) -> Response {
+    let t = Tokens::get(ui.ctx());
+    ui.horizontal(|ui| {
+        let (r, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
+        icons::paint(ui.painter(), r, "search", t.text_dim, t.accent);
+        let clear = !text.is_empty();
+        let room = ui.available_width() - if clear { 22.0 + ui.spacing().item_spacing.x } else { 0.0 };
+        // The box keeps Escape (egui would drop its focus on it before the global shortcuts ran,
+        // which then take the key): Escape clears the text, and on an empty box lets go.
+        let keys = egui::EventFilter { horizontal_arrows: true, vertical_arrows: true, escape: true, ..Default::default() };
+        let edit = egui::TextEdit::singleline(text).hint_text(hint).frame(egui::Frame::NONE);
+        let mut edit = ui.add(edit.desired_width(room).event_filter(keys));
+        if edit.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            if text.is_empty() {
+                edit.surrender_focus();
+            } else {
+                text.clear();
+                edit.mark_changed();
+            }
+        }
+        if clear {
+            let (r, resp) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::click());
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Clear")));
+            if resp.hovered() {
+                ui.painter().rect_filled(r, CornerRadius::same(5), t.hover);
+            }
+            icons::paint(ui.painter(), r.shrink(5.0), "close", t.text_dim, t.accent);
+            if resp.on_hover_text(tl!("Clear")).clicked() {
+                text.clear();
+                edit.mark_changed();
+            }
+        }
+        edit
+    })
+    .inner
+}
+
+/// A colour button whose picker has no "Additive" blending (#381). RustGIS symbols blend normally
+/// only, and egui's additive colour is a premultiplied one with zero alpha, which unmultiplies to
+/// transparent black (`to_srgba_unmultiplied`): picking it made the symbol disappear.
+pub fn color_button(ui: &mut Ui, color: &mut egui::Color32) -> Response {
+    egui::color_picker::color_edit_button_srgba(ui, color, egui::color_picker::Alpha::OnlyBlend)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use egui_kittest::kittest::Queryable;
+
+    /// Opens a colour button's picker and says whether it offers additive blending.
+    fn offers_additive(button: fn(&mut egui::Ui, &mut egui::Color32)) -> bool {
+        let mut h = egui_kittest::Harness::builder()
+            .build_ui_state(|ui, c: &mut egui::Color32| button(ui, c), egui::Color32::from_rgb(224, 105, 59));
+        h.get_by_role(egui::accesskit::Role::ColorWell).click();
+        h.run();
+        h.query_by_label("Additive").is_some()
+    }
+
+    #[test]
+    fn colour_buttons_offer_no_additive_blending() {
+        // egui's own button offers it, so the check can tell; RustGIS's doesn't (#381).
+        assert!(offers_additive(|ui, c| {
+            ui.color_edit_button_srgba(c);
+        }));
+        assert!(!offers_additive(|ui, c| {
+            super::color_button(ui, c);
+        }));
+    }
+}

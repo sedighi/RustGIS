@@ -15,13 +15,19 @@ pub mod fgb;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod gdal;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod geojson;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod gpkg;
 mod gpkg_blob;
 pub mod gpkg_mem;
 pub mod lidar;
 pub mod parquet;
 pub mod pgconn;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod postgis;
 pub mod remote;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod shp;
 
 use crate::raster::{Crs, Transformer};
 use crate::{DataError, Dataset, Feature, Field, Geometry, GeometryType, ReadReport, Result};
@@ -141,6 +147,13 @@ pub fn open_path(path: &Path, layer: Option<&str>) -> Result<Box<dyn FeatureSour
         "las" | "laz" => Ok(Box::new(lidar::LidarSource::open_path(path, &name)?)),
         #[cfg(not(target_arch = "wasm32"))]
         "gpkg" => Ok(Box::new(gpkg::GpkgSource::open(path, layer)?)),
+        // Only large GeoJSON files are read in place (see `geojson`); `is_source_name` leaves
+        // them out.
+        #[cfg(not(target_arch = "wasm32"))]
+        "geojson" | "json" => Ok(Box::new(geojson::GeoJsonSource::open_path(path, &name)?)),
+        // Only large Shapefiles are read in place (see `shp`); `is_source_name` leaves them out.
+        #[cfg(not(target_arch = "wasm32"))]
+        "shp" => Ok(Box::new(shp::ShpSource::open_path(path, &name)?)),
         other => {
             let _ = layer;
             Err(DataError::Unsupported(other.to_string()))
@@ -274,7 +287,7 @@ pub fn materialize(src: &dyn FeatureSource) -> Result<(Dataset, ReadReport)> {
     let info = src.info();
     let batch = src.read(&Request::all())?;
     let mut ds = Dataset::new(info.name.clone(), info.geometry_type, info.fields.clone());
-    ds.features = batch.features;
+    ds.features = batch.features.into();
     let mut report = ReadReport { skipped: batch.skipped, messages: info.notes.iter().map(|n| format!("{}: {n}", info.name)).collect() };
     if !batch.complete {
         report.messages.push(format!("{}: read a sample of {} of {} features", info.name, ds.features.len(), batch.matched));
@@ -322,6 +335,12 @@ impl Reproject {
                 }
             },
         };
+        Reproject::from_crs(crs, notes)
+    }
+
+    /// From a coordinate system; one that can't be converted is taken as longitude/latitude, with
+    /// a note.
+    pub(crate) fn from_crs(crs: Crs, notes: &mut Vec<String>) -> Reproject {
         let t = match crs {
             Crs::LonLat => None,
             other => match other.transformer() {
@@ -333,6 +352,12 @@ impl Reproject {
             },
         };
         Reproject { crs: if t.is_some() { crs } else { Crs::LonLat }, t }
+    }
+
+    /// Whether coordinates are taken as they are.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn is_lonlat(&self) -> bool {
+        self.t.is_none()
     }
 
     pub(crate) fn label(&self) -> String {

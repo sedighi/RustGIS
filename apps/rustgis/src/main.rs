@@ -8,7 +8,11 @@ use rustgis_engine::{Project, Session};
 use rustgis_ui_egui::RustGisApp;
 use serde_json::json;
 
-struct App(RustGisApp);
+#[cfg(target_os = "macos")]
+mod macos;
+
+/// The app, and this run's marker (see [`running`]), cleared when eframe closes it.
+struct App(RustGisApp, running::Shared);
 
 /// Preferences in `prefs.json` beside the platform's other app settings.
 mod prefs {
@@ -145,8 +149,100 @@ mod crash {
     }
 }
 
+/// Whether the last launch ended without a clean exit, told by a marker file this run holds
+/// (locked) and empties when it closes. A crash of any kind (a panic, a native abort, a stack
+/// overflow, running out of memory), a kill or a power cut leaves it set; a panic that was caught
+/// and recovered from doesn't. A second copy running alongside can't lock it, so it doesn't count.
+mod running {
+    use std::fs::{File, OpenOptions};
+    use std::io::{Read, Seek, Write};
+    use std::path::Path;
+
+    /// The marker, held while this run lasts.
+    pub struct Marker(File);
+
+    /// Takes `<dir>/running` for this run: the marker (none when another copy holds it or the
+    /// folder can't be written) and whether the previous run didn't close cleanly.
+    pub fn start(dir: Option<&Path>) -> (Option<Marker>, bool) {
+        let Some(dir) = dir else { return (None, false) };
+        let file = std::fs::create_dir_all(dir)
+            .and_then(|_| OpenOptions::new().read(true).write(true).create(true).truncate(false).open(dir.join("running")));
+        let mut file = match file {
+            Ok(f) => f,
+            Err(e) => {
+                log::warn!("no run marker in {} ({e}): an unclean exit won't be noticed", dir.display());
+                return (None, false);
+            }
+        };
+        match file.try_lock() {
+            Ok(()) => {}
+            Err(std::fs::TryLockError::WouldBlock) => {
+                log::info!("the run marker is held: another copy of RustGIS is running");
+                return (None, false);
+            }
+            // The folder can't lock files (some network or FUSE folders): keep the marker unlocked,
+            // so unclean exits are still noticed. Without a lock, copies running side by side share
+            // it: the second is taken for an unclean exit (it only loses its start-up project), and
+            // when it closes first it clears the marker, so a later crash of the first goes
+            // unnoticed. Every copy still clears the marker on a clean exit: none holds a lock here,
+            // and a marker nobody clears would make every later launch look unclean.
+            Err(std::fs::TryLockError::Error(e)) => {
+                log::warn!("could not lock the run marker ({e}): a second copy running alongside will look like an unclean exit");
+            }
+        }
+        // A clean exit leaves the marker empty: anything in it (whatever it reads as) means the
+        // last run didn't close, and so does a marker that can't be read.
+        let mut bytes = Vec::new();
+        let unclean = match file.read_to_end(&mut bytes) {
+            Ok(_) => !bytes.is_empty(),
+            Err(e) => {
+                log::warn!("could not read the run marker ({e}): taking the last run as not closed");
+                true
+            }
+        };
+        let marked = file.set_len(0).and_then(|_| file.rewind()).and_then(|_| file.write_all(b"running")).and_then(|_| file.flush());
+        if let Err(e) = marked {
+            log::warn!("could not mark this run: {e}");
+        }
+        (Some(Marker(file)), unclean)
+    }
+
+    impl Marker {
+        /// A clean exit: the next launch starts as usual. Dropping the file releases the lock.
+        pub fn close(self) {
+            if let Err(e) = self.0.set_len(0) {
+                log::warn!("could not clear the run marker: {e}");
+            }
+        }
+    }
+
+    /// The marker as the app and `main` both hold it: whichever sees the clean exit first
+    /// clears it (the app's `on_exit`, or `main` when `run_native` returns, which also covers
+    /// eframe failing to start before the app exists).
+    pub type Shared = std::sync::Arc<std::sync::Mutex<Option<Marker>>>;
+
+    /// Clears a shared marker once.
+    pub fn close(marker: &Shared) {
+        let taken = marker.lock().map(|mut m| m.take()).unwrap_or_else(|poisoned| poisoned.into_inner().take());
+        if let Some(m) = taken {
+            m.close();
+        }
+    }
+}
+
 impl eframe::App for App {
-    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        // The GPU map backend draws inside egui's wgpu pass; hand over the render state.
+        self.0.set_render_state(frame.wgpu_render_state().cloned());
+        #[cfg(target_os = "macos")]
+        {
+            let titlebar = macos::titlebar();
+            // egui repaints on events only: when the window system answers late, draw again.
+            if titlebar != self.0.ui.titlebar {
+                ctx.request_repaint();
+            }
+            self.0.ui.titlebar = titlebar;
+        }
         self.0.logic(ctx);
         if self.0.quit_requested {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -154,6 +250,11 @@ impl eframe::App for App {
     }
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.0.ui(ui);
+    }
+    /// Every way eframe closes the app comes here, Cmd+Q on macOS included, which may not
+    /// return from `run_native`: the run ended cleanly.
+    fn on_exit(&mut self) {
+        running::close(&self.1);
     }
 }
 
@@ -165,6 +266,9 @@ fn main() -> eframe::Result {
     }
     // What an earlier session left, before this one can write a new log.
     let crashed = crash::take_previous(prefs::dir());
+    // Whether it closed cleanly: if not, the Start With project isn't opened (it may be what
+    // crashed, and reopening it on every launch would leave no way into Settings).
+    let (marker, unclean) = running::start(prefs::dir().as_deref());
     crash::install(prefs::dir());
     let files: Vec<&String> = args.iter().filter(|a| !a.starts_with("--")).collect();
     // Installed plugins, before the first session lists commands and tools.
@@ -177,12 +281,12 @@ fn main() -> eframe::Result {
     let mut app = app.with_services(prefs::services());
     // Settings › Start-up; `--sample` still opens the sample.
     let blank = if args.iter().any(|a| a == "--sample") { Some(false) } else { (!files.is_empty()).then_some(true) };
-    if let Err(e) = app.start(&rustgis_ui_egui::Start { blank, ..Default::default() }) {
+    if let Err(e) = app.start(&rustgis_ui_egui::Start { blank, after_crash: unclean, ..Default::default() }) {
         log::warn!("start-up: {e}");
     }
     if let Some(log) = crashed {
         // Notices are shown as written: translate this one now that the language is known.
-        rustgis_ui_egui::i18n::set_current(app.lang());
+        rustgis_ui_egui::i18n::set_current(app.chosen_lang());
         let text = rustgis_ui_egui::i18n::fmt(
             "RustGIS ran into an internal error last time. The details are in {path}; please attach them to a bug report.",
             &[("path", &log.display().to_string())],
@@ -206,17 +310,56 @@ fn main() -> eframe::Result {
         .with_inner_size([1480.0, 920.0])
         .with_min_inner_size([900.0, 560.0])
         .with_drag_and_drop(true);
+    // macOS: the header is the title bar, with the window buttons floating over its left end.
+    #[cfg(target_os = "macos")]
+    {
+        viewport = viewport.with_fullsize_content_view(true).with_titlebar_shown(false).with_title_shown(false);
+    }
     if let Some((size, rgba)) = rustgis_engine::render::logo::rgba(256) {
         viewport = viewport.with_icon(egui::IconData { rgba, width: size, height: size });
     }
     let options = eframe::NativeOptions { viewport, ..Default::default() };
-    eframe::run_native("RustGIS", options, Box::new(move |_cc| Ok(Box::new(App(app)))))
+    let marker: running::Shared = std::sync::Arc::new(std::sync::Mutex::new(marker));
+    let held = marker.clone();
+    let result = eframe::run_native("RustGIS", options, Box::new(move |_cc| Ok(Box::new(App(app, held)))));
+    running::close(&marker);
+    result
 }
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::panic)]
 mod tests {
-    use super::crash;
+    use super::{crash, running};
+
+    #[test]
+    fn a_run_that_did_not_close_is_noticed_once() {
+        let dir = std::env::temp_dir().join(format!("rustgis-running-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // Removed however the test ends (declared first, so dropped after the markers).
+        let _cleanup = TempDir(dir.clone());
+        let (first, unclean) = running::start(Some(&dir));
+        assert!(first.is_some() && !unclean, "a first run");
+        // Another copy running alongside can't take it, and doesn't count as a crash.
+        let (second, unclean) = running::start(Some(&dir));
+        assert!(second.is_none() && !unclean);
+        // This run ends without closing (a crash): the next one notices, once it closes cleanly.
+        drop(first);
+        let (after_crash, unclean) = running::start(Some(&dir));
+        assert!(unclean);
+        after_crash.unwrap().close();
+        let (next, unclean) = running::start(Some(&dir));
+        assert!(!unclean);
+        drop(next);
+    }
+
+    /// A folder removed when the test ends, passed or failed.
+    struct TempDir(std::path::PathBuf);
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
 
     #[test]
     fn crash_times_are_utc_dates() {

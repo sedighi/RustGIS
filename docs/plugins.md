@@ -53,7 +53,8 @@ described below, and RustGIS checks each one:
 - With the **`edit`** permission, it can change the project. It can run commands that edit it and
   add layers. A plugin command that changes the project is one undo step, and it is rolled back
   if the command fails.
-- With the **`files`** permission, it can run commands that read or write files the user names.
+- With the **`files`** permission, it can run commands that read or write files the user names,
+  and its tools can take a file the user picks (a [`file` parameter](#file-parameters)).
 - With the **`network`** permission (and `edit`), it can add web tile layers (`map.addTiles`).
   The map then loads tiles from the addresses the plugin gave, and an address can carry what the
   plugin read from the project, so this is a permission of its own. A command that would bring
@@ -61,6 +62,9 @@ described below, and RustGIS checks each one:
   `network`.
 - No plugin may run the user's scripts, tasks or models, install or locate other software,
   manage plugins, replace the project, or step through undo history.
+
+A [process plugin](#process-plugins) is the exception: it is a program on your computer, not
+sandboxed, and the install prompt says so.
 
 The install prompt lists these permissions. Each call has a fuel budget, so a plugin stuck in a
 loop is stopped. Memory is capped at 512 MB, and requests and replies are size-limited. A plugin
@@ -142,12 +146,35 @@ cargo build --release --target wasm32-unknown-unknown
 - `commands[].icon`: the name of one of RustGIS's own icons (`stats`, `zoom_full`, `bookmark`,
   `buffer`…), or a puzzle piece when it isn't one.
 - Tool parameter `kind`s: `layer`, `vectorLayer`, `polygonLayer`, `pointLayer`, `field`,
-  `numericField`, `number`, `text`, `choice` (with `choices`) and `bool`.
+  `numericField`, `number`, `text`, `choice` (with `choices`), `bool` and `file` (see
+  [File parameters](#file-parameters)).
 - `i18n` translates the plugin's own text into the interface language, by language code (`de`,
   `zh-CN`…). See [Translations](#translations).
+- `skills` (optional) lists skills for the AI Assistant that the package carries. See
+  [Skills](#skills).
 
 A package is a zip archive named `<id>-<version>.rgplugin`. It holds `plugin.json` and the module
 at its root, or inside one top-level folder. Packages are at most 64 MB, and modules at most 48 MB.
+
+### File parameters
+
+A tool can read a file the user picks, such as a NetCDF model run, with a `file` parameter.
+The plugin needs the `files` permission:
+
+```json
+{ "name": "model", "label": "Model output", "kind": "file", "required": true, "extensions": ["nc", "nc4"] }
+```
+
+- The Tools pane shows a path box with a **Browse** button. `extensions` (without the dot; up
+  to 16) filters the file picker; leave it out for any file.
+- On the desktop and the command line the value is a path, and RustGIS reads the file. In the
+  web app, which has no paths, the user picks the file and its contents go with the run. A
+  script can do the same with `{"name": "run.nc", "data": base64}`.
+- The tool gets the file in the request's `files`, by parameter name, as
+  `{"name": "run.nc", "data": base64}`. The parameter itself holds just the file name.
+- Files are at most 64 MB. The Geoprocessing history keeps the file's name, not its contents.
+- RustGIS versions before file parameters refuse a plugin that has one, so set
+  `minRustgisVersion` to the first version with them.
 
 ### Translations
 
@@ -221,12 +248,24 @@ Inside a request, `host::call(op, params)` sends one of these to RustGIS:
 | `map.addTiles` `{url, kind?, name?, attribution?, maxZoom?, overlay?, replace?}` | adds a web tile layer (`edit` and `network`) |
 | any command id (`layer.zoomTo`, `select.byAttributes`, `layer.symbology`…) | what the command returns, within the plugin's permissions |
 
+In the web app a command can't wait for a download, so where `layer.addUrl` has to download a
+file whole it answers `{"pending": true, "url": …}` there: RustGIS downloads the data off the
+frame and adds the layer when it lands, as **Home › Add Data › From URL** does. A PMTiles
+archive, a cloud-optimised GeoTIFF or a FlatGeobuf or GeoParquet read in place is added at once,
+as elsewhere.
+
 `rustgis-cli commands` lists every command id and its parameters.
 
 Tools work differently. A tool receives its layer parameters' features as GeoJSON (only the
-selected features when a layer has a selection). It returns new layers, standalone tables or a
+selected features when a layer has a selection), and its `file` parameters' files. It returns new layers, standalone tables or a
 selection, plus messages for the Geoprocessing history. RustGIS adds the results as it does for
 built-in tools, with undo. Tools can log, but they make no host requests.
+
+In the desktop app a plugin tool runs in the background, so the map and the rest of the window
+stay usable: the Tools pane shows the line the tool last logged, or a process plugin's last
+`progress` message, and a **Cancel** button. Cancel stops a process plugin's program; a WebAssembly tool runs on to its
+end and its result is dropped. One plugin tool runs at a time. `gp.run`, scripts and
+`rustgis-cli` still wait for the result.
 
 ### The ABI (version 1)
 
@@ -250,12 +289,164 @@ The module exports:
 
 Requests are `{"abi": 1, "kind": "command" | "tool", "id": "...", "params": {...}, "layers": {...}, "lang": "de"}`.
 `lang` is the interface language's code (`en` for English).
-Tools also get `layers`, which maps each layer's name to its FeatureCollection. A tool's `ok`
+Tools also get `layers`, which maps each layer's name to its FeatureCollection, and, when
+they have `file` parameters, `files`, which maps each one's name to `{"name", "data"}` with the
+file's contents in base64. A tool's `ok`
 value is `{"layers": [{"name", "geojson"}], "tables": [...], "selection": {"layer", "rows"},
 "messages": [...]}`.
 
 Each call gets a fresh instance, so a module keeps no state between calls and need not free
 memory. The fuel budget is about 2×10⁹ instructions for a command and 4×10¹⁰ for a tool.
+
+## Process plugins
+
+A process plugin is a program on your computer instead of a WebAssembly module: a Python script,
+or an executable in any language. It can use the file system, threads and any library, which
+lets existing analysis code (numpy, xarray, GDAL…) become a plugin without a rewrite. It is **not
+sandboxed**: it can do anything you can. The install prompt says so, and the Plugin Manager
+marks it *Not sandboxed*. Process plugins run on the desktop and the command line, not in the
+web app.
+
+```json
+{
+  "id": "hello-python",
+  "name": "Hello Python",
+  "version": "0.1.0",
+  "runtime": "process",
+  "run": { "windows": ["python", "main.py"], "default": ["python3", "main.py"] },
+  "permissions": [],
+  "commands": [{ "id": "layer-count", "label": "Count\nLayers" }],
+  "tools": [{
+    "id": "feature-count", "name": "Count Features", "summary": "Counts a layer's features.",
+    "params": [{ "name": "input", "label": "Input layer", "kind": "vectorLayer", "required": true }]
+  }]
+}
+```
+
+- `"runtime": "process"` and `run`: the program and its arguments, started in the plugin's
+  folder. A bare name (`python3`) is looked up on `PATH`; a relative path (`bin/tool`) is in the
+  plugin's folder. `run` can name a program per platform (`windows`, `macos`, `linux`, and
+  `default` for the rest). There is no `entry`.
+- Commands, tools, tabs, translations and permissions work as for WebAssembly plugins.
+  Permissions still decide which host requests RustGIS answers, but they don't limit what the
+  program itself can do.
+- A `.rgplugin` holds the plugin's files (the manifest, scripts, executables). Installing it
+  unpacks them to `unpacked/<id>/` in the plugins folder, keeping executables executable. A
+  plugin folder installed for development (Plugin Manager › Settings, or
+  `rustgis-cli plugins install ./folder`) runs where it is.
+
+### The protocol
+
+Each command or tool call starts the program once. It speaks the [ABI](#the-abi-version-1)'s
+requests and replies over its standard input and output, one JSON object per line:
+
+1. RustGIS writes the request: `{"abi", "kind", "id", "params", "layers", "files", "lang"}`, as
+   a WebAssembly module gets it.
+2. The program writes lines:
+   - `{"call": {"op": "...", "params": {...}}}`: a [host request](#what-a-plugin-can-ask-for).
+     RustGIS answers with one line, `{"ok": value}` or `{"error": "text"}`.
+   - `{"log": "text"}`: a line for the log (and a tool's run messages).
+   - `{"progress": "text"}`: what a tool is doing now, shown while it runs and not kept in its
+     messages: a line per step of a long run, say.
+   - Last, `{"ok": value}` or `{"error": "text"}`: the result.
+3. RustGIS then closes the program's input; a program still running a few seconds later is
+   stopped.
+
+Output lines that aren't protocol messages are logged and skipped, since libraries print (even
+JSON), and so is the program's error output. A command is stopped after 2 minutes; a tool runs
+until it finishes or is cancelled (the desktop app runs it in the background: see
+[What a plugin can ask for](#what-a-plugin-can-ask-for)).
+
+The plugin above, in Python with no SDK:
+
+```python
+import json
+import sys
+
+
+def call(op, params):
+    """Sends a request to RustGIS and returns its answer."""
+    print(json.dumps({"call": {"op": op, "params": params}}), flush=True)
+    reply = json.loads(sys.stdin.readline())
+    if "error" in reply:
+        raise RuntimeError(reply["error"])
+    return reply["ok"]
+
+
+req = json.loads(sys.stdin.readline())
+try:
+    if req["id"] == "layer-count":
+        n = len(call("host.layers", {}))
+        call("host.notify", {"text": f"The map has {n} layers."})
+        result = {"ok": {"layers": n}}
+    elif req["id"] == "feature-count":
+        layer = req["params"]["input"]
+        n = len(req["layers"][layer]["features"])
+        result = {"ok": {"layers": [], "messages": [f"{layer} has {n} features."]}}
+    else:
+        result = {"error": f"unknown command '{req['id']}'"}
+except Exception as e:
+    result = {"error": str(e)}
+print(json.dumps(result), flush=True)
+```
+
+### Python environments
+
+A Python plugin can have RustGIS make its environment, so its users don't install Python or
+any package themselves:
+
+```json
+"runtime": "process",
+"python": { "version": "3.12", "requirements": "requirements.txt" },
+"run": ["python", "main.py"]
+```
+
+- `python` in `run` is then that environment's interpreter, on every platform.
+- RustGIS makes the environment when the plugin is installed: in the background in the desktop
+  app (the Plugin Manager shows how it's going, and a **Prepare** button makes it again), and
+  before the command returns in `rustgis-cli plugins install` and `get`.
+  `rustgis-cli plugins prepare <id>` and the `plugin.prepare` command make it on demand.
+- It uses [uv](https://github.com/astral-sh/uv), which RustGIS downloads once (a pinned version,
+  checked against its pinned SHA-256; `RUSTGIS_UV` names one to use instead, which is then
+  trusted as it is, unchecked). uv installs a standalone Python of the version asked for and
+  the packages in the requirements file, from PyPI. Pythons and uv's cache are shared in
+  `tools/` in the plugins folder; each plugin's environment is in `envs/<id>/`. One
+  environment is made at a time per plugin, even across the app and `rustgis-cli`.
+- The environment is made again when the Python version or the requirements change (a plugin
+  update), and removed with the plugin. Until it's ready, the plugin's calls fail with a
+  message saying how to prepare it.
+- The first install downloads Python and the packages: tens to hundreds of MB, depending on
+  them. The install prompt says so.
+
+## Skills
+
+A plugin can carry [skills](user-guide/assistant.md#skills) for the AI Assistant: instructions
+for a kind of task, which the assistant reads when a request needs them. Put each in
+`skills/<name>/SKILL.md` in the package and list the names in `plugin.json`:
+
+```json
+"skills": ["flood-map"]
+```
+
+A `SKILL.md` starts with front matter giving the same `name` and a `description` that says when
+to use it, then the instructions in Markdown (the
+[Agent Skills](https://agentskills.io) format). The assistant knows it as `<plugin id>:<name>`
+(`hello-rustgis:flood-map`) while the plugin is enabled. A `SKILL.md` is at most 64 KB, and a
+plugin has at most 32 skills.
+
+A package of skills alone, with no code, says `"runtime": "skills"`. It has no module, commands,
+tools, tab or permissions. Nothing in it runs, and it installs and works like any other plugin,
+in the desktop app, on the command line and in the web app:
+
+```json
+{
+  "id": "flood-skills",
+  "name": "Flood mapping skills",
+  "version": "1.0.0",
+  "runtime": "skills",
+  "skills": ["flood-map", "gauge-report"]
+}
+```
 
 ## Publishing a plugin
 

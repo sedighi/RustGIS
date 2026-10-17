@@ -215,6 +215,15 @@ SPEC
       xcrun notarytool submit "$1" --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY_ID" \
         --issuer "$APPLE_API_ISSUER" --wait --timeout 30m
     }
+    # Stapling fetches the ticket from Apple's CloudKit, which drops connections now and then
+    # ("The network connection was lost", error 68): try a few times before failing the build.
+    staple() {
+      for attempt in 1 2 3 4 5 6 7 8; do
+        xcrun stapler staple "$1" && return 0
+        [ "$attempt" -lt 8 ] && sleep $((attempt * 15))
+      done
+      return 1
+    }
     sign "$app"
     # Staple the app itself, not only the DMG: Homebrew and people dragging it to Applications
     # copy the app out of the DMG, and an app without its own ticket opens only if Gatekeeper
@@ -223,7 +232,7 @@ SPEC
     if [ -n "$identity" ] && [ -n "${APPLE_API_KEY_PATH:-}" ]; then
       ditto -c -k --keepParent "$app" "$work/RustGIS.app.zip"
       notarize "$work/RustGIS.app.zip"
-      xcrun stapler staple "$app"
+      staple "$app"
     fi
 
     stage="$work/dmg"
@@ -234,7 +243,7 @@ SPEC
     if [ -n "$identity" ]; then
       sign "$dist/$name.dmg"
       if notarize "$dist/$name.dmg" && [ -n "${APPLE_API_KEY_PATH:-}" ]; then
-        xcrun stapler staple "$dist/$name.dmg"
+        staple "$dist/$name.dmg"
       fi
     fi
 

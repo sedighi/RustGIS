@@ -137,6 +137,11 @@ fn sprites() -> &'static Mutex<HashMap<String, Arc<Sprite>>> {
     S.get_or_init(Mutex::default)
 }
 
+/// Forgets the decoded sprite sheets, so they are read again (with [`crate::cache::clear`]).
+pub(crate) fn forget() {
+    sprites().lock().unwrap_or_else(|p| p.into_inner()).clear();
+}
+
 /// `<address><suffix>`, the suffix going before any query string.
 fn with_suffix(base: &str, suffix: &str) -> String {
     match base.split_once('?') {
@@ -190,6 +195,15 @@ mod tests {
         let mut p = Pixmap::new(8, 4).unwrap();
         p.fill(tiny_skia::Color::from_rgba8(255, 0, 0, 255));
         p
+    }
+
+    #[test]
+    fn forgetting_drops_the_decoded_sheets() {
+        let key = "forget-test|".to_string();
+        let sprite = Sprite { sheet: sheet(), index: Default::default(), cut: Default::default() };
+        sprites().lock().unwrap().insert(key.clone(), Arc::new(sprite));
+        forget();
+        assert!(!sprites().lock().unwrap().contains_key(&key));
     }
 
     #[test]

@@ -34,7 +34,7 @@ fn main() {
             let n = 20;
             for i in 0..n {
                 let camera = Camera { center: lonlat_to_merc(Coord::new(-60.0 + i as f64 * 3.0, 30.0)), res: 20_000.0 };
-                let view = View { width: 1100.0, height: 800.0, pixels_per_point: ppp, camera, dark: false };
+                let view = View { width: 1100.0, height: 800.0, pixels_per_point: ppp, camera };
                 render(&mut m, &view).unwrap();
             }
             println!("{name:16} {proj:?} ppp {ppp}: {:.1} ms/frame", t.elapsed().as_secs_f64() * 1000.0 / n as f64);
